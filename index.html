@@ -29,6 +29,58 @@ const FIXED_DT = 1000 / 60; // 60 fps timestep
 let hitstopFrames = 0;
 function triggerHitstop(frames) { hitstopFrames = Math.max(hitstopFrames, frames); }
 
+// ── Sound System (Web Audio API) ─────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function ensureAudio() { if (audioCtx.state === 'suspended') audioCtx.resume(); }
+document.addEventListener('keydown', ensureAudio, { once: true });
+document.addEventListener('click', ensureAudio, { once: true });
+
+const SFX = {
+  play(freq, type, duration, vol = 0.15, slide = 0) {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (slide) o.frequency.linearRampToValueAtTime(freq + slide, audioCtx.currentTime + duration);
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + duration);
+  },
+  noise(duration, vol = 0.08) {
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * duration, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource();
+    const g = audioCtx.createGain();
+    src.buffer = buf;
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    src.connect(g); g.connect(audioCtx.destination);
+    src.start(); src.stop(audioCtx.currentTime + duration);
+  },
+  attack() { this.play(320, 'square', 0.08, 0.1, 200); },
+  hit() { this.play(200, 'square', 0.1, 0.12, -100); this.noise(0.06, 0.06); },
+  enemyDie() { this.play(400, 'square', 0.12, 0.1, -300); this.noise(0.1, 0.08); },
+  playerHurt() { this.play(150, 'sawtooth', 0.2, 0.12, -80); },
+  jump() { this.play(260, 'square', 0.1, 0.06, 180); },
+  special() { this.play(500, 'triangle', 0.15, 0.1, 200); },
+  parry() { this.play(800, 'square', 0.06, 0.12); this.play(1200, 'square', 0.08, 0.08); },
+  parryFail() { this.play(200, 'triangle', 0.1, 0.06, -50); },
+  shuriken() { this.play(600, 'triangle', 0.08, 0.06, 300); },
+  bossDie() { this.play(300, 'sawtooth', 0.3, 0.15, -250); this.noise(0.3, 0.12); this.play(150, 'square', 0.4, 0.1, -100); },
+  bossSpawn() { this.play(100, 'sawtooth', 0.3, 0.12, 100); this.play(200, 'square', 0.4, 0.08, 50); },
+  wave() { this.play(440, 'triangle', 0.15, 0.1); setTimeout(() => this.play(660, 'triangle', 0.15, 0.1), 120); setTimeout(() => this.play(880, 'triangle', 0.2, 0.1), 240); },
+  armor() { this.play(600, 'triangle', 0.1, 0.1); this.play(900, 'triangle', 0.15, 0.08); },
+  chain() { this.play(700, 'square', 0.05, 0.08, 200); },
+  slam() { this.play(80, 'sawtooth', 0.2, 0.15, -40); this.noise(0.15, 0.1); },
+  pickup() { this.play(520, 'triangle', 0.08, 0.1); setTimeout(() => this.play(780, 'triangle', 0.1, 0.1), 80); },
+  reflect() { this.play(1000, 'square', 0.06, 0.1, -400); },
+  miss() { this.play(180, 'triangle', 0.12, 0.06, -60); },
+  backstab() { this.play(300, 'sawtooth', 0.05, 0.1); this.play(600, 'square', 0.1, 0.12, 200); },
+  victory() { [440,550,660,880].forEach((f,i) => setTimeout(() => this.play(f, 'triangle', 0.25, 0.12), i * 150)); },
+};
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 canvas.width = CANVAS_W;
@@ -82,6 +134,7 @@ class Orb {
     // Pickup
     if (rectOverlap(this, game.player)) {
       this.done = true;
+      SFX.pickup();
       const pl = game.player;
       switch (this.type) {
         case 'heal':
@@ -176,6 +229,21 @@ class Effect {
   }
 }
 
+class TextEffect {
+  constructor(x, y, text, color) {
+    this.x = x; this.y = y; this.text = text; this.color = color;
+    this.life = 40; this.done = false;
+  }
+  update() { this.y -= 1.2; this.life--; if (this.life <= 0) this.done = true; }
+  render(ctx, cam) {
+    ctx.globalAlpha = Math.min(1, this.life / 15);
+    ctx.fillStyle = this.color;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(this.text, this.x - cam.x, this.y - cam.y);
+    ctx.globalAlpha = 1;
+  }
+}
+
 // ============================================================
 //  Platform
 // ============================================================
@@ -184,13 +252,52 @@ class Platform {
     this.x = x; this.y = y;
     this.w = w; this.h = h;
     this.color = color || '#666';
+    this.thin = false; // solid by default
   }
   render(ctx, cam) {
     ctx.fillStyle = this.color;
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    // 8-bit highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
+    if (this.thin) {
+      // Thin platform: just a thin line with dashes
+      ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      for (let dx = 0; dx < this.w; dx += 12) {
+        ctx.fillRect(this.x - cam.x + dx, this.y - cam.y, 6, 2);
+      }
+    } else {
+      ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+      // 8-bit highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
+    }
+  }
+}
+
+// ============================================================
+//  Spike (environmental hazard)
+// ============================================================
+class Spike {
+  constructor(x, y, w) {
+    this.x = x; this.y = y;
+    this.w = w; this.h = 12;
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    ctx.fillStyle = '#c33';
+    const spikeW = 12;
+    for (let dx = 0; dx < this.w; dx += spikeW) {
+      ctx.beginPath();
+      ctx.moveTo(sx + dx, sy + this.h);
+      ctx.lineTo(sx + dx + spikeW / 2, sy);
+      ctx.lineTo(sx + dx + spikeW, sy + this.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Bright tips
+    ctx.fillStyle = '#f66';
+    for (let dx = 0; dx < this.w; dx += spikeW) {
+      ctx.fillRect(sx + dx + spikeW / 2 - 1, sy, 2, 3);
+    }
   }
 }
 
@@ -324,7 +431,7 @@ class Bubble {
     this.baseY -= 0.15;
     this.life--;
     if (this.life <= 0) {
-      this.done = true;
+      this.pop(game);
     }
   }
   pop(game) {
@@ -338,6 +445,28 @@ class Bubble {
         if (Math.sqrt(dx * dx + dy * dy) < 80) {
           e.takeDamage(2, game);
         }
+      }
+    }
+    // Fire projectile at nearest target
+    const cx = this.x + 16, cy = this.y + 16;
+    let nearest = null, bestDist = Infinity;
+    for (const e of game.enemies) {
+      if (e.dead) continue;
+      const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; nearest = e; }
+    }
+    if (game.boss && !game.boss.dead) {
+      const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; nearest = game.boss; }
+    }
+    if (nearest) {
+      const dx = (nearest.x + nearest.w / 2) - cx;
+      const dy = (nearest.y + nearest.h / 2) - cy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d > 0) {
+        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', 2, 'player'));
       }
     }
   }
@@ -384,8 +513,9 @@ class Projectile {
     this.y += this.vy;
     this.life--;
     if (this.life <= 0) { this.done = true; return; }
-    // Hit platforms
+    // Hit platforms (skip thin platforms)
     for (const p of game.platforms) {
+      if (p.thin) continue;
       if (rectOverlap(this, p)) {
         if (this.bouncy && this.life > 30) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 6) {
@@ -556,10 +686,16 @@ class Player {
     this.lastEnemyTouch = 0;
     this.wasInAir = false;
     this.shadowLandTimer = 0;
+    this.chainStriking = false;
+    this.chainTargets = [];
+    this.chainTimer = 0;
+    this.chainHit = new Set();
+    this.shadowAttackHit = false;
 
     // Crystal ninja state
     this.parrying = false;
     this.parryTimer = 0;
+    this.parryVisualTimer = 0;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
 
@@ -577,6 +713,9 @@ class Player {
 
     // Shurikens
     this.shurikens = 3;
+
+    // Ground slam
+    this.slamming = false;
   }
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
@@ -591,6 +730,7 @@ class Player {
     this.bubbleBuffTimer = 0;
     this.backstabReady = false;
     this.shadowStealth = 0;
+    this.chainStriking = false;
     this.parrying = false;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
@@ -620,6 +760,7 @@ class Player {
     const maxJ = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
     const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space');
     if (jumpPress && this.jumpsLeft > 0) {
+      SFX.jump();
       // Wall jump: kick off wall
       if (this.onWall !== 0 && !this.grounded) {
         this.vy = t.jumpPower * 0.9;
@@ -639,11 +780,23 @@ class Player {
       }
     }
 
+    // ── Ground slam ──
+    const holdingDown = keys['ArrowDown'] || keys['KeyS'];
+    if (holdingDown && !this.grounded && !this.slamming) {
+      this.slamming = true;
+      this.vx = 0;
+    }
+    if (this.slamming) {
+      this.vy = 16; // fast downward
+    }
+
     // Gravity (reduced when bubble buff active = floatiness)
     const grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
-    this.vy += grav;
+    if (!this.slamming) {
+      this.vy += grav;
+    }
     const maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
-    if (this.vy > maxFall) this.vy = maxFall;
+    if (this.vy > maxFall && !this.slamming) this.vy = maxFall;
 
     // Apply velocity
     this.x += this.vx;
@@ -654,6 +807,16 @@ class Player {
     this.onWall = 0;
     for (const p of game.platforms) {
       if (rectOverlap(this, p)) {
+        // Thin platforms: only collide from above, skip if holding down to drop through
+        if (p.thin) {
+          if (this.vy > 0 && !holdingDown && !this.slamming && this.y + this.h - this.vy <= p.y + 4) {
+            this.y = p.y - this.h;
+            this.vy = 0;
+            this.grounded = true;
+            this.jumpsLeft = maxJ;
+          }
+          continue;
+        }
         // Falling down onto platform
         if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
           this.y = p.y - this.h;
@@ -695,6 +858,44 @@ class Player {
       }
     }
 
+    // ── Ground slam landing ──
+    if (this.slamming && this.grounded) {
+      this.slamming = false;
+      triggerHitstop(8);
+      SFX.slam();
+      const slamDmg = t.attackDamage + this.bonusDamage + 2;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fa0', 16, 5, 18));
+      // Damage nearby enemies
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
+        const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
+        if (Math.sqrt(dx * dx + dy * dy) < 100) {
+          e.takeDamage(slamDmg, game, this.x + this.w / 2);
+          e.vy = -5;
+          e.vx = Math.sign(dx) * 4;
+        }
+      }
+      // Damage boss
+      if (game.boss && !game.boss.dead) {
+        const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
+        const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
+        if (Math.sqrt(dx * dx + dy * dy) < 100) {
+          game.boss.takeDamage(slamDmg, game, this.x + this.w / 2);
+        }
+      }
+    }
+
+    // ── Spike collision ──
+    for (const s of game.spikes) {
+      if (rectOverlap(this, s)) {
+        this.takeDamage(2, game);
+        this.vy = -8;
+        this.y = s.y - this.h - 2;
+        break;
+      }
+    }
+
     // Bubble buff collision — touching a bubble grants floatiness/speed/jump buff
     for (const b of game.bubbles) {
       if (!b.done && !b.consumed && rectOverlap(this, b)) {
@@ -715,6 +916,13 @@ class Player {
     if (this.attacking) {
       this.attackTimer--;
       if (this.attackTimer <= 0) {
+        // Shadow: reset stealth if attack missed
+        if (this.ninjaType === 'shadow' && !this.shadowAttackHit) {
+          this.shadowStealth = 0;
+          this.backstabReady = false;
+          game.effects.push(new TextEffect(this.x + this.w / 2 - 14, this.y - 10, 'MISS!', '#f55'));
+          SFX.miss();
+        }
         this.attacking = false;
         this.attackBox = null;
       } else {
@@ -726,6 +934,14 @@ class Player {
             if (this.ninjaType === 'shadow') {
               if (this.backstabReady || e.hp <= this.shadowKillThreshold) {
                 dmg = 9999;
+                SFX.backstab();
+                // Start chain strike before consuming backstab
+                if (this.backstabReady && !this.chainStriking) {
+                  this.chainStriking = true;
+                  this.chainTimer = 6;
+                  this.chainHit = new Set();
+                  this.chainHit.add(e);
+                }
                 this.backstabReady = false;
                 this.shadowStealth = 0;
                 game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 20, 5, 20));
@@ -755,6 +971,8 @@ class Player {
             }
             e.takeDamage(dmg, game, this.x + this.w / 2);
             e.hitCooldown = 15;
+            if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
+            SFX.hit();
             triggerHitstop(4);
             // Fire combo
             if (this.ninjaType === 'fire') {
@@ -767,6 +985,7 @@ class Player {
               if (this.comboMeter >= 8 && !this.fireArmor) {
                 this.fireArmor = true;
                 this.fireArmorTimer = 300;
+                SFX.armor();
                 game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
               }
             }
@@ -791,19 +1010,32 @@ class Player {
         // Hit boss
         if (game.boss && !game.boss.dead && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
           let dmg = t.attackDamage + this.bonusDamage;
-          if (this.ninjaType === 'shadow' && this.backstabReady) { dmg *= 3; this.backstabReady = false; this.shadowStealth = 0; }
+          if (this.ninjaType === 'shadow' && this.backstabReady) {
+            dmg = 9999;
+            if (!this.chainStriking) {
+              this.chainStriking = true;
+              this.chainTimer = 6;
+              this.chainHit = new Set();
+              this.chainHit.add(game.boss);
+            }
+            this.backstabReady = false;
+            this.shadowStealth = 0;
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', 20, 5, 20));
+          }
           if (this.ninjaType === 'fire' && game.boss.burnTimer > 0) dmg *= 2;
           if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10)); }
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += Math.floor(this.parryCombo / 2);
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
           triggerHitstop(5);
         }
       }
     }
 
     if (consumePress('KeyZ') && !this.attacking && this.attackCooldown <= 0) {
+      this.shadowAttackHit = false;
       this.attack(game);
     }
 
@@ -812,15 +1044,33 @@ class Player {
       this.useSpecial(game);
     }
 
-    // ── Throw shuriken (C key) ──
+    // ── Throw shuriken (C key) — aims at nearest target ──
     if (consumePress('KeyC') && this.shurikens > 0) {
+      SFX.shuriken();
       this.shurikens--;
       const dmg = t.attackDamage + this.bonusDamage;
-      game.projectiles.push(new Projectile(
-        this.x + this.w / 2, this.y + this.h / 2,
-        this.facing * 8, 0, '#ccc', dmg, 'player'
-      ));
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ccc', 4, 2, 6));
+      const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+      let nearest = null, bestDist = Infinity;
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; nearest = e; }
+      }
+      if (game.boss && !game.boss.dead) {
+        const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; nearest = game.boss; }
+      }
+      let svx = this.facing * 8, svy = 0;
+      if (nearest) {
+        const dx = (nearest.x + nearest.w / 2) - cx;
+        const dy = (nearest.y + nearest.h / 2) - cy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 0) { svx = (dx / d) * 8; svy = (dy / d) * 8; }
+      }
+      game.projectiles.push(new Projectile(cx, cy, svx, svy, '#ccc', dmg, 'player'));
+      game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
     }
 
     // ── Fire ninja: combo decay & fire armor ──
@@ -840,6 +1090,55 @@ class Player {
               e.hitCooldown = 30;
             }
           }
+        }
+      }
+    }
+
+    // ── Shadow ninja: chain strike ──
+    if (this.ninjaType === 'shadow' && this.chainStriking) {
+      this.chainTimer--;
+      if (this.chainTimer <= 0) {
+        // Find nearest unhit target within range
+        let nearest = null;
+        let nearDist = 200;
+        const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        for (const e of game.enemies) {
+          if (e.dead || this.chainHit.has(e)) continue;
+          const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearDist = d; nearest = e; }
+        }
+        if (!nearest && game.boss && !game.boss.dead && !this.chainHit.has(game.boss)) {
+          const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearest = game.boss; }
+        }
+        if (nearest) {
+          // Teleport behind target
+          const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
+          this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
+          this.y = nearest.y + nearest.h / 2 - this.h / 2;
+          this.facing = -behind;
+          this.vx = 0; this.vy = 0;
+          // Afterimage at old position
+          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
+          // Deal damage
+          let dmg = this.type.attackDamage + this.bonusDamage;
+          if (this.backstabReady || (nearest.hp !== undefined && nearest.hp <= this.shadowKillThreshold)) {
+            dmg = 9999;
+          }
+          nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          this.chainHit.add(nearest);
+          SFX.chain();
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
+          triggerHitstop(3);
+          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this.chainTimer = 6; // delay before next chain
+        } else {
+          // No more targets — end chain
+          this.chainStriking = false;
+          this.backstabReady = false;
+          this.shadowStealth = 0;
         }
       }
     }
@@ -887,6 +1186,7 @@ class Player {
 
     // ── Crystal ninja: parry state ──
     if (this.ninjaType === 'crystal') {
+      if (this.parryVisualTimer > 0) this.parryVisualTimer--;
       if (this.parrying) {
         this.parryTimer--;
         if (this.parryTimer <= 0) this.parrying = false;
@@ -931,6 +1231,7 @@ class Player {
               proj.damage += this.parryCombo;
               proj.reflected = true;
               proj.color = '#0ff';
+              SFX.reflect();
               this.parryCombo++;
               this.parryComboTimer = 300;
               this.nextHitDouble = true;
@@ -989,6 +1290,7 @@ class Player {
     this.attacking = true;
     this.attackTimer = 10;
     this.attackCooldown = 15;
+    SFX.attack();
     // Shadow ninja: bigger attack when fully invisible
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const reach = shadowFullStealth ? 50 : 30;
@@ -1008,16 +1310,36 @@ class Player {
 
   useSpecial(game) {
     this.specialCooldown = 60;
+    SFX.special();
     switch (this.ninjaType) {
       case 'fire':
-        // Dash forward + fireball
+        // Dash forward + fireball (auto-aims at nearest)
         this.vx = this.facing * 12;
         this.vy = -3;
-        game.projectiles.push(new Projectile(
-          this.x + this.w / 2, this.y + this.h / 2,
-          this.facing * 7, 0, '#f93', 3, 'player'
-        ));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 10, 4, 15));
+        {
+          const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+          let nearest = null, bestDist = Infinity;
+          for (const e of game.enemies) {
+            if (e.dead) continue;
+            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) { bestDist = d; nearest = e; }
+          }
+          if (game.boss && !game.boss.dead) {
+            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) { bestDist = d; nearest = game.boss; }
+          }
+          let fvx = this.facing * 7, fvy = 0;
+          if (nearest) {
+            const dx = (nearest.x + nearest.w / 2) - cx;
+            const dy = (nearest.y + nearest.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d > 0) { fvx = (dx / d) * 7; fvy = (dy / d) * 7; }
+          }
+          game.projectiles.push(new Projectile(cx, cy, fvx, fvy, '#f93', 3, 'player'));
+          game.effects.push(new Effect(cx, cy, '#f93', 10, 4, 15));
+        }
         break;
       case 'earth': {
         // Create stone block in front — stacks on existing blocks
@@ -1053,11 +1375,30 @@ class Player {
         this.invincibleTimer = 15;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
         break;
-      case 'crystal':
-        // Parry window + pushback wave
+      case 'crystal': {
+        // Check if any enemy/boss is showing "!" (threatening)
+        let canParry = false;
+        for (const e of game.enemies) {
+          if (e.dead) continue;
+          if (e.type === 'shooter' || e.type === 'flyshooter') continue;
+          const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
+          const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
+          if (Math.sqrt(dx * dx + dy * dy) < 80 && e.hitCooldown <= 0) { canParry = true; break; }
+        }
+        if (!canParry && game.boss && !game.boss.dead) {
+          const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
+          const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
+          if (Math.sqrt(dx * dx + dy * dy) < 100 && game.boss.hitCooldown <= 0) canParry = true;
+        }
+        // Animation always plays
+        this.parryVisualTimer = 20;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, canParry ? '#aff' : '#889', 12, 4, 15));
+        // Only activate real parry if "!" is showing
+        if (!canParry) { SFX.parryFail(); break; }
+        SFX.parry();
         this.parrying = true;
-        this.parryTimer = 20; // short window
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
+        this.parryTimer = 20;
+        this.nextHitDouble = true;
         // Push back all nearby enemies
         for (const e of game.enemies) {
           if (e.dead) continue;
@@ -1066,8 +1407,9 @@ class Player {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 120) {
             const pushDir = dx >= 0 ? 1 : -1;
-            e.vx = pushDir * 8;
-            e.vy = -3;
+            e.vx = pushDir * 14;
+            e.vy = -6;
+            e.freezeTimer = 45;
             this.parryCombo++;
             this.parryComboTimer = 300;
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#0ff', 6, 3, 10));
@@ -1079,14 +1421,16 @@ class Player {
           const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 120) {
-            game.boss.vx = (dx >= 0 ? 1 : -1) * 5;
-            game.boss.vy = -2;
+            game.boss.vx = (dx >= 0 ? 1 : -1) * 10;
+            game.boss.vy = -4;
+            game.boss.freezeTimer = 30;
             this.parryCombo++;
             this.parryComboTimer = 300;
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#0ff', 8, 3, 12));
           }
         }
         break;
+      }
       case 'wind':
         // Wind dash — fast horizontal dash
         this.windDashing = true;
@@ -1103,6 +1447,8 @@ class Player {
     if (this.invincibleTimer > 0) return;
     // Crystal parry blocks damage
     if (this.ninjaType === 'crystal' && this.parrying) return;
+    // Fire armor blocks damage
+    if (this.fireArmor) return;
     // Shield absorbs damage first
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -1121,6 +1467,7 @@ class Player {
     this.invincibleTimer = 45;
     this.lastDamageTick = game.tick;
     this.windPower = 0;
+    SFX.playerHurt();
     triggerHitstop(6);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
     if (this.hp <= 0) {
@@ -1225,6 +1572,16 @@ class Player {
       ctx.fillText('BACKSTAB!', sx - 8, sy - 8);
     }
 
+    // Fire armor indicator
+    if (this.fireArmor) {
+      const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#f93';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('ARMOR!', sx - 4, sy - 8);
+      ctx.globalAlpha = 1;
+    }
+
     // Wind power indicator
     if (this.ninjaType === 'wind' && this.windPower > 0) {
       ctx.strokeStyle = `rgba(180,255,180,${0.3 + this.windPower * 0.07})`;
@@ -1233,8 +1590,8 @@ class Player {
     }
 
     // Parry shield
-    if (this.ninjaType === 'crystal' && this.parrying) {
-      ctx.strokeStyle = '#0ff';
+    if (this.ninjaType === 'crystal' && this.parryVisualTimer > 0) {
+      ctx.strokeStyle = this.parrying ? '#0ff' : '#667';
       ctx.lineWidth = 3;
       ctx.strokeRect(sx - 8, sy - 4, this.w + 16, this.h + 8);
     }
@@ -1298,6 +1655,88 @@ function getTierName(tierIdx) {
 }
 
 // ============================================================
+//  Wave definitions — 7 waves, each ending with a boss
+// ============================================================
+const TOTAL_WAVES = 7;
+const WAVE_DEFS = [
+  { // Wave 1 — Walkers
+    boss: 'walker', killsForBoss: 20,
+    pool: [
+      { type: 'walker', weight: 5 },
+      { type: 'walker', weight: 2, big: true },
+    ]
+  },
+  { // Wave 2 — Shooters join
+    boss: 'shooter', killsForBoss: 25,
+    pool: [
+      { type: 'walker', weight: 3 },
+      { type: 'shooter', weight: 4 },
+      { type: 'walker', weight: 1, big: true },
+      { type: 'shooter', weight: 1, big: true },
+    ]
+  },
+  { // Wave 3 — Jumpers
+    boss: 'jumper', killsForBoss: 28,
+    pool: [
+      { type: 'walker', weight: 2 },
+      { type: 'shooter', weight: 3 },
+      { type: 'jumper', weight: 4 },
+      { type: 'jumper', weight: 1, big: true },
+    ]
+  },
+  { // Wave 4 — Bouncers
+    boss: 'bouncer', killsForBoss: 30,
+    pool: [
+      { type: 'walker', weight: 2 },
+      { type: 'shooter', weight: 2 },
+      { type: 'jumper', weight: 2 },
+      { type: 'bouncer', weight: 4 },
+      { type: 'bouncer', weight: 1, big: true },
+      { type: 'walker', weight: 1, big: true },
+    ]
+  },
+  { // Wave 5 — Shielded
+    boss: 'shielded', killsForBoss: 32,
+    pool: [
+      { type: 'walker', weight: 1 },
+      { type: 'shooter', weight: 2 },
+      { type: 'jumper', weight: 2 },
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 4 },
+      { type: 'shielded', weight: 1, big: true },
+      { type: 'bouncer', weight: 1, big: true },
+    ]
+  },
+  { // Wave 6 — Flyers
+    boss: 'flyer', killsForBoss: 35,
+    pool: [
+      { type: 'walker', weight: 1 },
+      { type: 'shooter', weight: 2 },
+      { type: 'jumper', weight: 1 },
+      { type: 'bouncer', weight: 1 },
+      { type: 'shielded', weight: 2 },
+      { type: 'flyer', weight: 4 },
+      { type: 'flyer', weight: 1, big: true },
+      { type: 'shielded', weight: 1, big: true },
+    ]
+  },
+  { // Wave 7 — Everything + Fly-Shooters
+    boss: 'flyshooter', killsForBoss: 38,
+    pool: [
+      { type: 'walker', weight: 1, big: true },
+      { type: 'shooter', weight: 2 },
+      { type: 'jumper', weight: 1 },
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 2 },
+      { type: 'flyer', weight: 2 },
+      { type: 'flyshooter', weight: 4 },
+      { type: 'flyshooter', weight: 2, big: true },
+      { type: 'flyer', weight: 1, big: true },
+    ]
+  },
+];
+
+// ============================================================
 //  Enemy base
 // ============================================================
 class Enemy {
@@ -1326,10 +1765,14 @@ class Enemy {
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : 0;
     this.shieldMax = this.shieldHp;
     this.hoverPhase = Math.random() * Math.PI * 2;
+    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer');
+    this.onPlatform = null;
+    this.freezeTimer = 0;
   }
 
   update(game) {
     if (this.dead) return;
+    if (this.freezeTimer > 0) { this.freezeTimer--; this.vx = 0; this.vy = 0; return; }
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
@@ -1454,13 +1897,22 @@ class Enemy {
 
     // Platform collision (ground enemies only)
     if (!this.flying) {
+      this.onPlatform = null;
       for (const p of game.platforms) {
+        if (p.thin) continue;
         if (rectOverlap(this, p)) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
             this.y = p.y - this.h;
             this.vy = 0;
+            this.onPlatform = p;
           }
         }
+      }
+      // Edge-aware: turn around at platform edges (skip small platforms)
+      if (this.edgeAware && this.onPlatform && this.onPlatform.w >= 80) {
+        const p = this.onPlatform;
+        if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
+        if (this.x + this.w / 2 > p.x + p.w - 8) this.facing = -1;
       }
     } else {
       // Keep flyers in bounds
@@ -1468,8 +1920,12 @@ class Enemy {
       if (this.y > 460) this.y = 460;
     }
 
-    // Remove if fell off bottom
-    if (this.y > 700) { this.dead = true; return; }
+    // Keep in level bounds
+    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
+    if (this.x + this.w > 3200) { this.x = 3200 - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
+
+    // Respawn if fell off bottom
+    if (this.y > 700) { this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(3140, this.x)); return; }
 
     // Contact damage (not when player is stealthed)
     if (this.hitCooldown <= 0 && !playerStealthed && rectOverlap(this, game.player)) {
@@ -1516,7 +1972,7 @@ class Enemy {
   onDeath(game) {
     game.waveKills++;
     game.totalKills++;
-    game.killsSinceUnlock++;
+    SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
     game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, this.color, this.big ? 18 : 12, 4, 18));
     // Drop orb
@@ -1540,8 +1996,16 @@ class Enemy {
     const sy = this.y - cam.y;
     // Blink during damage iframes
     if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
-    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : this.color;
+    ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
     ctx.fillRect(sx, sy, this.w, this.h);
+
+    // Freeze effect overlay
+    if (this.freezeTimer > 0) {
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.freezeTimer * 0.2);
+      ctx.fillStyle = '#aaf';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+    }
 
     // Burn effect overlay
     if (this.burnTimer > 0) {
@@ -1680,6 +2144,8 @@ class Boss {
     this.hoverPhase = 0;
     this.shieldHp = (bossType === 'shielded') ? 6 : 0;
     this.shieldMax = this.shieldHp;
+    this.damageIframes = 0;
+    this.freezeTimer = 0;
     const colors = {
       walker:'#c33', shooter:'#cc5', jumper:'#c8c',
       bouncer:'#c5c', shielded:'#5cc', flyer:'#8c5', flyshooter:'#c85'
@@ -1692,6 +2158,8 @@ class Boss {
     if (this.dead) return;
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
+    if (this.damageIframes > 0) this.damageIframes--;
+    if (this.freezeTimer > 0) { this.freezeTimer--; this.vx = 0; this.vy = 0; return; }
     this.phase = this.hp <= this.maxHp / 2 ? 2 : 1;
     const speed = (this.phase === 2 ? 2.8 : 1.8) + this.wave * 0.15;
 
@@ -1826,6 +2294,11 @@ class Boss {
       }
     }
 
+    // Keep boss in level bounds
+    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
+    if (this.x + this.w > 3200) { this.x = 3200 - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
+    if (this.y > 700) { this.y = -40; this.vy = 0; }
+
     // Contact damage
     if (this.hitCooldown <= 0 && rectOverlap(this, game.player)) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
@@ -1838,6 +2311,7 @@ class Boss {
 
   takeDamage(amount, game, fromX) {
     if (this.dead) return;
+    if (this.damageIframes > 0) return;
     // Shield check
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
@@ -1851,19 +2325,21 @@ class Boss {
     }
     this.hp -= amount;
     this.flashTimer = 8;
+    this.damageIframes = 12;
     game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f88', 6, 3, 10));
     // Boss knockback (slight — bosses are heavy)
     const bDir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
     this.vx += bDir * 2;
     if (this.hp <= 0) {
       this.dead = true;
+      SFX.bossDie();
       triggerHitstop(10);
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f44', 30, 6, 30));
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#ff0', 20, 5, 25));
     }
   }
 
-  render(ctx, cam) {
+  render(ctx, cam, game) {
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
@@ -1873,8 +2349,16 @@ class Boss {
     ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
 
     // Body
-    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color);
+    ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color));
     ctx.fillRect(sx, sy, this.w, this.h);
+
+    // Freeze effect overlay
+    if (this.freezeTimer > 0) {
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.freezeTimer * 0.2);
+      ctx.fillStyle = '#aaf';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+    }
 
     // Flying wings
     if (this.flying) {
@@ -1910,6 +2394,21 @@ class Boss {
       ctx.fillText('ENRAGED!', sx + this.w/2 - 28, sy - 14);
     }
 
+    // Crystal ninja: melee warning "!" when boss is close
+    if (game && game.player && game.player.ninjaType === 'crystal') {
+      const dx = (this.x + this.w / 2) - (game.player.x + game.player.w / 2);
+      const dy = (this.y + this.h / 2) - (game.player.y + game.player.h / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 100 && this.hitCooldown <= 0) {
+        const pulse = Math.sin(game.tick * 0.3) * 0.3 + 0.7;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = '#ff0';
+        ctx.font = 'bold 18px monospace';
+        ctx.fillText('!', sx + this.w / 2 - 5, sy - 18);
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // Boss melee sword (shown when just hit player)
     if (this.hitCooldown > 30) {
       const sl = 24;
@@ -1940,35 +2439,25 @@ class Game {
     this.bubbles = [];
     this.orbs = [];
     this.fireTrails = [];
+    this.spikes = [];
     this.deaths = 0;
 
     // Wave / spawn system
     this.wave = 1;
     this.waveKills = 0;
     this.totalKills = 0;
-    this.typesUnlocked = 1;     // types unlocked in current wave (max 3)
-    this.killsSinceUnlock = 0;   // kills since last type unlock or wave start
-    this.killsToUnlock = 4;      // kills needed to unlock next type
-    this.killsForBoss = 4;       // kills after 3rd type to trigger boss
+    this.maxEnemies = 16;
+    this.spawnTimer = 0;
+    this.spawnInterval = 90;    // frames between spawns
     this.boss = null;
     this.bossActive = false;
     this.bossMessage = 0;
     this.waveMessage = '';
     this.waveMessageTimer = 0;
-    this.spawnTimer = 0;
-    this.spawnInterval = 120;    // ~2 seconds between spawns
-    this.maxEnemies = 10;
+    this.gameWon = false;
 
     this.buildLevel();
-    this.showWaveMessage('Wave 1 — Fight!');
-  }
-
-  // Get the tier indices available for the current wave
-  getAvailableTiers() {
-    const tiers = [];
-    const base = this.wave - 1;
-    for (let i = 0; i < this.typesUnlocked; i++) tiers.push(base + i);
-    return tiers;
+    this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
   }
 
   showWaveMessage(text) {
@@ -1978,6 +2467,8 @@ class Game {
 
   buildLevel() {
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
+    const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
 
     // Ground
     P(0, 480, 3200, 60, '#555');
@@ -2011,78 +2502,104 @@ class Game {
     P(2850, 350, 160, 16, '#666');
 
     // L-shaped platforms
-    // L1: bottom-left corner
     P(150, 440, 80, 16, '#686'); P(150, 380, 16, 60, '#686');
-    // L2: inverted-L mid area
     P(830, 260, 16, 70, '#686'); P(830, 260, 90, 16, '#686');
-    // L3: right-side L
     P(1400, 370, 80, 16, '#686'); P(1464, 310, 16, 60, '#686');
-    // L4: extended area L
     P(2050, 240, 16, 70, '#686'); P(2050, 240, 90, 16, '#686');
-    // L5: far right inverted-L
     P(2750, 280, 80, 16, '#686'); P(2750, 280, 16, 70, '#686');
 
-    // Walls
+    // ── Vertical walls (interior) ──
+    P(580, 380, 16, 100, '#555');   // wall near start
+    P(1200, 300, 16, 180, '#555');  // mid divider
+    P(1850, 350, 16, 130, '#555'); // extended area wall
+    P(2500, 280, 16, 200, '#555'); // far wall
+
+    // ── Thin passable platforms ──
+    TP(120, 340, 100);
+    TP(350, 310, 80);
+    TP(500, 280, 90);
+    TP(730, 250, 100);
+    TP(950, 290, 80);
+    TP(1150, 200, 100);
+    TP(1550, 340, 120);
+    TP(1700, 280, 100);
+    TP(2000, 220, 110);
+    TP(2300, 260, 100);
+    TP(2650, 300, 120);
+    TP(2900, 250, 100);
+
+    // ── Spikes ──
+    S(560, 468, 48);     // ground spikes near first wall
+    S(1180, 468, 48);    // ground spikes near mid divider
+    S(1830, 468, 48);    // ground spikes near extended wall
+    S(2480, 468, 48);    // ground spikes near far wall
+    S(700, 84, 48);      // spikes on top of high platform
+    S(1300, 184, 36);    // spikes on mid platform edge
+
+    // Boundary walls
     P(-32, 0, 32, 540, '#444');
     P(3200, 0, 32, 540, '#444');
   }
 
   spawnEnemy() {
-    const tiers = this.getAvailableTiers();
-    const tierIdx = tiers[randInt(0, tiers.length - 1)];
-    const info = getTierInfo(tierIdx);
-
-    // 30% chance to spawn from above, 70% from sides
-    const fromAbove = Math.random() < 0.3;
-    let x, y;
-    if (fromAbove) {
-      x = this.player.x + randInt(-300, 300);
-      y = -40;
-    } else {
-      const side = Math.random() < 0.5 ? -1 : 1;
-      x = this.player.x + side * randInt(350, 550);
-      y = (info.type === 'flyer' || info.type === 'flyshooter') ? randInt(50, 250) : 440;
+    const waveDef = WAVE_DEFS[this.wave - 1];
+    // Weighted random pick from pool
+    let totalW = 0;
+    for (const e of waveDef.pool) totalW += e.weight;
+    let r = Math.random() * totalW;
+    let pick = waveDef.pool[0];
+    for (const e of waveDef.pool) {
+      r -= e.weight;
+      if (r <= 0) { pick = e; break; }
     }
-    // Clamp to level
+    const isFlying = (pick.type === 'flyer' || pick.type === 'flyshooter');
+    const side = Math.random() < 0.5 ? -1 : 1;
+    let x = this.player.x + side * randInt(350, 550);
+    let y = isFlying ? randInt(50, 250) : -40;
     x = Math.max(40, Math.min(3140, x));
-
-    const e = new Enemy(x, y, info.type, info.big);
+    const e = new Enemy(x, y, pick.type, !!pick.big);
     this.enemies.push(e);
-    // Spawn effect
-    this.effects.push(new Effect(x + e.w/2, y + e.h/2, '#fff', 6, 3, 10));
+    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#fff', 6, 3, 10));
   }
 
   spawnBoss() {
-    // Boss type = highest tier available in this wave
-    const tiers = this.getAvailableTiers();
-    const topTier = tiers[tiers.length - 1];
-    const info = getTierInfo(topTier);
-    this.boss = new Boss(this.player.x + 300, 300, info.type, this.wave);
+    const waveDef = WAVE_DEFS[this.wave - 1];
+    this.boss = new Boss(this.player.x + 300, 300, waveDef.boss, this.wave);
     this.bossActive = true;
     this.bossMessage = 180;
     this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, '#f44', 25, 6, 25));
-    this.showWaveMessage(this.boss.name + ' appeared!');
+    SFX.bossSpawn();
+    this.showWaveMessage(this.boss.name + ` (${this.wave}/${TOTAL_WAVES})`);
   }
 
   advanceWave() {
+    if (this.wave >= TOTAL_WAVES) {
+      this.gameWon = true;
+      this.boss = null;
+      this.bossActive = false;
+      this.showWaveMessage('VICTORY!');
+      SFX.victory();
+      return;
+    }
     this.wave++;
     this.waveKills = 0;
-    this.typesUnlocked = 1;
-    this.killsSinceUnlock = 0;
     this.boss = null;
     this.bossActive = false;
-    // Brief breather: clear projectiles but keep some enemies alive
     this.projectiles = [];
-    // Pause spawning for ~2 seconds
-    this.spawnTimer = -120;
-    // Increase difficulty slightly each wave
-    this.spawnInterval = Math.max(60, 120 - this.wave * 6);
-    this.maxEnemies = Math.min(16, 10 + Math.floor(this.wave / 2));
-    this.showWaveMessage(`Wave ${this.wave} — Fight!`);
+    this.spawnTimer = -120; // brief breather
+    SFX.wave();
+    this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
   }
 
   update() {
     this.tick++;
+
+    // Restart on R key (when game won)
+    if (this.gameWon && consumePress('KeyR')) {
+      Object.assign(this, new Game());
+      return;
+    }
+    if (this.gameWon) return;
 
     // Ninja switching (1–6)
     if (consumePress('Digit1')) this.player.switchNinja('fire');
@@ -2128,32 +2645,36 @@ class Game {
     this.fireTrails = this.fireTrails.filter(ft => ft.life > 0);
 
     // ── Wave / spawn logic ──
-    // Type unlock check
-    if (this.typesUnlocked < 3 && this.killsSinceUnlock >= this.killsToUnlock) {
-      this.typesUnlocked++;
-      this.killsSinceUnlock = 0;
-      const tiers = this.getAvailableTiers();
-      const newTier = tiers[tiers.length - 1];
-      this.showWaveMessage('New: ' + getTierName(newTier) + '!');
-    }
+    if (!this.gameWon) {
+      const waveDef = WAVE_DEFS[this.wave - 1];
 
-    // Boss spawn (3 types unlocked + enough kills after)
-    if (this.typesUnlocked >= 3 && !this.bossActive && this.killsSinceUnlock >= this.killsForBoss) {
-      this.spawnBoss();
-    }
+      if (!this.bossActive) {
+        // Check if kill threshold reached → spawn boss
+        if (this.waveKills >= waveDef.killsForBoss) {
+          this.spawnBoss();
+        } else {
+          // Continuously spawn enemies up to cap
+          const aliveCount = this.enemies.filter(e => !e.dead).length;
+          this.spawnTimer++;
+          if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
+            this.spawnTimer = 0;
+            this.spawnEnemy();
+          }
+        }
+      } else {
+        // During boss: spawn fewer enemies
+        const aliveCount = this.enemies.filter(e => !e.dead).length;
+        this.spawnTimer++;
+        if (this.spawnTimer >= this.spawnInterval && aliveCount < 4) {
+          this.spawnTimer = 0;
+          this.spawnEnemy();
+        }
+      }
 
-    // Boss defeated → advance wave
-    if (this.boss && this.boss.dead) {
-      this.advanceWave();
-    }
-
-    // Spawn enemies on timer
-    const aliveCount = this.enemies.filter(e => !e.dead).length;
-    const maxDuringBoss = this.bossActive ? Math.min(this.maxEnemies, 4) : this.maxEnemies;
-    this.spawnTimer++;
-    if (this.spawnTimer >= this.spawnInterval && aliveCount < maxDuringBoss) {
-      this.spawnTimer = 0;
-      this.spawnEnemy();
+      // Boss defeated → advance wave
+      if (this.boss && this.boss.dead) {
+        this.advanceWave();
+      }
     }
 
     if (this.bossMessage > 0) this.bossMessage--;
@@ -2212,6 +2733,9 @@ class Game {
     // Platforms
     for (const p of this.platforms) p.render(ctx, cam);
 
+    // Spikes
+    for (const s of this.spikes) s.render(ctx, cam);
+
     // Fire trails
     for (const ft of this.fireTrails) {
       const alpha = Math.min(1, ft.life / 30) * 0.6;
@@ -2237,7 +2761,7 @@ class Game {
     for (const e of this.enemies) e.render(ctx, cam, this);
 
     // Boss
-    if (this.boss && !this.boss.dead) this.boss.render(ctx, cam);
+    if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
 
     // Player
     this.player.render(ctx, cam);
@@ -2381,39 +2905,46 @@ class Game {
 
     // ── Wave info panel (top right) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(CANVAS_W - 175, 8, 167, 62);
+    ctx.fillRect(CANVAS_W - 175, 8, 167, 36);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(CANVAS_W - 175, 8, 167, 62);
-
+    ctx.strokeRect(CANVAS_W - 175, 8, 167, 36);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText(`Wave ${this.wave}`, CANVAS_W - 167, 24);
+    ctx.fillText(`Wave ${this.wave}/${TOTAL_WAVES}`, CANVAS_W - 167, 24);
     ctx.font = '10px monospace';
+    ctx.fillStyle = '#ccc';
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 38);
 
-    // Types unlocked indicator
-    const tiers = this.getAvailableTiers();
-    for (let i = 0; i < tiers.length; i++) {
-      const info = getTierInfo(tiers[i]);
-      ctx.fillStyle = ENEMY_STATS[info.type].color;
-      ctx.fillRect(CANVAS_W - 167 + i * 18, 45, 14, 14);
-      if (info.big) {
-        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1;
-        ctx.strokeRect(CANVAS_W - 167 + i * 18, 45, 14, 14);
-      }
-    }
-
-    // Progress text
-    ctx.fillStyle = '#aaa';
-    ctx.font = '9px monospace';
-    if (this.bossActive) {
-      ctx.fillStyle = '#f66';
-      ctx.fillText('BOSS FIGHT!', CANVAS_W - 167, 66);
-    } else if (this.typesUnlocked >= 3) {
-      ctx.fillText(`Boss in ${Math.max(0, this.killsForBoss - this.killsSinceUnlock)} kills`, CANVAS_W - 167, 66);
-    } else {
-      ctx.fillText(`New type in ${Math.max(0, this.killsToUnlock - this.killsSinceUnlock)} kills`, CANVAS_W - 167, 66);
+    // ── Big progress bar (top center) ──
+    if (!this.gameWon && !(this.boss && !this.boss.dead)) {
+      const pbW = 400, pbH = 18;
+      const pbX = CANVAS_W / 2 - pbW / 2;
+      const pbY = 10;
+      const waveDef = WAVE_DEFS[this.wave - 1];
+      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / waveDef.killsForBoss);
+      // Background
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
+      // Empty bar
+      ctx.fillStyle = '#222';
+      ctx.fillRect(pbX, pbY, pbW, pbH);
+      // Filled bar
+      const barColor = this.bossActive ? '#f44' : `hsl(${30 + pct * 90}, 80%, 50%)`;
+      ctx.fillStyle = barColor;
+      ctx.fillRect(pbX, pbY, pbW * pct, pbH);
+      // Border
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pbX, pbY, pbW, pbH);
+      // Text on bar
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px monospace';
+      const label = this.bossActive
+        ? `BOSS ${this.wave}/${TOTAL_WAVES}`
+        : `${this.waveKills}/${waveDef.killsForBoss}`;
+      const tw = ctx.measureText(label).width;
+      ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
 
     // Boss HP bar (top center)
@@ -2424,8 +2955,9 @@ class Game {
       ctx.fillRect(bx - 4, 6, bw + 8, 24);
       ctx.fillStyle = '#f44';
       ctx.font = 'bold 12px monospace';
-      ctx.fillText(this.boss.name, bx, 20);
-      const labelW = ctx.measureText(this.boss.name).width + 8;
+      const bossLabel = `${this.boss.name} [${this.wave}/${TOTAL_WAVES}]`;
+      ctx.fillText(bossLabel, bx, 20);
+      const labelW = ctx.measureText(bossLabel).width + 8;
       ctx.fillStyle = '#400';
       ctx.fillRect(bx + labelW, 10, bw - labelW, 14);
       ctx.fillStyle = this.boss.phase === 2 ? '#f22' : '#e44';
@@ -2443,6 +2975,27 @@ class Game {
       const tw = ctx.measureText(this.waveMessage).width;
       ctx.fillText(this.waveMessage, CANVAS_W / 2 - tw / 2, CANVAS_H / 2 - 60);
       ctx.globalAlpha = 1;
+    }
+
+    // Victory screen
+    if (this.gameWon) {
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.fillStyle = '#4f4';
+      ctx.font = 'bold 36px monospace';
+      const vt = 'VICTORY!';
+      const vtw = ctx.measureText(vt).width;
+      ctx.fillText(vt, CANVAS_W / 2 - vtw / 2, CANVAS_H / 2 - 40);
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px monospace';
+      const st = `Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
+      const stw = ctx.measureText(st).width;
+      ctx.fillText(st, CANVAS_W / 2 - stw / 2, CANVAS_H / 2 + 10);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '12px monospace';
+      const rt = 'Press R to restart';
+      const rtw = ctx.measureText(rt).width;
+      ctx.fillText(rt, CANVAS_W / 2 - rtw / 2, CANVAS_H / 2 + 40);
     }
   }
 }
