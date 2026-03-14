@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>EleNin – Elemental Ninja Platformer</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
 canvas { border: 2px solid #333; image-rendering: pixelated; }
 </style>
 </head>
@@ -95,6 +96,112 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 function consumePress(code) { if (justPressed[code]) { justPressed[code] = false; return true; } return false; }
+
+// ── Mouse input ──────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  ensureAudio();
+  if (e.button === 0) { justPressed['MouseAttack'] = true; keys['MouseAttack'] = true; }
+  if (e.button === 2) { justPressed['MouseSpecial'] = true; keys['MouseSpecial'] = true; }
+  if (e.button === 1) { justPressed['MouseShuriken'] = true; keys['MouseShuriken'] = true; }
+});
+canvas.addEventListener('mouseup', e => {
+  if (e.button === 0) keys['MouseAttack'] = false;
+  if (e.button === 2) keys['MouseSpecial'] = false;
+  if (e.button === 1) keys['MouseShuriken'] = false;
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Mouse wheel for ninja switching
+let mouseWheelNinja = 0;
+const NINJA_ORDER = ['fire','earth','bubble','shadow','crystal','wind'];
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (e.deltaY > 0) mouseWheelNinja = (mouseWheelNinja + 1) % 6;
+  else mouseWheelNinja = (mouseWheelNinja + 5) % 6;
+  justPressed['WheelSwitch'] = true;
+}, { passive: false });
+
+// ── Touch input ──────────────────────────────────────────────
+const touchState = { left: false, right: false, up: false, down: false, attack: false, special: false, shuriken: false };
+const touchJust = { attack: false, special: false, shuriken: false, up: false };
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+function getTouchZone(tx, ty) {
+  // Map touch coords to canvas coords
+  const rect = canvas.getBoundingClientRect();
+  const x = (tx - rect.left) / rect.width * CANVAS_W;
+  const y = (ty - rect.top) / rect.height * CANVAS_H;
+  // Left side: D-pad (bottom-left quadrant)
+  if (x < CANVAS_W * 0.35 && y > CANVAS_H * 0.5) {
+    const cx = CANVAS_W * 0.15, cy = CANVAS_H * 0.78;
+    const dx = x - cx, dy = y - cy;
+    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+    return dy < 0 ? 'up' : 'down';
+  }
+  // Right side: action buttons
+  if (x > CANVAS_W * 0.65 && y > CANVAS_H * 0.5) {
+    if (y < CANVAS_H * 0.68) return 'shuriken';
+    if (x < CANVAS_W * 0.82) return 'attack';
+    return 'special';
+  }
+  return null;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  ensureAudio();
+  for (const t of e.changedTouches) {
+    const zone = getTouchZone(t.clientX, t.clientY);
+    if (zone) {
+      touchState[zone] = true;
+      if (zone === 'attack' || zone === 'special' || zone === 'shuriken' || zone === 'up') touchJust[zone] = true;
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  // Reset all touches and re-scan remaining
+  touchState.left = false; touchState.right = false; touchState.up = false; touchState.down = false;
+  touchState.attack = false; touchState.special = false; touchState.shuriken = false;
+  for (const t of e.touches) {
+    const zone = getTouchZone(t.clientX, t.clientY);
+    if (zone) touchState[zone] = true;
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+// ── Gamepad support ──────────────────────────────────────────
+const gpState = { axes: [0,0,0,0], buttons: new Array(17).fill(false) };
+const gpJust = new Array(17).fill(false);
+const gpPrev = new Array(17).fill(false);
+
+function pollGamepad() {
+  const gp = navigator.getGamepads ? navigator.getGamepads()[0] : null;
+  if (!gp) return;
+  ensureAudio();
+  gpState.axes[0] = gp.axes[0] || 0;
+  gpState.axes[1] = gp.axes[1] || 0;
+  for (let i = 0; i < gp.buttons.length && i < 17; i++) {
+    const pressed = gp.buttons[i].pressed;
+    gpJust[i] = pressed && !gpPrev[i];
+    gpPrev[i] = pressed;
+    gpState.buttons[i] = pressed;
+  }
+}
+// Gamepad button map (Standard Gamepad):
+// 0=A(South) 1=B(East) 2=X(West) 3=Y(North)
+// 4=LB 5=RB 6=LT 7=RT
+// 8=Select 9=Start
+// 12=DpadUp 13=DpadDown 14=DpadLeft 15=DpadRight
+const GP_ATTACK = 0;   // A / Cross
+const GP_SPECIAL = 2;  // X / Square
+const GP_SHURIKEN = 1; // B / Circle
+const GP_JUMP = 3;     // Y / Triangle (also A)
+const GP_SLAM = 13;    // Dpad Down
+const GP_LB = 4;
+const GP_RB = 5;
 
 // ── Utility ──────────────────────────────────────────────────
 function rectOverlap(a, b) {
@@ -747,8 +854,8 @@ class Player {
 
     // ── Movement ──
     let moveX = 0;
-    if (keys['ArrowLeft'] || keys['KeyA']) moveX = -1;
-    if (keys['ArrowRight'] || keys['KeyD']) moveX = 1;
+    if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
+    if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
     // Wind dash overrides normal movement
     if (!this.windDashing) {
       const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
@@ -758,7 +865,7 @@ class Player {
 
     // Jump (double jump + bubble bonus jump)
     const maxJ = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
-    const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space');
+    const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space') || touchJust.up || gpJust[GP_JUMP] || gpJust[GP_ATTACK];
     if (jumpPress && this.jumpsLeft > 0) {
       SFX.jump();
       // Wall jump: kick off wall
@@ -781,7 +888,7 @@ class Player {
     }
 
     // ── Ground slam ──
-    const holdingDown = keys['ArrowDown'] || keys['KeyS'];
+    const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
     if (holdingDown && !this.grounded && !this.slamming) {
       this.slamming = true;
       this.vx = 0;
@@ -1034,18 +1141,18 @@ class Player {
       }
     }
 
-    if (consumePress('KeyZ') && !this.attacking && this.attackCooldown <= 0) {
+    if ((consumePress('KeyZ') || consumePress('KeyJ') || consumePress('MouseAttack') || touchJust.attack || gpJust[GP_ATTACK]) && !this.attacking && this.attackCooldown <= 0) {
       this.shadowAttackHit = false;
       this.attack(game);
     }
 
     // ── Special ability ──
-    if (consumePress('KeyX') && this.specialCooldown <= 0) {
+    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.specialCooldown <= 0) {
       this.useSpecial(game);
     }
 
-    // ── Throw shuriken (C key) — aims at nearest target ──
-    if (consumePress('KeyC') && this.shurikens > 0) {
+    // ── Throw shuriken — aims at nearest target ──
+    if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
       SFX.shuriken();
       this.shurikens--;
       const dmg = t.attackDamage + this.bonusDamage;
@@ -2620,21 +2727,36 @@ class Game {
 
   update() {
     this.tick++;
+    pollGamepad();
 
     // Restart on R key (when game won)
-    if (this.gameWon && consumePress('KeyR')) {
+    if (this.gameWon && (consumePress('KeyR') || gpJust[9])) {
       Object.assign(this, new Game());
       return;
     }
     if (this.gameWon) return;
 
-    // Ninja switching (1–6)
+    // Ninja switching (1–6, mouse wheel, LB/RB)
     if (consumePress('Digit1')) this.player.switchNinja('fire');
     if (consumePress('Digit2')) this.player.switchNinja('earth');
     if (consumePress('Digit3')) this.player.switchNinja('bubble');
     if (consumePress('Digit4')) this.player.switchNinja('shadow');
     if (consumePress('Digit5')) this.player.switchNinja('crystal');
     if (consumePress('Digit6')) this.player.switchNinja('wind');
+    // Mouse wheel switching
+    if (justPressed['WheelSwitch']) {
+      justPressed['WheelSwitch'] = false;
+      this.player.switchNinja(NINJA_ORDER[mouseWheelNinja]);
+    }
+    // Gamepad LB/RB to cycle ninjas
+    if (gpJust[GP_LB]) {
+      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
+      this.player.switchNinja(NINJA_ORDER[(idx + 5) % 6]);
+    }
+    if (gpJust[GP_RB]) {
+      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
+      this.player.switchNinja(NINJA_ORDER[(idx + 1) % 6]);
+    }
 
     // Cheat: + to skip wave
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
@@ -2918,7 +3040,7 @@ class Game {
     // Controls hint
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '10px monospace';
-    ctx.fillText('WASD/Arrows=Move  Z=Attack  X=Special  1-6=Switch Ninja', CANVAS_W / 2 - 175, CANVAS_H - 6);
+    ctx.fillText('WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch', CANVAS_W / 2 - 215, CANVAS_H - 6);
 
     // ── Death counter (top left) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -2944,6 +3066,13 @@ class Game {
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 38);
 
     // ── Big progress bar (top center) ──
+    // EleNin title
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.font = 'bold 14px monospace';
+    const titleTxt = 'EleNin';
+    const titleW = ctx.measureText(titleTxt).width;
+    ctx.fillText(titleTxt, CANVAS_W / 2 - titleW / 2, 8);
+
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
       const pbW = 400, pbH = 18;
       const pbX = CANVAS_W / 2 - pbW / 2;
@@ -3004,6 +3133,47 @@ class Game {
       ctx.globalAlpha = 1;
     }
 
+    // Touch controls overlay (only on touch devices)
+    if (isTouchDevice) {
+      ctx.globalAlpha = 0.25;
+      // D-pad (bottom-left)
+      const dcx = CANVAS_W * 0.15, dcy = CANVAS_H * 0.78;
+      const ds = 28;
+      ctx.fillStyle = touchState.up ? '#fff' : '#888';
+      ctx.fillRect(dcx - ds/2, dcy - ds*1.6, ds, ds); // up
+      ctx.fillStyle = touchState.down ? '#fff' : '#888';
+      ctx.fillRect(dcx - ds/2, dcy + ds*0.6, ds, ds); // down
+      ctx.fillStyle = touchState.left ? '#fff' : '#888';
+      ctx.fillRect(dcx - ds*1.6, dcy - ds/2, ds, ds); // left
+      ctx.fillStyle = touchState.right ? '#fff' : '#888';
+      ctx.fillRect(dcx + ds*0.6, dcy - ds/2, ds, ds); // right
+      // Labels
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText('\u25B2', dcx - 5, dcy - ds*0.9);
+      ctx.fillText('\u25BC', dcx - 5, dcy + ds*1.3);
+      ctx.fillText('\u25C0', dcx - ds*1.3, dcy + 4);
+      ctx.fillText('\u25B6', dcx + ds*0.9, dcy + 4);
+      // Action buttons (bottom-right)
+      const abx = CANVAS_W * 0.82, aby = CANVAS_H * 0.78;
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = touchState.attack ? '#f44' : '#844';
+      ctx.beginPath(); ctx.arc(abx - 30, aby, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = touchState.special ? '#44f' : '#448';
+      ctx.beginPath(); ctx.arc(abx + 30, aby, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = touchState.shuriken ? '#ff4' : '#884';
+      ctx.beginPath(); ctx.arc(abx, aby - 40, 18, 0, Math.PI * 2); ctx.fill();
+      // Labels
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('ATK', abx - 40, aby + 4);
+      ctx.fillText('SPC', abx + 18, aby + 4);
+      ctx.fillText('SHR', abx - 12, aby - 36);
+      ctx.globalAlpha = 1;
+    }
+
     // Victory screen
     if (this.gameWon) {
       ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -3047,6 +3217,7 @@ function gameLoop(timestamp) {
       hitstopFrames--;
       // During hitstop: skip game update but still consume input
       for (const k in justPressed) justPressed[k] = false;
+      touchJust.attack = false; touchJust.special = false; touchJust.shuriken = false; touchJust.up = false;
       accumulator -= FIXED_DT;
       continue;
     }
@@ -3054,6 +3225,7 @@ function gameLoop(timestamp) {
     accumulator -= FIXED_DT;
     // Clear justPressed after each logical frame
     for (const k in justPressed) justPressed[k] = false;
+    touchJust.attack = false; touchJust.special = false; touchJust.shuriken = false; touchJust.up = false;
   }
 
   game.render();
