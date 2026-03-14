@@ -1660,14 +1660,14 @@ function getTierName(tierIdx) {
 const TOTAL_WAVES = 7;
 const WAVE_DEFS = [
   { // Wave 1 — Walkers
-    boss: 'walker', killsForBoss: 20,
+    boss: 'walker', killsForBoss: 40,
     pool: [
       { type: 'walker', weight: 5 },
       { type: 'walker', weight: 2, big: true },
     ]
   },
   { // Wave 2 — Shooters join
-    boss: 'shooter', killsForBoss: 25,
+    boss: 'shooter', killsForBoss: 50,
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
@@ -1676,7 +1676,7 @@ const WAVE_DEFS = [
     ]
   },
   { // Wave 3 — Jumpers
-    boss: 'jumper', killsForBoss: 28,
+    boss: 'jumper', killsForBoss: 56,
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -1685,7 +1685,7 @@ const WAVE_DEFS = [
     ]
   },
   { // Wave 4 — Bouncers
-    boss: 'bouncer', killsForBoss: 30,
+    boss: 'bouncer', killsForBoss: 60,
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 2 },
@@ -1696,7 +1696,7 @@ const WAVE_DEFS = [
     ]
   },
   { // Wave 5 — Shielded
-    boss: 'shielded', killsForBoss: 32,
+    boss: 'shielded', killsForBoss: 64,
     pool: [
       { type: 'walker', weight: 1 },
       { type: 'shooter', weight: 2 },
@@ -1708,7 +1708,7 @@ const WAVE_DEFS = [
     ]
   },
   { // Wave 6 — Flyers
-    boss: 'flyer', killsForBoss: 35,
+    boss: 'flyer', killsForBoss: 70,
     pool: [
       { type: 'walker', weight: 1 },
       { type: 'shooter', weight: 2 },
@@ -1721,7 +1721,7 @@ const WAVE_DEFS = [
     ]
   },
   { // Wave 7 — Everything + Fly-Shooters
-    boss: 'flyshooter', killsForBoss: 38,
+    boss: 'flyshooter', killsForBoss: 76,
     pool: [
       { type: 'walker', weight: 1, big: true },
       { type: 'shooter', weight: 2 },
@@ -2470,9 +2470,9 @@ class Game {
     this.wave = 1;
     this.waveKills = 0;
     this.totalKills = 0;
-    this.maxEnemies = 16;
+    this.maxEnemies = 32;
     this.spawnTimer = 0;
-    this.spawnInterval = 90;    // frames between spawns
+    this.spawnInterval = 50;    // frames between spawns
     this.boss = null;
     this.bossActive = false;
     this.bossMessage = 0;
