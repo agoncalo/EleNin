@@ -1,0 +1,2489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EleNin – Elemental Ninja Platformer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+canvas { border: 2px solid #333; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+//  EleNin – Single-file HTML5 Elemental Ninja Platformer
+//  No external libraries. Pure Canvas + JS.
+// ============================================================
+
+// ── Constants ────────────────────────────────────────────────
+const CANVAS_W = 960;
+const CANVAS_H = 540;
+const TILE = 32;
+const GRAVITY = 0.55;
+const MAX_FALL = 12;
+const FIXED_DT = 1000 / 60; // 60 fps timestep
+
+// Hitstop
+let hitstopFrames = 0;
+function triggerHitstop(frames) { hitstopFrames = Math.max(hitstopFrames, frames); }
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.width = CANVAS_W;
+canvas.height = CANVAS_H;
+
+// ── Input ────────────────────────────────────────────────────
+const keys = {};
+const justPressed = {};
+window.addEventListener('keydown', e => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+function consumePress(code) { if (justPressed[code]) { justPressed[code] = false; return true; } return false; }
+
+// ── Utility ──────────────────────────────────────────────────
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+// ============================================================
+//  Orb (item drop)
+// ============================================================
+class Orb {
+  constructor(x, y, type) {
+    this.x = x; this.y = y;
+    this.w = 10; this.h = 10;
+    this.vy = -3;
+    this.type = type; // 'heal', 'maxhp', 'damage'
+    this.life = 480; // 8 seconds
+    this.done = false;
+    this.grounded = false;
+  }
+  update(game) {
+    if (this.done) return;
+    this.life--;
+    if (this.life <= 0) { this.done = true; return; }
+    if (!this.grounded) {
+      this.vy += 0.3;
+      if (this.vy > 6) this.vy = 6;
+      this.y += this.vy;
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p) && this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+        }
+      }
+    }
+    // Pickup
+    if (rectOverlap(this, game.player)) {
+      this.done = true;
+      const pl = game.player;
+      switch (this.type) {
+        case 'heal':
+          pl.hp = Math.min(pl.hp + 3, pl.maxHp);
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f44', 6, 2, 10));
+          break;
+        case 'maxhp':
+          pl.maxHp += 1;
+          pl.hp = Math.min(pl.hp + 1, pl.maxHp);
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4f4', 8, 3, 12));
+          break;
+        case 'damage':
+          pl.bonusDamage += 1;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f80', 8, 3, 12));
+          break;
+        case 'shield':
+          pl.maxShield += 3;
+          pl.shield = pl.maxShield;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
+          break;
+        case 'shuriken':
+          pl.shurikens += 3;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ccc', 6, 2, 10));
+          break;
+      }
+    }
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
+    if (flash) return;
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', shield: '#4af', shuriken: '#ccc' };
+    ctx.fillStyle = colors[this.type];
+    ctx.beginPath();
+    ctx.arc(sx + 5, sy + 5, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Glow
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(sx + 5, sy + 5, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Icon
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 8px monospace';
+    const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦' };
+    ctx.fillText(icons[this.type], sx + 1, sy + 9);
+  }
+}
+
+// ============================================================
+//  Effect (particles)
+// ============================================================
+class Effect {
+  constructor(x, y, color, count, speed, life) {
+    this.particles = [];
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = Math.random() * speed + 1;
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd - 1,
+        life: life + Math.random() * life * 0.5,
+        color,
+        size: randInt(2, 5)
+      });
+    }
+    this.done = false;
+  }
+  update() {
+    let alive = 0;
+    for (const p of this.particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.1;
+      p.life--;
+      if (p.life > 0) alive++;
+    }
+    if (alive === 0) this.done = true;
+  }
+  render(ctx, cam) {
+    for (const p of this.particles) {
+      if (p.life <= 0) continue;
+      ctx.globalAlpha = Math.min(1, p.life / 10);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - cam.x, p.y - cam.y, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============================================================
+//  Platform
+// ============================================================
+class Platform {
+  constructor(x, y, w, h, color) {
+    this.x = x; this.y = y;
+    this.w = w; this.h = h;
+    this.color = color || '#666';
+  }
+  render(ctx, cam) {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    // 8-bit highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
+  }
+}
+
+// ============================================================
+//  StoneBlock (Earth ninja ability)
+// ============================================================
+class StoneBlock {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = TILE; this.h = TILE;
+    this.hp = 3;
+    this.maxHp = 3;
+    this.vx = 0; this.vy = 0;
+    this.powered = false;
+    this.grounded = false;
+    this.done = false;
+    this.thrown = false; // becomes true when hit/pushed fast
+  }
+  explode(game) {
+    this.done = true;
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#a87', 15, 5, 18));
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f93', 10, 4, 14));
+    // AoE damage to enemies only
+    for (const e of game.enemies) {
+      if (!e.dead) {
+        const dx = (e.x + e.w/2) - (this.x + this.w/2);
+        const dy = (e.y + e.h/2) - (this.y + this.h/2);
+        if (Math.sqrt(dx*dx + dy*dy) < 70) {
+          e.takeDamage(this.powered ? 5 : 3, game, this.x + this.w/2);
+        }
+      }
+    }
+    // Also damage boss
+    if (game.boss && !game.boss.dead) {
+      const dx = (game.boss.x + game.boss.w/2) - (this.x + this.w/2);
+      const dy = (game.boss.y + game.boss.h/2) - (this.y + this.h/2);
+      if (Math.sqrt(dx*dx + dy*dy) < 80) {
+        game.boss.takeDamage(this.powered ? 5 : 3, game, this.x + this.w/2);
+      }
+    }
+    triggerHitstop(4);
+  }
+  update(game) {
+    this.vy += GRAVITY;
+    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    this.x += this.vx;
+    this.y += this.vy;
+    const wasMovingFast = Math.abs(this.vx) > 3 || this.thrown;
+    this.vx *= 0.9;
+    this.grounded = false;
+    // Collide with platforms
+    for (const p of game.platforms) {
+      if (rectOverlap(this, p)) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          if (this.thrown && Math.abs(this.vy) > 2) { this.explode(game); return; }
+          this.vy = 0;
+          this.grounded = true;
+          if (Math.abs(this.vx) < 0.5) this.thrown = false;
+        }
+      }
+    }
+    // Collide with other stone blocks (stacking)
+    for (const other of game.stoneBlocks) {
+      if (other === this || other.done) continue;
+      if (rectOverlap(this, other)) {
+        // Landing on top
+        if (this.vy > 0 && this.y + this.h - this.vy <= other.y + 4) {
+          this.y = other.y - this.h;
+          if (this.thrown) { this.explode(game); return; }
+          this.vy = 0;
+          this.grounded = true;
+          if (Math.abs(this.vx) < 0.5) this.thrown = false;
+        }
+        // Side collision
+        else if (this.vx > 0 && this.x + this.w - this.vx <= other.x + 4) {
+          this.x = other.x - this.w;
+          if (this.thrown) { this.explode(game); return; }
+          this.vx = 0;
+        } else if (this.vx < 0 && this.x - this.vx >= other.x + other.w - 4) {
+          this.x = other.x + other.w;
+          if (this.thrown) { this.explode(game); return; }
+          this.vx = 0;
+        }
+      }
+    }
+    // Damage enemies if moving fast (and explode on contact)
+    if (wasMovingFast || Math.abs(this.vx) > 1) {
+      for (const e of game.enemies) {
+        if (!e.dead && rectOverlap(this, e)) {
+          if (this.thrown) { this.explode(game); return; }
+          const dmg = this.powered ? 5 : 2;
+          e.takeDamage(dmg, game);
+          this.vx *= 0.5;
+        }
+      }
+    }
+    if (this.hp <= 0) { this.explode(game); }
+  }
+  takeDamage(amt) { this.hp -= amt; }
+  render(ctx, cam) {
+    ctx.fillStyle = this.powered ? '#c89b40' : '#8B7355';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
+    // HP pips
+    for (let i = 0; i < this.hp; i++) {
+      ctx.fillStyle = '#bfa';
+      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    }
+  }
+}
+
+// ============================================================
+//  Bubble (Bubble ninja ability)
+// ============================================================
+class Bubble {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = 32; this.h = 32;
+    this.life = 360; // 6 seconds
+    this.done = false;
+    this.bobPhase = Math.random() * Math.PI * 2;
+    this.baseY = y;
+    this.consumed = false; // becomes true once player touches it
+  }
+  update(game) {
+    this.bobPhase += 0.03;
+    this.y = this.baseY + Math.sin(this.bobPhase) * 5;
+    // Slowly float upward
+    this.baseY -= 0.15;
+    this.life--;
+    if (this.life <= 0) {
+      this.done = true;
+    }
+  }
+  pop(game) {
+    this.done = true;
+    game.effects.push(new Effect(this.x + 16, this.y + 16, '#6af', 8, 3, 15));
+    // Damage enemies nearby
+    for (const e of game.enemies) {
+      if (!e.dead) {
+        const dx = (e.x + e.w / 2) - (this.x + 16);
+        const dy = (e.y + e.h / 2) - (this.y + 16);
+        if (Math.sqrt(dx * dx + dy * dy) < 80) {
+          e.takeDamage(2, game);
+        }
+      }
+    }
+  }
+  render(ctx, cam) {
+    const alpha = this.life < 60 ? this.life / 60 : 1;
+    ctx.globalAlpha = alpha * (this.consumed ? 0.3 : 0.5);
+    ctx.fillStyle = this.consumed ? '#8cf' : '#4af';
+    ctx.beginPath();
+    ctx.arc(this.x + 16 - cam.x, this.y + 16 - cam.y, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.strokeStyle = '#8cf';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // shine
+    ctx.fillStyle = '#fff';
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.beginPath();
+    ctx.arc(this.x + 9 - cam.x, this.y + 9 - cam.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============================================================
+//  Projectile
+// ============================================================
+class Projectile {
+  constructor(x, y, vx, vy, color, damage, owner) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.w = 8; this.h = 6;
+    this.color = color;
+    this.damage = damage;
+    this.owner = owner; // 'player' or 'enemy'
+    this.done = false;
+    this.life = 180;
+    this.reflected = false;
+    this.bouncy = false;
+  }
+  update(game) {
+    if (this.bouncy) this.vy += 0.15;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life--;
+    if (this.life <= 0) { this.done = true; return; }
+    // Hit platforms
+    for (const p of game.platforms) {
+      if (rectOverlap(this, p)) {
+        if (this.bouncy && this.life > 30) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 6) {
+            this.y = p.y - this.h; this.vy = -this.vy * 0.75;
+          } else if (this.vy < 0) {
+            this.vy = -this.vy * 0.75;
+          } else {
+            this.vx = -this.vx * 0.75;
+          }
+          this.life -= 25;
+          return;
+        }
+        this.done = true;
+        game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
+        return;
+      }
+    }
+    // Hit stone blocks (power them up)
+    for (const b of game.stoneBlocks) {
+      if (!b.done && rectOverlap(this, b)) {
+        b.powered = true;
+        this.done = true;
+        game.effects.push(new Effect(this.x, this.y, '#ff0', 6, 2, 12));
+        return;
+      }
+    }
+    if (this.owner === 'player') {
+      for (const e of game.enemies) {
+        if (!e.dead && rectOverlap(this, e)) {
+          e.takeDamage(this.damage, game, this.x);
+          this.done = true;
+          return;
+        }
+      }
+      // Hit boss
+      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.damage, game, this.x);
+        this.done = true;
+        return;
+      }
+    } else {
+      const pl = game.player;
+      if (rectOverlap(this, pl)) {
+        pl.takeDamage(this.damage, game);
+        this.done = true;
+      }
+    }
+  }
+  render(ctx, cam) {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    // trail
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(this.x - this.vx - cam.x, this.y - this.vy - cam.y, this.w, this.h);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============================================================
+//  NinjaType definitions
+// ============================================================
+const NINJA_TYPES = {
+  fire: {
+    name: 'Fire Ninja',
+    color: '#e33',
+    accentColor: '#f93',
+    key: '1',
+    attackDamage: 2,
+    jumpPower: -10,
+    speed: 4
+  },
+  earth: {
+    name: 'Earth Ninja',
+    color: '#7a5',
+    accentColor: '#a87',
+    key: '2',
+    attackDamage: 2,
+    jumpPower: -10,
+    speed: 3.5
+  },
+  bubble: {
+    name: 'Bubble Ninja',
+    color: '#48f',
+    accentColor: '#8cf',
+    key: '3',
+    attackDamage: 1,
+    jumpPower: -11,
+    speed: 4.2
+  },
+  shadow: {
+    name: 'Shadow Ninja',
+    color: '#726',
+    accentColor: '#a4e',
+    key: '4',
+    attackDamage: 1,
+    jumpPower: -10.5,
+    speed: 4.5
+  },
+  crystal: {
+    name: 'Crystal Ninja',
+    color: '#2dd',
+    accentColor: '#aff',
+    key: '5',
+    attackDamage: 2,
+    jumpPower: -10,
+    speed: 3.8
+  },
+  wind: {
+    name: 'Wind Ninja',
+    color: '#8d8',
+    accentColor: '#bfb',
+    key: '6',
+    attackDamage: 1,
+    jumpPower: -10.5,
+    speed: 5
+  }
+};
+
+// ============================================================
+//  Player
+// ============================================================
+class Player {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = 24; this.h = 32;
+    this.vx = 0; this.vy = 0;
+    this.facing = 1; // 1 right, -1 left
+    this.grounded = false;
+    this.hp = 10;
+    this.maxHp = 10;
+    this.shield = 0;
+    this.maxShield = 0;
+    this.ninjaType = 'fire';
+    this.invincibleTimer = 0;
+    this.bonusDamage = 0;
+
+    // Double jump
+    this.jumpsLeft = 2;
+    this.maxJumps = 2;
+
+    // Wall climb / slide
+    this.onWall = 0; // -1 left wall, 1 right wall, 0 none
+    this.wallSlideTimer = 0;
+
+    // Attack state
+    this.attacking = false;
+    this.attackTimer = 0;
+    this.attackCooldown = 0;
+    this.attackBox = null;
+
+    // Special state
+    this.specialCooldown = 0;
+
+    // Fire ninja state
+    this.comboMeter = 0;
+    this.comboTimer = 0;
+    this.fireArmor = false;
+    this.fireArmorTimer = 0;
+
+    // Bubble ninja state
+    this.bubbleBuffTimer = 0; // frames of floatiness/speed buff remaining
+
+    // Shadow ninja state
+    this.shadowStealth = 0; // time in stealth accumulation
+    this.backstabReady = false;
+    this.afterimages = [];
+    this.lastDamageTick = 0;
+    this.lastEnemyTouch = 0;
+    this.wasInAir = false;
+    this.shadowLandTimer = 0;
+
+    // Crystal ninja state
+    this.parrying = false;
+    this.parryTimer = 0;
+    this.parryCombo = 0;
+    this.parryComboTimer = 0;
+
+    // Wind ninja state
+    this.windPower = 0;
+    this.windDashing = false;
+    this.windDashTimer = 0;
+    this.windTrails = [];
+
+    // Next-hit-double system
+    this.nextHitDouble = false;
+
+    // Shadow instakill threshold (gradual, caps at 15)
+    this.shadowKillThreshold = 0;
+
+    // Shurikens
+    this.shurikens = 3;
+  }
+
+  get type() { return NINJA_TYPES[this.ninjaType]; }
+
+  switchNinja(type) {
+    if (this.ninjaType === type) return;
+    this.ninjaType = type;
+    this.comboMeter = 0;
+    this.comboTimer = 0;
+    this.fireArmor = false;
+    this.fireArmorTimer = 0;
+    this.bubbleBuffTimer = 0;
+    this.backstabReady = false;
+    this.shadowStealth = 0;
+    this.parrying = false;
+    this.parryCombo = 0;
+    this.parryComboTimer = 0;
+    this.windPower = 0;
+    this.windDashing = false;
+    this.windDashTimer = 0;
+  }
+
+  update(game) {
+    const t = this.type;
+
+    // Bubble buff decay
+    if (this.bubbleBuffTimer > 0) this.bubbleBuffTimer--;
+
+    // ── Movement ──
+    let moveX = 0;
+    if (keys['ArrowLeft'] || keys['KeyA']) moveX = -1;
+    if (keys['ArrowRight'] || keys['KeyD']) moveX = 1;
+    // Wind dash overrides normal movement
+    if (!this.windDashing) {
+      const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
+      this.vx = moveX * t.speed * speedMult;
+    }
+    if (moveX !== 0) this.facing = moveX;
+
+    // Jump (double jump + bubble bonus jump)
+    const maxJ = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
+    const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space');
+    if (jumpPress && this.jumpsLeft > 0) {
+      // Wall jump: kick off wall
+      if (this.onWall !== 0 && !this.grounded) {
+        this.vy = t.jumpPower * 0.9;
+        this.vx = -this.onWall * 6;
+        this.facing = -this.onWall;
+        this.jumpsLeft = Math.max(this.jumpsLeft - 1, 1); // wall jump preserves one air jump
+        this.onWall = 0;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 4, 2, 6));
+      } else {
+        const isDoubleJump = !this.grounded && this.jumpsLeft < maxJ;
+        this.vy = t.jumpPower * (isDoubleJump ? 0.85 : 1);
+        this.grounded = false;
+        this.jumpsLeft--;
+        if (isDoubleJump) {
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fff', 5, 2, 8));
+        }
+      }
+    }
+
+    // Gravity (reduced when bubble buff active = floatiness)
+    const grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
+    this.vy += grav;
+    const maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
+    if (this.vy > maxFall) this.vy = maxFall;
+
+    // Apply velocity
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // ── Platform collision ──
+    this.grounded = false;
+    this.onWall = 0;
+    for (const p of game.platforms) {
+      if (rectOverlap(this, p)) {
+        // Falling down onto platform
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          this.jumpsLeft = maxJ;
+        }
+        // Head bump
+        else if (this.vy < 0 && this.y - this.vy >= p.y + p.h - 4) {
+          this.y = p.y + p.h;
+          this.vy = 0;
+        }
+        // Side collision → wall detection
+        else if (this.vx > 0) {
+          this.x = p.x - this.w;
+          this.onWall = 1;
+          if (this.windDashing) { this.windDashing = false; this.windDashTimer = 0; this.vx = 0; this.nextHitDouble = true; triggerHitstop(6); game.effects.push(new Effect(this.x + this.w, this.y + this.h / 2, '#bfb', 12, 5, 15)); }
+        } else if (this.vx < 0) {
+          this.x = p.x + p.w;
+          this.onWall = -1;
+          if (this.windDashing) { this.windDashing = false; this.windDashTimer = 0; this.vx = 0; this.nextHitDouble = true; triggerHitstop(6); game.effects.push(new Effect(this.x, this.y + this.h / 2, '#bfb', 12, 5, 15)); }
+        }
+      }
+    }
+
+    // Wall slide: slow fall when touching wall and holding toward it
+    if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
+      const holdingToward = (this.onWall === 1 && moveX > 0) || (this.onWall === -1 && moveX < 0);
+      if (holdingToward) {
+        this.vy = Math.min(this.vy, 2); // slow slide
+        this.jumpsLeft = maxJ; // wall resets jumps
+        // Wall dust
+        if (game.tick % 8 === 0) {
+          game.effects.push(new Effect(
+            this.x + (this.onWall > 0 ? this.w : 0), this.y + this.h / 2,
+            '#aaa', 2, 1, 6
+          ));
+        }
+      }
+    }
+
+    // Bubble buff collision — touching a bubble grants floatiness/speed/jump buff
+    for (const b of game.bubbles) {
+      if (!b.done && !b.consumed && rectOverlap(this, b)) {
+        b.consumed = true;
+        b.life = Math.min(b.life, 90); // bubble fades after consumed
+        this.bubbleBuffTimer = 240; // 4 seconds of buff
+        this.jumpsLeft = Math.min(this.jumpsLeft + 1, maxJ); // bonus jump
+        game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#6af', 8, 3, 12));
+      }
+    }
+
+    // ── Timers ──
+    if (this.invincibleTimer > 0) this.invincibleTimer--;
+    if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.specialCooldown > 0) this.specialCooldown--;
+
+    // ── Attack ──
+    if (this.attacking) {
+      this.attackTimer--;
+      if (this.attackTimer <= 0) {
+        this.attacking = false;
+        this.attackBox = null;
+      } else {
+        // Check hits
+        for (const e of game.enemies) {
+          if (!e.dead && this.attackBox && rectOverlap(this.attackBox, e)) {
+            let dmg = t.attackDamage + this.bonusDamage;
+            // Shadow: instakill if enemy HP <= threshold, or backstab
+            if (this.ninjaType === 'shadow') {
+              if (this.backstabReady || e.hp <= this.shadowKillThreshold) {
+                dmg = 9999;
+                this.backstabReady = false;
+                this.shadowStealth = 0;
+                game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 20, 5, 20));
+              }
+            }
+            // Fire: double damage vs burning enemies
+            if (this.ninjaType === 'fire' && e.burnTimer > 0) {
+              dmg *= 2;
+            }
+            // Next hit double (earth block hit, bubble use, wind dodge)
+            if (this.nextHitDouble) {
+              dmg *= 2;
+              this.nextHitDouble = false;
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10));
+            }
+            // Bubble buff: +1 damage while active
+            if (this.bubbleBuffTimer > 0) {
+              dmg += 1;
+            }
+            // Crystal parry combo bonus
+            if (this.ninjaType === 'crystal') {
+              dmg += Math.floor(this.parryCombo / 2);
+            }
+            // Wind power bonus
+            if (this.ninjaType === 'wind') {
+              dmg += this.windPower;
+            }
+            e.takeDamage(dmg, game, this.x + this.w / 2);
+            e.hitCooldown = 15;
+            triggerHitstop(4);
+            // Fire combo
+            if (this.ninjaType === 'fire') {
+              this.comboMeter = Math.min(this.comboMeter + 1, 10);
+              this.comboTimer = 180;
+              // Apply burn when combo is full
+              if (this.comboMeter >= 10) {
+                e.burnTimer = 150; // 2.5 seconds of burn
+              }
+              if (this.comboMeter >= 8 && !this.fireArmor) {
+                this.fireArmor = true;
+                this.fireArmorTimer = 300;
+                game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
+              }
+            }
+          }
+        }
+        // Attack stone blocks (Earth ability) → push them
+        for (const b of game.stoneBlocks) {
+          if (!b.done && this.attackBox && rectOverlap(this.attackBox, b)) {
+            b.vx = this.facing * 8;
+            b.vy = -2;
+            b.thrown = true;
+            // Earth: next attack does double damage after hitting a block
+            this.nextHitDouble = true;
+          }
+        }
+        // Pop bubbles with attack
+        for (const b of game.bubbles) {
+          if (!b.done && this.attackBox && rectOverlap(this.attackBox, b)) {
+            b.pop(game);
+          }
+        }
+        // Hit boss
+        if (game.boss && !game.boss.dead && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
+          let dmg = t.attackDamage + this.bonusDamage;
+          if (this.ninjaType === 'shadow' && this.backstabReady) { dmg *= 3; this.backstabReady = false; this.shadowStealth = 0; }
+          if (this.ninjaType === 'fire' && game.boss.burnTimer > 0) dmg *= 2;
+          if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10)); }
+          if (this.bubbleBuffTimer > 0) dmg += 1;
+          if (this.ninjaType === 'crystal') dmg += Math.floor(this.parryCombo / 2);
+          if (this.ninjaType === 'wind') dmg += this.windPower;
+          game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          triggerHitstop(5);
+        }
+      }
+    }
+
+    if (consumePress('KeyZ') && !this.attacking && this.attackCooldown <= 0) {
+      this.attack(game);
+    }
+
+    // ── Special ability ──
+    if (consumePress('KeyX') && this.specialCooldown <= 0) {
+      this.useSpecial(game);
+    }
+
+    // ── Throw shuriken (C key) ──
+    if (consumePress('KeyC') && this.shurikens > 0) {
+      this.shurikens--;
+      const dmg = t.attackDamage + this.bonusDamage;
+      game.projectiles.push(new Projectile(
+        this.x + this.w / 2, this.y + this.h / 2,
+        this.facing * 8, 0, '#ccc', dmg, 'player'
+      ));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ccc', 4, 2, 6));
+    }
+
+    // ── Fire ninja: combo decay & fire armor ──
+    if (this.ninjaType === 'fire') {
+      if (this.comboTimer > 0) this.comboTimer--;
+      else if (this.comboMeter > 0) { this.comboMeter--; this.comboTimer = 60; }
+      if (this.fireArmor) {
+        this.fireArmorTimer--;
+        if (this.fireArmorTimer <= 0) { this.fireArmor = false; this.comboMeter = 0; }
+        // Damage nearby enemies
+        for (const e of game.enemies) {
+          if (!e.dead && e.hitCooldown <= 0) {
+            const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
+            const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
+            if (Math.sqrt(dx * dx + dy * dy) < 50) {
+              e.takeDamage(1, game);
+              e.hitCooldown = 30;
+            }
+          }
+        }
+      }
+    }
+
+    // ── Shadow ninja: stealth accumulation ──
+    if (this.ninjaType === 'shadow') {
+      const now = game.tick;
+      if (now - this.lastDamageTick > 60 && now - this.lastEnemyTouch > 60) {
+        this.shadowStealth = Math.min(this.shadowStealth + 1, 300);
+        // Gradually increase kill threshold (every 60 frames of stealth, +1, cap 15)
+        if (this.shadowStealth % 60 === 0 && this.shadowKillThreshold < 15) {
+          this.shadowKillThreshold++;
+        }
+        if (this.shadowStealth > 240 && !this.backstabReady) { // 4 seconds
+          this.backstabReady = true;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y, '#a4e', 10, 3, 15));
+        }
+      } else {
+        this.shadowStealth = 0;
+        this.backstabReady = false;
+        this.shadowKillThreshold = 0;
+      }
+      // Check enemy touch
+      for (const e of game.enemies) {
+        if (!e.dead && rectOverlap(this, e)) {
+          this.lastEnemyTouch = now;
+        }
+      }
+      // Afterimages — only when not heavily stealthed
+      if (this.shadowStealth < 180 && (Math.abs(this.vx) > 0.5 || Math.abs(this.vy) > 1)) {
+        this.afterimages.push({ x: this.x, y: this.y, life: 8 });
+      }
+      this.afterimages = this.afterimages.filter(a => { a.life--; return a.life > 0; });
+      // Landing detection for visual clue
+      if (this.shadowLandTimer > 0) this.shadowLandTimer--;
+      if (!this.grounded) {
+        this.wasInAir = true;
+      } else if (this.wasInAir) {
+        this.wasInAir = false;
+        this.shadowLandTimer = 12;
+        // Landing dust puff — visual clue
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#726', 6, 2, 10));
+      }
+    }
+
+    // ── Crystal ninja: parry state ──
+    if (this.ninjaType === 'crystal') {
+      if (this.parrying) {
+        this.parryTimer--;
+        if (this.parryTimer <= 0) this.parrying = false;
+        // Check projectiles to reflect
+        for (const proj of game.projectiles) {
+          if (proj.owner === 'enemy' && !proj.reflected && !proj.done) {
+            // Parry hitbox around player
+            const parryBox = {
+              x: this.x - 12, y: this.y - 8,
+              w: this.w + 24, h: this.h + 16
+            };
+            if (rectOverlap(proj, parryBox)) {
+              // Find nearest enemy to aim at
+              let nearestE = null;
+              let nearestDist = Infinity;
+              for (const e of game.enemies) {
+                if (e.dead) continue;
+                const edx = (e.x + e.w/2) - (this.x + this.w/2);
+                const edy = (e.y + e.h/2) - (this.y + this.h/2);
+                const ed = Math.sqrt(edx*edx + edy*edy);
+                if (ed < nearestDist) { nearestDist = ed; nearestE = e; }
+              }
+              // Also consider boss
+              if (game.boss && !game.boss.dead) {
+                const bdx = (game.boss.x + game.boss.w/2) - (this.x + this.w/2);
+                const bdy = (game.boss.y + game.boss.h/2) - (this.y + this.h/2);
+                const bd = Math.sqrt(bdx*bdx + bdy*bdy);
+                if (bd < nearestDist) { nearestDist = bd; nearestE = game.boss; }
+              }
+              const reflectSpeed = 6;
+              if (nearestE) {
+                const tdx = (nearestE.x + nearestE.w/2) - proj.x;
+                const tdy = (nearestE.y + nearestE.h/2) - proj.y;
+                const td = Math.sqrt(tdx*tdx + tdy*tdy);
+                proj.vx = (tdx/td) * reflectSpeed;
+                proj.vy = (tdy/td) * reflectSpeed;
+              } else {
+                proj.vx = this.facing * reflectSpeed;
+                proj.vy = -1;
+              }
+              proj.owner = 'player';
+              proj.damage += this.parryCombo;
+              proj.reflected = true;
+              proj.color = '#0ff';
+              this.parryCombo++;
+              this.parryComboTimer = 300;
+              this.nextHitDouble = true;
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
+            }
+          }
+        }
+      }
+      if (this.parryComboTimer > 0) this.parryComboTimer--;
+      else this.parryCombo = 0;
+    }
+
+    // ── Wind ninja: passive power buildup & dash tracking ──
+    if (this.ninjaType === 'wind') {
+      if (this.windDashTimer > 0) this.windDashTimer--;
+      if (this.windDashing && this.windDashTimer <= 0) {
+        this.windDashing = false;
+        // Wind: next attack does double damage after dodge
+        this.nextHitDouble = true;
+      }
+      // Power builds passively while not taking damage
+      if (game.tick - this.lastDamageTick > 60) {
+        // Gain 1 power every 2 seconds (120 frames)
+        if (game.tick % 120 === 0) {
+          this.windPower = Math.min(this.windPower + 1, 10);
+        }
+      }
+      // Wind trails while dashing or moving fast
+      if (this.windDashing) {
+        this.windTrails.push({ x: this.x, y: this.y, life: 15 });
+        // Damage enemies while dashing through them
+        for (const e of game.enemies) {
+          if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
+            const dmg = t.attackDamage + this.bonusDamage + this.windPower;
+            e.takeDamage(dmg, game, this.x + this.w / 2);
+            e.hitCooldown = 15;
+            triggerHitstop(4);
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 12));
+          }
+        }
+      } else if (Math.abs(this.vx) > 3) {
+        this.windTrails.push({ x: this.x, y: this.y, life: 8 });
+      }
+      this.windTrails = this.windTrails.filter(t => { t.life--; return t.life > 0; });
+    }
+
+    // Fall into pit → respawn
+    if (this.y > 2000) {
+      this.hp -= 2;
+      this.x = 100; this.y = 200;
+      this.vx = 0; this.vy = 0;
+    }
+  }
+
+  attack(game) {
+    this.attacking = true;
+    this.attackTimer = 10;
+    this.attackCooldown = 15;
+    // Shadow ninja: bigger attack when fully invisible
+    const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
+    const reach = shadowFullStealth ? 50 : 30;
+    const vertExtra = shadowFullStealth ? 10 : 0;
+    this.attackBox = {
+      x: this.facing > 0 ? this.x + this.w : this.x - reach,
+      y: this.y + 4 - vertExtra,
+      w: reach,
+      h: this.h - 8 + vertExtra * 2
+    };
+    game.effects.push(new Effect(
+      this.attackBox.x + (this.facing > 0 ? reach / 2 : reach / 2),
+      this.attackBox.y + (this.h - 8) / 2,
+      this.type.accentColor, 5, 3, 8
+    ));
+  }
+
+  useSpecial(game) {
+    this.specialCooldown = 60;
+    switch (this.ninjaType) {
+      case 'fire':
+        // Dash forward + fireball
+        this.vx = this.facing * 12;
+        this.vy = -3;
+        game.projectiles.push(new Projectile(
+          this.x + this.w / 2, this.y + this.h / 2,
+          this.facing * 7, 0, '#f93', 3, 'player'
+        ));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 10, 4, 15));
+        break;
+      case 'earth': {
+        // Create stone block in front — stacks on existing blocks
+        let spawnX = this.x + this.facing * 40;
+        let spawnY = this.y;
+        // Check if there's already a block or platform below, and stack on top
+        for (const other of game.stoneBlocks) {
+          if (!other.done && Math.abs(other.x - spawnX) < TILE &&
+              other.y <= spawnY + TILE && other.y >= spawnY - TILE * 3) {
+            spawnY = other.y - TILE;
+          }
+        }
+        game.stoneBlocks.push(new StoneBlock(spawnX, spawnY));
+        game.effects.push(new Effect(spawnX + TILE/2, spawnY + 16, '#a87', 8, 2, 12));
+        break;
+      }
+      case 'bubble':
+        // Spawn floating bubbles semi-randomly where player aims
+        for (let i = 0; i < 3; i++) {
+          const randOffX = randInt(-30, 30);
+          const randOffY = randInt(-20, 20);
+          game.bubbles.push(new Bubble(
+            this.x + this.facing * (50 + i * 50) + randOffX,
+            this.y - 20 - i * 25 + randOffY
+          ));
+        }
+        // Bubble: next attack does double damage
+        this.nextHitDouble = true;
+        break;
+      case 'shadow':
+        // Quick dash / blink
+        this.x += this.facing * 80;
+        this.invincibleTimer = 15;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
+        break;
+      case 'crystal':
+        // Parry window + pushback wave
+        this.parrying = true;
+        this.parryTimer = 20; // short window
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
+        // Push back all nearby enemies
+        for (const e of game.enemies) {
+          if (e.dead) continue;
+          const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
+          const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            const pushDir = dx >= 0 ? 1 : -1;
+            e.vx = pushDir * 8;
+            e.vy = -3;
+            this.parryCombo++;
+            this.parryComboTimer = 300;
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#0ff', 6, 3, 10));
+          }
+        }
+        // Push boss too
+        if (game.boss && !game.boss.dead) {
+          const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
+          const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            game.boss.vx = (dx >= 0 ? 1 : -1) * 5;
+            game.boss.vy = -2;
+            this.parryCombo++;
+            this.parryComboTimer = 300;
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#0ff', 8, 3, 12));
+          }
+        }
+        break;
+      case 'wind':
+        // Wind dash — fast horizontal dash
+        this.windDashing = true;
+        this.windDashTimer = 30;
+        this.vx = this.facing * 20;
+        this.vy = -2;
+        this.invincibleTimer = 30;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 12, 5, 15));
+        break;
+    }
+  }
+
+  takeDamage(amount, game) {
+    if (this.invincibleTimer > 0) return;
+    // Crystal parry blocks damage
+    if (this.ninjaType === 'crystal' && this.parrying) return;
+    // Shield absorbs damage first
+    if (this.shield > 0) {
+      const absorbed = Math.min(this.shield, amount);
+      this.shield -= absorbed;
+      amount -= absorbed;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 10));
+      if (amount <= 0) {
+        this.invincibleTimer = 45;
+        this.lastDamageTick = game.tick;
+        this.windPower = 0;
+        triggerHitstop(4);
+        return;
+      }
+    }
+    this.hp -= amount;
+    this.invincibleTimer = 45;
+    this.lastDamageTick = game.tick;
+    this.windPower = 0;
+    triggerHitstop(6);
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
+    if (this.hp <= 0) {
+      this.hp = this.maxHp;
+      this.x = 100; this.y = 200;
+      this.vx = 0; this.vy = 0;
+      game.deaths++;
+    }
+  }
+
+  render(ctx, cam) {
+    const t = this.type;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+
+    // Wind trails
+    if (this.ninjaType === 'wind') {
+      for (const wt of this.windTrails) {
+        ctx.globalAlpha = wt.life / 15 * 0.4;
+        ctx.fillStyle = '#bfb';
+        ctx.fillRect(wt.x - cam.x, wt.y - cam.y, this.w, this.h);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Shadow afterimages
+    if (this.ninjaType === 'shadow') {
+      const stealthFade = Math.max(0, 1 - this.shadowStealth / 200);
+      for (const a of this.afterimages) {
+        ctx.globalAlpha = (a.life / 20) * 0.2 * stealthFade;
+        ctx.fillStyle = '#527';
+        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Shadow progressive invisibility — fades to completely invisible
+    if (this.ninjaType === 'shadow') {
+      // Map stealth 0..300 to alpha 0.6..0.0
+      const stealthRatio = Math.min(this.shadowStealth / 300, 1);
+      let shadowAlpha = 0.6 * (1 - stealthRatio);
+      // Landing clue: briefly show a faint silhouette
+      if (this.shadowLandTimer > 0) {
+        shadowAlpha = Math.max(shadowAlpha, 0.25 * (this.shadowLandTimer / 12));
+      }
+      if (shadowAlpha <= 0.01) {
+        // Completely invisible — skip rendering the sprite entirely
+        // Only show backstab indicator and attack slash
+        ctx.globalAlpha = 1;
+        if (this.backstabReady) {
+          ctx.fillStyle = '#f0f';
+          ctx.font = '10px monospace';
+          ctx.fillText('BACKSTAB!', sx - 8, sy - 8);
+        }
+        if (this.attacking && this.attackBox) {
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = this.type.accentColor;
+          ctx.fillRect(this.attackBox.x - cam.x, this.attackBox.y - cam.y, this.attackBox.w, this.attackBox.h);
+          ctx.globalAlpha = 1;
+        }
+        return;
+      }
+      ctx.globalAlpha = shadowAlpha;
+    }
+
+    // Blink when invincible
+    if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 3) % 2) {
+      ctx.globalAlpha = 0.3;
+    }
+
+    // Fire armor glow
+    if (this.fireArmor) {
+      ctx.fillStyle = 'rgba(255,150,50,0.35)';
+      ctx.fillRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+    }
+
+    // Bubble buff glow
+    if (this.bubbleBuffTimer > 0) {
+      ctx.fillStyle = 'rgba(80,160,255,0.25)';
+      ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
+    // Body
+    ctx.fillStyle = t.color;
+    ctx.fillRect(sx, sy, this.w, this.h);
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    const eyeX = this.facing > 0 ? sx + 14 : sx + 4;
+    ctx.fillRect(eyeX, sy + 8, 6, 6);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(this.facing > 0 ? eyeX + 3 : eyeX, sy + 10, 3, 3);
+
+    // Headband
+    ctx.fillStyle = t.accentColor;
+    ctx.fillRect(sx, sy + 5, this.w, 3);
+
+    // Backstab indicator
+    if (this.ninjaType === 'shadow' && this.backstabReady) {
+      ctx.fillStyle = '#f0f';
+      ctx.font = '10px monospace';
+      ctx.fillText('BACKSTAB!', sx - 8, sy - 8);
+    }
+
+    // Wind power indicator
+    if (this.ninjaType === 'wind' && this.windPower > 0) {
+      ctx.strokeStyle = `rgba(180,255,180,${0.3 + this.windPower * 0.07})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
+    // Parry shield
+    if (this.ninjaType === 'crystal' && this.parrying) {
+      ctx.strokeStyle = '#0ff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx - 8, sy - 4, this.w + 16, this.h + 8);
+    }
+
+    // Wall slide indicator
+    if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      const wx = this.onWall > 0 ? sx + this.w - 2 : sx;
+      ctx.fillRect(wx, sy + 4, 3, this.h - 8);
+      // Scratch marks
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = 'rgba(200,200,200,0.3)';
+        ctx.fillRect(wx, sy + 6 + i * 9, 2, 5);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+
+    // Attack slash
+    if (this.attacking && this.attackBox) {
+      // Sword blade
+      const swordLen = 20;
+      const swordW = 4;
+      const swordX = this.facing > 0 ? sx + this.w : sx - swordLen;
+      const swordY = sy + 10;
+      ctx.fillStyle = '#dde';
+      ctx.fillRect(swordX, swordY, swordLen, swordW);
+      // Hilt
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(this.facing > 0 ? sx + this.w - 2 : sx, swordY - 3, 4, swordW + 6);
+      // Slash effect (uses hitbox)
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(this.attackBox.x - cam.x, this.attackBox.y - cam.y, this.attackBox.w, this.attackBox.h);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ============================================================
+//  Enemy tier system
+// ============================================================
+const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'flyer', 'flyshooter'];
+const ENEMY_STATS = {
+  walker:     { color: '#a55', hp: 3, name: 'Walker' },
+  shooter:    { color: '#aa5', hp: 3, name: 'Shooter' },
+  jumper:     { color: '#a8a', hp: 3, name: 'Jumper' },
+  bouncer:    { color: '#a5a', hp: 4, name: 'Bouncer' },
+  shielded:   { color: '#5a8', hp: 5, name: 'Shielded' },
+  flyer:      { color: '#8c5', hp: 3, name: 'Flyer' },
+  flyshooter: { color: '#c85', hp: 4, name: 'Fly-Shooter' }
+};
+
+function getTierInfo(tierIdx) {
+  if (tierIdx < ENEMY_TIERS.length) return { type: ENEMY_TIERS[tierIdx], big: false };
+  return { type: ENEMY_TIERS[tierIdx % ENEMY_TIERS.length], big: true };
+}
+function getTierName(tierIdx) {
+  const info = getTierInfo(tierIdx);
+  return (info.big ? 'Big ' : '') + ENEMY_STATS[info.type].name;
+}
+
+// ============================================================
+//  Enemy base
+// ============================================================
+class Enemy {
+  constructor(x, y, type, big) {
+    const base = ENEMY_STATS[type];
+    this.type = type;
+    this.big = !!big;
+    this.w = big ? 42 : 28;
+    this.h = big ? 42 : 28;
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.hp = big ? base.hp * 2 : base.hp;
+    this.maxHp = this.hp;
+    this.color = base.color;
+    this.facing = Math.random() < 0.5 ? -1 : 1;
+    this.dead = false;
+    this.hitCooldown = 0;
+    this.shootTimer = randInt(0, 40);
+    this.jumpTimer = randInt(0, 40);
+    this.patrolLeft = x - 100;
+    this.patrolRight = x + 100;
+    this.flashTimer = 0;
+    this.damageIframes = 0;
+    this.burnTimer = 0;
+    this.flying = (type === 'flyer' || type === 'flyshooter');
+    this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : 0;
+    this.shieldMax = this.shieldHp;
+    this.hoverPhase = Math.random() * Math.PI * 2;
+  }
+
+  update(game) {
+    if (this.dead) return;
+    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.flashTimer > 0) this.flashTimer--;
+    if (this.damageIframes > 0) this.damageIframes--;
+    // Burn DOT
+    if (this.burnTimer > 0) {
+      this.burnTimer--;
+      if (this.burnTimer % 30 === 0) {
+        this.hp -= 1;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f93', 4, 2, 8));
+        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+      }
+    }
+    const speed = this.big ? 2.4 : 1.9;
+    // Shadow stealth: enemies can't see the player when highly stealthed
+    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
+    const py = playerStealthed ? (this.y) : (game.player.y + game.player.h / 2);
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    // Gravity (not for flyers)
+    if (!this.flying) {
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    }
+
+    // AI by type
+    switch (this.type) {
+      case 'walker':
+        this.vx = this.facing * speed;
+        if (this.x <= this.patrolLeft) this.facing = 1;
+        if (this.x >= this.patrolRight) this.facing = -1;
+        break;
+      case 'shooter':
+        this.vx = this.facing * speed * 0.5;
+        if (this.x <= this.patrolLeft) this.facing = 1;
+        if (this.x >= this.patrolRight) this.facing = -1;
+        this.shootTimer++;
+        if (this.shootTimer >= (this.big ? 70 : 90)) {
+          this.shootTimer = 0;
+          const dx = px - cx, dy = py - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 400 && d > 0) {
+            game.projectiles.push(new Projectile(cx, cy, (dx/d)*4, (dy/d)*4, '#ff4', 1, 'enemy'));
+          }
+        }
+        break;
+      case 'jumper':
+        this.vx = this.facing * speed * 1.2;
+        if (this.x <= this.patrolLeft) this.facing = 1;
+        if (this.x >= this.patrolRight) this.facing = -1;
+        this.jumpTimer++;
+        if (this.jumpTimer >= (this.big ? 55 : 75) && this.vy < 1) {
+          this.vy = this.big ? -11 : -9;
+          this.jumpTimer = 0;
+        }
+        break;
+      case 'bouncer':
+        this.vx = this.facing * speed * 0.6;
+        if (this.x <= this.patrolLeft) this.facing = 1;
+        if (this.x >= this.patrolRight) this.facing = -1;
+        this.shootTimer++;
+        if (this.shootTimer >= (this.big ? 80 : 100)) {
+          this.shootTimer = 0;
+          const dx = px - cx, dy = py - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 450 && d > 0) {
+            const p = new Projectile(cx, cy, (dx/d)*3.5, (dy/d)*3 - 2, '#f6f', 1, 'enemy');
+            p.bouncy = true;
+            game.projectiles.push(p);
+          }
+        }
+        break;
+      case 'shielded':
+        this.vx = this.facing * speed * 0.7;
+        if (this.x <= this.patrolLeft) this.facing = 1;
+        if (this.x >= this.patrolRight) this.facing = -1;
+        // Face player when close
+        if (Math.abs(px - cx) < 180) this.facing = px > cx ? 1 : -1;
+        break;
+      case 'flyer': {
+        this.hoverPhase += 0.03;
+        const fdx = px - cx, fdy = py - cy;
+        const fd = Math.sqrt(fdx * fdx + fdy * fdy);
+        if (fd > 50) {
+          this.vx = (fdx / fd) * speed * 1.6;
+          this.vy = (fdy / fd) * speed * 1.6 + Math.sin(this.hoverPhase) * 0.5;
+        } else {
+          this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1.5;
+        }
+        this.facing = fdx > 0 ? 1 : -1;
+        break;
+      }
+      case 'flyshooter': {
+        this.hoverPhase += 0.025;
+        const sdx = px - cx, sdy = (py - 80) - cy;
+        const sd = Math.sqrt(sdx * sdx + sdy * sdy);
+        if (sd > 40) {
+          this.vx = (sdx / sd) * speed * 1.2;
+          this.vy = (sdy / sd) * speed * 1.2 + Math.sin(this.hoverPhase) * 0.4;
+        } else {
+          this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1;
+        }
+        this.facing = sdx > 0 ? 1 : -1;
+        this.shootTimer++;
+        if (this.shootTimer >= (this.big ? 60 : 80)) {
+          this.shootTimer = 0;
+          const adx = px - cx, ady = py - cy;
+          const ad = Math.sqrt(adx * adx + ady * ady);
+          if (ad < 500 && ad > 0) {
+            game.projectiles.push(new Projectile(cx, cy, (adx/ad)*4, (ady/ad)*4, '#fa4', 1, 'enemy'));
+          }
+        }
+        break;
+      }
+    }
+
+    // Apply velocity
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Platform collision (ground enemies only)
+    if (!this.flying) {
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p)) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+            this.y = p.y - this.h;
+            this.vy = 0;
+          }
+        }
+      }
+    } else {
+      // Keep flyers in bounds
+      if (this.y < -50) this.y = -50;
+      if (this.y > 460) this.y = 460;
+    }
+
+    // Remove if fell off bottom
+    if (this.y > 700) { this.dead = true; return; }
+
+    // Contact damage (not when player is stealthed)
+    if (this.hitCooldown <= 0 && !playerStealthed && rectOverlap(this, game.player)) {
+      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+      const kbStr = this.big ? 9 : 5;
+      game.player.vx = kbDir * kbStr;
+      game.player.vy = this.big ? -5 : -4;
+      game.player.takeDamage(this.big ? 3 : 2, game);
+      this.hitCooldown = 30;
+    }
+  }
+
+  takeDamage(amount, game, fromX) {
+    if (this.dead) return;
+    if (this.damageIframes > 0) return;
+    // Shielded: frontal hits absorbed by shield
+    if (this.shieldHp > 0 && fromX !== undefined) {
+      const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
+      if (hitFromFront) {
+        this.shieldHp -= amount;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(
+          this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, '#5ff', 5, 2, 8
+        ));
+        if (this.shieldHp < 0) this.shieldHp = 0;
+        return;
+      }
+    }
+    this.hp -= amount;
+    this.flashTimer = 6;
+    this.damageIframes = 15;
+    // Knockback — lighter types get pushed more, big enemies resist
+    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, flyer: 7, flyshooter: 7 };
+    let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
+    const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
+    this.vx = dir * kb;
+    if (!this.flying) this.vy = -2;
+    if (this.hp <= 0) {
+      this.dead = true;
+      this.onDeath(game);
+    }
+  }
+
+  onDeath(game) {
+    game.waveKills++;
+    game.totalKills++;
+    game.killsSinceUnlock++;
+    triggerHitstop(this.big ? 7 : 5);
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, this.color, this.big ? 18 : 12, 4, 18));
+    // Drop orb
+    const r = Math.random();
+    if (r < 0.35) {
+      game.orbs.push(new Orb(this.x + this.w/2 - 5, this.y, 'heal'));
+    } else if (r < 0.48) {
+      game.orbs.push(new Orb(this.x + this.w/2 - 5, this.y, 'maxhp'));
+    } else if (r < 0.58) {
+      game.orbs.push(new Orb(this.x + this.w/2 - 5, this.y, 'damage'));
+    } else if (r < 0.66) {
+      game.orbs.push(new Orb(this.x + this.w/2 - 5, this.y, 'shield'));
+    } else if (r < 0.78) {
+      game.orbs.push(new Orb(this.x + this.w/2 - 5, this.y, 'shuriken'));
+    }
+  }
+
+  render(ctx, cam, game) {
+    if (this.dead) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    // Blink during damage iframes
+    if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
+    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : this.color;
+    ctx.fillRect(sx, sy, this.w, this.h);
+
+    // Burn effect overlay
+    if (this.burnTimer > 0) {
+      ctx.globalAlpha = 0.3 + 0.15 * Math.sin(this.burnTimer * 0.3);
+      ctx.fillStyle = '#f93';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+    }
+
+    // Big border
+    if (this.big) {
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 1, sy + 1, this.w - 2, this.h - 2);
+    }
+
+    // Eyes
+    const eo = this.big ? 6 : 4;
+    const es = this.big ? 7 : 5;
+    ctx.fillStyle = '#fff';
+    const eyeX = this.facing > 0 ? sx + this.w - eo - es : sx + eo;
+    ctx.fillRect(eyeX, sy + eo + 2, es, es);
+    ctx.fillStyle = '#200';
+    const ps = this.big ? 4 : 3;
+    ctx.fillRect(this.facing > 0 ? eyeX + es - ps : eyeX, sy + eo + 4, ps, ps);
+
+    // Type accents
+    switch (this.type) {
+      case 'shooter':
+        ctx.fillStyle = '#ff4';
+        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h/2 - 2, 6, 4);
+        break;
+      case 'jumper':
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(sx + 4, sy + this.h - 3, 6, 5);
+        ctx.fillRect(sx + this.w - 10, sy + this.h - 3, 6, 5);
+        break;
+      case 'bouncer':
+        ctx.fillStyle = '#f6f';
+        ctx.fillRect(sx + 2, sy, this.w - 4, 3);
+        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 8, sy + this.h/2 - 3, 8, 6);
+        break;
+      case 'shielded':
+        if (this.shieldHp > 0) {
+          ctx.fillStyle = `rgba(100,220,255,${0.4 + 0.2 * (this.shieldHp / this.shieldMax)})`;
+          ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, sy - 2, 5, this.h + 4);
+        }
+        ctx.fillStyle = '#5a8';
+        ctx.fillRect(sx + 2, sy, this.w - 4, 3);
+        break;
+      case 'flyer':
+        ctx.fillStyle = '#bdb';
+        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
+        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
+        break;
+      case 'flyshooter':
+        ctx.fillStyle = '#dba';
+        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
+        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
+        ctx.fillStyle = '#fa4';
+        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h/2 - 2, 6, 4);
+        break;
+    }
+
+    // Melee sword (shown when just hit player)
+    if (this.hitCooldown > 20 && this.type !== 'shooter' && this.type !== 'flyshooter') {
+      const sl = this.big ? 16 : 12;
+      const sw = this.big ? 4 : 3;
+      const swordX = this.facing > 0 ? sx + this.w : sx - sl;
+      const swordY = sy + this.h / 2 - sw / 2;
+      ctx.fillStyle = '#ccd';
+      ctx.fillRect(swordX, swordY, sl, sw);
+      ctx.fillStyle = this.color;
+      ctx.fillRect(this.facing > 0 ? sx + this.w - 2 : sx, swordY - 2, 3, sw + 4);
+    }
+
+    // HP bar
+    if (this.hp < this.maxHp) {
+      ctx.fillStyle = '#400';
+      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillStyle = '#f44';
+      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
+    }
+
+    // Crystal ninja: melee warning "!" when enemy is close
+    if (game.player.ninjaType === 'crystal' && this.type !== 'shooter' && this.type !== 'flyshooter') {
+      const dx = (this.x + this.w / 2) - (game.player.x + game.player.w / 2);
+      const dy = (this.y + this.h / 2) - (game.player.y + game.player.h / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 80 && this.hitCooldown <= 0) {
+        const pulse = Math.sin(game.tick * 0.3) * 0.3 + 0.7;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = '#ff0';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText('!', sx + this.w / 2 - 4, sy - 12);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Shield pips
+    if (this.type === 'shielded' && this.shieldMax > 0) {
+      for (let i = 0; i < this.shieldMax; i++) {
+        ctx.fillStyle = i < this.shieldHp ? '#5ff' : '#234';
+        ctx.fillRect(sx + i * 7 + 2, sy - 14, 5, 3);
+      }
+    }
+  }
+}
+
+// ============================================================
+//  Boss (wave-based variation)
+// ============================================================
+const BOSS_NAMES = {
+  walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
+  bouncer:'BOUNCER', shielded:'GUARDIAN', flyer:'SWOOPER', flyshooter:'OVERLORD'
+};
+
+class Boss {
+  constructor(x, y, bossType, wave) {
+    this.bossType = bossType;
+    this.wave = wave;
+    this.x = x; this.y = y;
+    this.w = 56; this.h = 56;
+    this.vx = 0; this.vy = 0;
+    this.hp = 25 + wave * 8; this.maxHp = this.hp;
+    this.facing = -1;
+    this.dead = false;
+    this.hitCooldown = 0;
+    this.flashTimer = 0;
+    this.phase = 1;
+    this.actionTimer = 0;
+    this.state = 'chase';
+    this.stateTimer = 0;
+    this.grounded = false;
+    this.flying = (bossType === 'flyer' || bossType === 'flyshooter');
+    this.hoverPhase = 0;
+    this.shieldHp = (bossType === 'shielded') ? 6 : 0;
+    this.shieldMax = this.shieldHp;
+    const colors = {
+      walker:'#c33', shooter:'#cc5', jumper:'#c8c',
+      bouncer:'#c5c', shielded:'#5cc', flyer:'#8c5', flyshooter:'#c85'
+    };
+    this.color = colors[bossType] || '#c33';
+    this.name = (BOSS_NAMES[bossType] || 'BIG') + ' BOSS';
+  }
+
+  update(game) {
+    if (this.dead) return;
+    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.flashTimer > 0) this.flashTimer--;
+    this.phase = this.hp <= this.maxHp / 2 ? 2 : 1;
+    const speed = (this.phase === 2 ? 2.8 : 1.8) + this.wave * 0.15;
+
+    if (this.flying) {
+      this.hoverPhase += 0.03;
+    } else {
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    }
+
+    const px = game.player.x + game.player.w / 2;
+    const py = game.player.y + game.player.h / 2;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dx = px - cx;
+    const dy = py - cy;
+    this.facing = dx > 0 ? 1 : -1;
+    this.stateTimer++;
+    this.actionTimer++;
+
+    const canShoot = (this.bossType === 'shooter' || this.bossType === 'bouncer' || this.bossType === 'flyshooter');
+    const isJumpy = (this.bossType === 'jumper');
+
+    if (this.flying) {
+      // Flying boss AI
+      switch (this.state) {
+        case 'chase': {
+          const tdx = dx, tdy = (py - (this.bossType === 'flyshooter' ? 90 : 30)) - cy;
+          const td = Math.sqrt(tdx*tdx + tdy*tdy);
+          if (td > 30) {
+            this.vx = (tdx/td) * speed;
+            this.vy = (tdy/td) * speed + Math.sin(this.hoverPhase) * 0.5;
+          } else {
+            this.vx *= 0.9; this.vy = Math.sin(this.hoverPhase) * 1.5;
+          }
+          if (this.actionTimer > 100) {
+            this.state = canShoot ? 'shoot' : 'swoop';
+            this.stateTimer = 0; this.actionTimer = 0;
+          }
+          break;
+        }
+        case 'swoop':
+          if (this.stateTimer === 1) { this.vx = this.facing * 8; this.vy = 5; }
+          if (this.stateTimer > 30) {
+            this.vy = -3;
+            if (this.stateTimer > 45) {
+              this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+            }
+          }
+          break;
+        case 'shoot':
+          this.vx *= 0.9; this.vy = Math.sin(this.hoverPhase) * 1;
+          if (this.stateTimer === 15 || this.stateTimer === 30 || (this.phase === 2 && this.stateTimer === 45)) {
+            const d = Math.sqrt(dx*dx + dy*dy);
+            if (d > 0) {
+              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 2, 'enemy');
+              if (this.bossType === 'bouncer') p.bouncy = true;
+              game.projectiles.push(p);
+            }
+          }
+          if (this.stateTimer > 60) {
+            this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+          }
+          break;
+      }
+      if (this.y < -80) this.y = -80;
+      if (this.y > 440) this.y = 440;
+    } else {
+      // Ground boss AI
+      switch (this.state) {
+        case 'chase':
+          this.vx = this.facing * speed;
+          if (this.actionTimer > (isJumpy ? 60 : 110) && this.grounded) {
+            const r = Math.random();
+            if (canShoot && r < 0.4) this.state = 'shoot';
+            else this.state = 'jump';
+            this.stateTimer = 0; this.actionTimer = 0;
+          }
+          break;
+        case 'jump':
+          if (this.stateTimer === 1) {
+            this.vy = isJumpy ? -14 : -12;
+            this.vx = this.facing * (isJumpy ? 7 : 5);
+          }
+          if (this.stateTimer > 10 && this.grounded) {
+            game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
+            if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
+              const kbDir = Math.sign(game.player.x - cx) || 1;
+              game.player.vx = kbDir * 10;
+              game.player.vy = -5;
+              game.player.takeDamage(3, game);
+            }
+            this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+          }
+          break;
+        case 'shoot':
+          this.vx = 0;
+          if (this.stateTimer === 15 || this.stateTimer === 35 || (this.phase === 2 && this.stateTimer === 50)) {
+            const d = Math.sqrt(dx*dx + dy*dy);
+            if (d > 0) {
+              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 2, 'enemy');
+              if (this.bossType === 'bouncer') p.bouncy = true;
+              game.projectiles.push(p);
+            }
+          }
+          if (this.stateTimer > 65) {
+            this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+          }
+          break;
+      }
+    }
+
+    // Apply velocity
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Platform collision (ground bosses)
+    if (!this.flying) {
+      this.grounded = false;
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p)) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+            this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+          } else if (this.vy < 0 && this.y - this.vy >= p.y + p.h - 4) {
+            this.y = p.y + p.h; this.vy = 0;
+          } else if (this.vx > 0) {
+            this.x = p.x - this.w;
+          } else if (this.vx < 0) {
+            this.x = p.x + p.w;
+          }
+        }
+      }
+    }
+
+    // Contact damage
+    if (this.hitCooldown <= 0 && rectOverlap(this, game.player)) {
+      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+      game.player.vx = kbDir * 10;
+      game.player.vy = -5;
+      game.player.takeDamage(3, game);
+      this.hitCooldown = 45;
+    }
+  }
+
+  takeDamage(amount, game, fromX) {
+    if (this.dead) return;
+    // Shield check
+    if (this.shieldHp > 0 && fromX !== undefined) {
+      const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
+      if (hitFromFront) {
+        this.shieldHp -= amount;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(this.x + (this.facing > 0 ? this.w : 0), this.y + this.h/2, '#5ff', 6, 3, 10));
+        if (this.shieldHp < 0) this.shieldHp = 0;
+        return;
+      }
+    }
+    this.hp -= amount;
+    this.flashTimer = 8;
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f88', 6, 3, 10));
+    // Boss knockback (slight — bosses are heavy)
+    const bDir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
+    this.vx += bDir * 2;
+    if (this.hp <= 0) {
+      this.dead = true;
+      triggerHitstop(10);
+      game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f44', 30, 6, 30));
+      game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#ff0', 20, 5, 25));
+    }
+  }
+
+  render(ctx, cam) {
+    if (this.dead) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+
+    // Aura
+    ctx.fillStyle = this.phase === 2 ? 'rgba(255,50,50,0.25)' : 'rgba(200,50,50,0.12)';
+    ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
+
+    // Body
+    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color);
+    ctx.fillRect(sx, sy, this.w, this.h);
+
+    // Flying wings
+    if (this.flying) {
+      ctx.fillStyle = this.color;
+      ctx.fillRect(sx - 8, sy + 6, 8, this.h - 12);
+      ctx.fillRect(sx + this.w, sy + 6, 8, this.h - 12);
+    }
+
+    // Shield
+    if (this.shieldHp > 0) {
+      ctx.fillStyle = `rgba(100,220,255,${0.5 + 0.2 * (this.shieldHp / this.shieldMax)})`;
+      ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
+    }
+
+    // Eyes
+    ctx.fillStyle = '#ff0';
+    const eyeX = this.facing > 0 ? sx + 28 : sx + 6;
+    ctx.fillRect(eyeX, sy + 14, 8, 8);
+    ctx.fillRect(eyeX + 14, sy + 14, 8, 8);
+    ctx.fillStyle = '#200';
+    ctx.fillRect(eyeX + 2, sy + 17, 4, 4);
+    ctx.fillRect(eyeX + 16, sy + 17, 4, 4);
+
+    // Crown / horns
+    ctx.fillStyle = '#ff0';
+    ctx.fillRect(sx + 8, sy - 6, 6, 8);
+    ctx.fillRect(sx + this.w - 14, sy - 6, 6, 8);
+    ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
+
+    if (this.phase === 2) {
+      ctx.fillStyle = '#f44';
+      ctx.font = '10px monospace';
+      ctx.fillText('ENRAGED!', sx + this.w/2 - 28, sy - 14);
+    }
+
+    // Boss melee sword (shown when just hit player)
+    if (this.hitCooldown > 30) {
+      const sl = 24;
+      const sw = 5;
+      const swordX = this.facing > 0 ? sx + this.w : sx - sl;
+      const swordY = sy + this.h / 2 - sw / 2;
+      ctx.fillStyle = '#dde';
+      ctx.fillRect(swordX, swordY, sl, sw);
+      ctx.fillStyle = this.color;
+      ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, swordY - 3, 4, sw + 6);
+    }
+  }
+}
+
+// ============================================================
+//  Game
+// ============================================================
+class Game {
+  constructor() {
+    this.tick = 0;
+    this.camera = { x: 0, y: 0 };
+    this.player = new Player(100, 300);
+    this.platforms = [];
+    this.enemies = [];
+    this.projectiles = [];
+    this.effects = [];
+    this.stoneBlocks = [];
+    this.bubbles = [];
+    this.orbs = [];
+    this.fireTrails = [];
+    this.deaths = 0;
+
+    // Wave / spawn system
+    this.wave = 1;
+    this.waveKills = 0;
+    this.totalKills = 0;
+    this.typesUnlocked = 1;     // types unlocked in current wave (max 3)
+    this.killsSinceUnlock = 0;   // kills since last type unlock or wave start
+    this.killsToUnlock = 4;      // kills needed to unlock next type
+    this.killsForBoss = 4;       // kills after 3rd type to trigger boss
+    this.boss = null;
+    this.bossActive = false;
+    this.bossMessage = 0;
+    this.waveMessage = '';
+    this.waveMessageTimer = 0;
+    this.spawnTimer = 0;
+    this.spawnInterval = 120;    // ~2 seconds between spawns
+    this.maxEnemies = 10;
+
+    this.buildLevel();
+    this.showWaveMessage('Wave 1 — Fight!');
+  }
+
+  // Get the tier indices available for the current wave
+  getAvailableTiers() {
+    const tiers = [];
+    const base = this.wave - 1;
+    for (let i = 0; i < this.typesUnlocked; i++) tiers.push(base + i);
+    return tiers;
+  }
+
+  showWaveMessage(text) {
+    this.waveMessage = text;
+    this.waveMessageTimer = 180;
+  }
+
+  buildLevel() {
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+
+    // Ground
+    P(0, 480, 3200, 60, '#555');
+
+    // Lower platforms
+    P(200, 400, 160, 16, '#666');
+    P(450, 360, 120, 16, '#666');
+    P(650, 320, 140, 16, '#666');
+    P(900, 380, 120, 16, '#666');
+    P(1100, 340, 160, 16, '#666');
+
+    // Mid platforms
+    P(300, 260, 120, 16, '#777');
+    P(550, 220, 100, 16, '#777');
+    P(780, 180, 140, 16, '#777');
+    P(1050, 240, 140, 16, '#777');
+    P(1300, 200, 120, 16, '#777');
+
+    // High platforms
+    P(400, 140, 100, 16, '#888');
+    P(700, 100, 140, 16, '#888');
+    P(1000, 130, 120, 16, '#888');
+
+    // Extended area
+    P(1500, 420, 200, 16, '#666');
+    P(1750, 360, 160, 16, '#666');
+    P(1950, 300, 140, 16, '#666');
+    P(2150, 380, 120, 16, '#666');
+    P(2350, 320, 180, 16, '#666');
+    P(2600, 400, 200, 16, '#666');
+    P(2850, 350, 160, 16, '#666');
+
+    // L-shaped platforms
+    // L1: bottom-left corner
+    P(150, 440, 80, 16, '#686'); P(150, 380, 16, 60, '#686');
+    // L2: inverted-L mid area
+    P(830, 260, 16, 70, '#686'); P(830, 260, 90, 16, '#686');
+    // L3: right-side L
+    P(1400, 370, 80, 16, '#686'); P(1464, 310, 16, 60, '#686');
+    // L4: extended area L
+    P(2050, 240, 16, 70, '#686'); P(2050, 240, 90, 16, '#686');
+    // L5: far right inverted-L
+    P(2750, 280, 80, 16, '#686'); P(2750, 280, 16, 70, '#686');
+
+    // Walls
+    P(-32, 0, 32, 540, '#444');
+    P(3200, 0, 32, 540, '#444');
+  }
+
+  spawnEnemy() {
+    const tiers = this.getAvailableTiers();
+    const tierIdx = tiers[randInt(0, tiers.length - 1)];
+    const info = getTierInfo(tierIdx);
+
+    // 30% chance to spawn from above, 70% from sides
+    const fromAbove = Math.random() < 0.3;
+    let x, y;
+    if (fromAbove) {
+      x = this.player.x + randInt(-300, 300);
+      y = -40;
+    } else {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      x = this.player.x + side * randInt(350, 550);
+      y = (info.type === 'flyer' || info.type === 'flyshooter') ? randInt(50, 250) : 440;
+    }
+    // Clamp to level
+    x = Math.max(40, Math.min(3140, x));
+
+    const e = new Enemy(x, y, info.type, info.big);
+    this.enemies.push(e);
+    // Spawn effect
+    this.effects.push(new Effect(x + e.w/2, y + e.h/2, '#fff', 6, 3, 10));
+  }
+
+  spawnBoss() {
+    // Boss type = highest tier available in this wave
+    const tiers = this.getAvailableTiers();
+    const topTier = tiers[tiers.length - 1];
+    const info = getTierInfo(topTier);
+    this.boss = new Boss(this.player.x + 300, 300, info.type, this.wave);
+    this.bossActive = true;
+    this.bossMessage = 180;
+    this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, '#f44', 25, 6, 25));
+    this.showWaveMessage(this.boss.name + ' appeared!');
+  }
+
+  advanceWave() {
+    this.wave++;
+    this.waveKills = 0;
+    this.typesUnlocked = 1;
+    this.killsSinceUnlock = 0;
+    this.boss = null;
+    this.bossActive = false;
+    // Brief breather: clear projectiles but keep some enemies alive
+    this.projectiles = [];
+    // Pause spawning for ~2 seconds
+    this.spawnTimer = -120;
+    // Increase difficulty slightly each wave
+    this.spawnInterval = Math.max(60, 120 - this.wave * 6);
+    this.maxEnemies = Math.min(16, 10 + Math.floor(this.wave / 2));
+    this.showWaveMessage(`Wave ${this.wave} — Fight!`);
+  }
+
+  update() {
+    this.tick++;
+
+    // Ninja switching (1–6)
+    if (consumePress('Digit1')) this.player.switchNinja('fire');
+    if (consumePress('Digit2')) this.player.switchNinja('earth');
+    if (consumePress('Digit3')) this.player.switchNinja('bubble');
+    if (consumePress('Digit4')) this.player.switchNinja('shadow');
+    if (consumePress('Digit5')) this.player.switchNinja('crystal');
+    if (consumePress('Digit6')) this.player.switchNinja('wind');
+
+    // Cheat: + to skip wave
+    if (consumePress('Equal') || consumePress('NumpadAdd')) {
+      if (this.boss && !this.boss.dead) this.boss.hp = 0;
+      this.advanceWave();
+    }
+
+    this.player.update(this);
+
+    for (const e of this.enemies) e.update(this);
+    if (this.boss && !this.boss.dead) this.boss.update(this);
+    for (const p of this.projectiles) p.update(this);
+    for (const e of this.effects) e.update();
+    for (const b of this.stoneBlocks) b.update(this);
+    for (const b of this.bubbles) b.update(this);
+    for (const o of this.orbs) o.update(this);
+
+    // Fire trail update
+    if (this.player.ninjaType === 'fire' && this.player.grounded && Math.abs(this.player.vx) > 1) {
+      if (this.tick % 4 === 0) {
+        this.fireTrails.push({ x: this.player.x + this.player.w / 2, y: this.player.y + this.player.h, life: 90 });
+      }
+    }
+    for (const ft of this.fireTrails) {
+      ft.life--;
+      // Burn enemies standing on fire trail
+      if (ft.life % 20 === 0) {
+        for (const e of this.enemies) {
+          if (!e.dead && Math.abs(e.x + e.w/2 - ft.x) < 16 && Math.abs(e.y + e.h - ft.y) < 12) {
+            e.burnTimer = Math.max(e.burnTimer, 60);
+          }
+        }
+      }
+    }
+    this.fireTrails = this.fireTrails.filter(ft => ft.life > 0);
+
+    // ── Wave / spawn logic ──
+    // Type unlock check
+    if (this.typesUnlocked < 3 && this.killsSinceUnlock >= this.killsToUnlock) {
+      this.typesUnlocked++;
+      this.killsSinceUnlock = 0;
+      const tiers = this.getAvailableTiers();
+      const newTier = tiers[tiers.length - 1];
+      this.showWaveMessage('New: ' + getTierName(newTier) + '!');
+    }
+
+    // Boss spawn (3 types unlocked + enough kills after)
+    if (this.typesUnlocked >= 3 && !this.bossActive && this.killsSinceUnlock >= this.killsForBoss) {
+      this.spawnBoss();
+    }
+
+    // Boss defeated → advance wave
+    if (this.boss && this.boss.dead) {
+      this.advanceWave();
+    }
+
+    // Spawn enemies on timer
+    const aliveCount = this.enemies.filter(e => !e.dead).length;
+    const maxDuringBoss = this.bossActive ? Math.min(this.maxEnemies, 4) : this.maxEnemies;
+    this.spawnTimer++;
+    if (this.spawnTimer >= this.spawnInterval && aliveCount < maxDuringBoss) {
+      this.spawnTimer = 0;
+      this.spawnEnemy();
+    }
+
+    if (this.bossMessage > 0) this.bossMessage--;
+    if (this.waveMessageTimer > 0) this.waveMessageTimer--;
+
+    // Cleanup
+    this.enemies = this.enemies.filter(e => !e.dead);
+    this.projectiles = this.projectiles.filter(p => !p.done);
+    this.effects = this.effects.filter(e => !e.done);
+    this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
+    this.bubbles = this.bubbles.filter(b => !b.done);
+    this.orbs = this.orbs.filter(o => !o.done);
+
+    // Camera follows player (smooth)
+    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
+    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
+    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
+    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
+    this.camera.x = Math.max(0, Math.min(this.camera.x, 3200 - CANVAS_W));
+    this.camera.y = Math.max(-100, Math.min(this.camera.y, 540 - CANVAS_H));
+  }
+
+  render() {
+    const cam = this.camera;
+
+    // Sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, '#0a0a2e');
+    grad.addColorStop(1, '#1a1a3e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Background stars
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    for (let i = 0; i < 50; i++) {
+      const sx = ((i * 137 + 50) % 3200) - cam.x * 0.3;
+      const sy = ((i * 97 + 30) % 400);
+      if (sx > -5 && sx < CANVAS_W + 5) {
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+    }
+
+    // Background mountains
+    ctx.fillStyle = '#1a1a3a';
+    for (let i = 0; i < 3200; i += 200) {
+      const bx = i - cam.x * 0.2;
+      if (bx > -200 && bx < CANVAS_W + 200) {
+        ctx.beginPath();
+        ctx.moveTo(bx, 480 - cam.y);
+        ctx.lineTo(bx + 100, 300 - cam.y);
+        ctx.lineTo(bx + 200, 480 - cam.y);
+        ctx.fill();
+      }
+    }
+
+    // Platforms
+    for (const p of this.platforms) p.render(ctx, cam);
+
+    // Fire trails
+    for (const ft of this.fireTrails) {
+      const alpha = Math.min(1, ft.life / 30) * 0.6;
+      ctx.globalAlpha = alpha;
+      const flicker = Math.sin(ft.life * 0.5) * 2;
+      ctx.fillStyle = ft.life > 50 ? '#f93' : (ft.life > 25 ? '#e52' : '#a30');
+      ctx.fillRect(ft.x - 4 - cam.x, ft.y - 6 + flicker - cam.y, 8, 6);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(ft.x - 2 - cam.x, ft.y - 8 + flicker - cam.y, 4, 4);
+    }
+    ctx.globalAlpha = 1;
+
+    // Stone blocks
+    for (const b of this.stoneBlocks) b.render(ctx, cam);
+
+    // Bubbles
+    for (const b of this.bubbles) b.render(ctx, cam);
+
+    // Orbs
+    for (const o of this.orbs) o.render(ctx, cam);
+
+    // Enemies
+    for (const e of this.enemies) e.render(ctx, cam, this);
+
+    // Boss
+    if (this.boss && !this.boss.dead) this.boss.render(ctx, cam);
+
+    // Player
+    this.player.render(ctx, cam);
+
+    // Projectiles
+    for (const p of this.projectiles) p.render(ctx, cam);
+
+    // Effects
+    for (const e of this.effects) e.render(ctx, cam);
+
+    // ── UI ──
+    this.renderUI();
+  }
+
+  renderUI() {
+    const pl = this.player;
+    const t = pl.type;
+
+    // Dark panel
+    // ── Bottom center HUD ──
+    const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind'];
+    const barX = CANVAS_W / 2 - 156;
+    const barY = CANVAS_H - 40;
+
+    // HP bar (left of ninja bar)
+    const hpX = barX - 80;
+
+    // Shield bar (top, only if has shield)
+    let hpTop = barY - 2;
+    if (pl.maxShield > 0) {
+      ctx.fillStyle = '#4af'; ctx.font = '7px monospace';
+      ctx.fillText(`Shield ${pl.shield}/${pl.maxShield}`, hpX, hpTop - 18);
+      ctx.fillStyle = '#124';
+      ctx.fillRect(hpX, hpTop - 14, 70, 5);
+      ctx.fillStyle = '#4af';
+      ctx.fillRect(hpX, hpTop - 14, 70 * (pl.shield / pl.maxShield), 5);
+    }
+
+    // HP bar
+    ctx.fillStyle = '#fff'; ctx.font = '8px monospace';
+    ctx.fillText(`${pl.hp}/${pl.maxHp}`, hpX, hpTop - 4);
+    ctx.fillStyle = '#400';
+    ctx.fillRect(hpX, hpTop, 70, 8);
+    ctx.fillStyle = '#e44';
+    ctx.fillRect(hpX, hpTop, 70 * (pl.hp / pl.maxHp), 8);
+
+    // Ninja-specific meter (below HP bar)
+    const meterLX = hpX;
+    const meterLY = hpTop + 12;
+    if (pl.ninjaType === 'fire') {
+      ctx.fillStyle = '#420'; ctx.fillRect(meterLX, meterLY, 70, 5);
+      ctx.fillStyle = '#f93'; ctx.fillRect(meterLX, meterLY, 70 * (pl.comboMeter / 10), 5);
+      if (pl.fireArmor) { ctx.fillStyle = '#f93'; ctx.font = '7px monospace'; ctx.fillText('ARMOR', meterLX, meterLY + 12); }
+    } else if (pl.ninjaType === 'earth') {
+      ctx.fillStyle = '#a87'; ctx.font = '7px monospace'; ctx.fillText(`Blocks:${this.stoneBlocks.length}`, meterLX, meterLY + 5);
+    } else if (pl.ninjaType === 'bubble') {
+      ctx.fillStyle = '#234'; ctx.fillRect(meterLX, meterLY, 70, 5);
+      ctx.fillStyle = '#6af'; ctx.fillRect(meterLX, meterLY, 70 * Math.min(1, pl.bubbleBuffTimer / 240), 5);
+      if (pl.bubbleBuffTimer > 0) { ctx.fillStyle = '#6af'; ctx.font = '7px monospace'; ctx.fillText('FLOAT', meterLX, meterLY + 12); }
+    } else if (pl.ninjaType === 'shadow') {
+      ctx.fillStyle = '#a4e'; ctx.font = '7px monospace';
+      if (pl.backstabReady) {
+        ctx.fillText('BACKSTAB!', meterLX, meterLY + 5);
+      } else {
+        ctx.fillText(`Stealth:${Math.min(100, Math.floor(pl.shadowStealth / 3))}%`, meterLX, meterLY + 5);
+        if (pl.shadowKillThreshold > 0) { ctx.fillStyle = '#c6f'; ctx.fillText(`Kill≤${pl.shadowKillThreshold}HP`, meterLX, meterLY + 14); }
+      }
+    } else if (pl.ninjaType === 'crystal') {
+      ctx.fillStyle = '#234'; ctx.fillRect(meterLX, meterLY, 70, 5);
+      ctx.fillStyle = '#0ff'; ctx.fillRect(meterLX, meterLY, 70 * Math.min(1, pl.parryCombo / 10), 5);
+      if (pl.parrying) { ctx.fillStyle = '#0ff'; ctx.font = '7px monospace'; ctx.fillText('PARRY', meterLX, meterLY + 12); }
+    } else if (pl.ninjaType === 'wind') {
+      ctx.fillStyle = '#242'; ctx.fillRect(meterLX, meterLY, 70, 5);
+      ctx.fillStyle = '#8d8'; ctx.fillRect(meterLX, meterLY, 70 * (pl.windPower / 10), 5);
+      if (pl.windDashing) { ctx.fillStyle = '#bfb'; ctx.font = '7px monospace'; ctx.fillText('DASH', meterLX, meterLY + 12); }
+    }
+
+    // ATK + Special (right of ninja bar)
+    const rightX = barX + 6 * 52 + 10;
+    const baseDmg = t.attackDamage;
+    let bonusText = '';
+    let totalDmg = baseDmg + pl.bonusDamage;
+    if (pl.bonusDamage > 0) bonusText += `+${pl.bonusDamage}`;
+    if (pl.bubbleBuffTimer > 0) bonusText += '+1';
+    if (pl.ninjaType === 'crystal' && pl.parryCombo > 0) { const cb = Math.floor(pl.parryCombo / 2); totalDmg += cb; if (cb > 0) bonusText += `+${cb}`; }
+    if (pl.ninjaType === 'wind' && pl.windPower > 0) { totalDmg += pl.windPower; bonusText += `+${pl.windPower}`; }
+    if (pl.ninjaType === 'shadow' && pl.backstabReady) { bonusText = ' KILL!'; totalDmg = 9999; }
+    if (pl.nextHitDouble) bonusText += ' x2!';
+    ctx.fillStyle = pl.nextHitDouble ? '#ff0' : '#f80'; ctx.font = 'bold 9px monospace';
+    ctx.fillText(`ATK ${baseDmg}${bonusText}`, rightX, barY + 8);
+    if (pl.specialCooldown > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '8px monospace';
+      ctx.fillText(`X:${Math.ceil(pl.specialCooldown / 60 * 100)}%`, rightX, barY + 20);
+    } else {
+      ctx.fillStyle = '#8f8'; ctx.font = '8px monospace';
+      ctx.fillText('X:RDY', rightX, barY + 20);
+    }
+    // Shuriken count
+    ctx.fillStyle = pl.shurikens > 0 ? '#ccc' : '#555'; ctx.font = '8px monospace';
+    ctx.fillText(`C:\u2726${pl.shurikens}`, rightX, barY + 32);
+
+    // Ninja name (centered above bar)
+    ctx.fillStyle = t.color; ctx.font = 'bold 9px monospace';
+    const nameW = ctx.measureText(t.name).width;
+    ctx.fillText(t.name, CANVAS_W / 2 - nameW / 2, barY - 4);
+
+    for (let i = 0; i < 6; i++) {
+      const nt = NINJA_TYPES[ninjaKeys[i]];
+      const bx = barX + i * 52;
+      const selected = pl.ninjaType === ninjaKeys[i];
+      ctx.fillStyle = selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.5)';
+      ctx.fillRect(bx, barY, 48, 28);
+      if (selected) {
+        ctx.strokeStyle = nt.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, barY, 48, 28);
+      }
+      ctx.fillStyle = nt.color;
+      ctx.fillRect(bx + 4, barY + 4, 12, 12);
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px monospace';
+      ctx.fillText(`${i + 1}`, bx + 20, barY + 14);
+      ctx.font = '8px monospace';
+      ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, barY + 23);
+    }
+
+    // Controls hint
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '10px monospace';
+    ctx.fillText('WASD/Arrows=Move  Z=Attack  X=Special  1-6=Switch Ninja', CANVAS_W / 2 - 175, CANVAS_H - 6);
+
+    // ── Death counter (top left) ──
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(8, 8, 90, 24);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(8, 8, 90, 24);
+    ctx.fillStyle = '#f66';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`Deaths: ${this.deaths}`, 16, 25);
+
+    // ── Wave info panel (top right) ──
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(CANVAS_W - 175, 8, 167, 62);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(CANVAS_W - 175, 8, 167, 62);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(`Wave ${this.wave}`, CANVAS_W - 167, 24);
+    ctx.font = '10px monospace';
+    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 38);
+
+    // Types unlocked indicator
+    const tiers = this.getAvailableTiers();
+    for (let i = 0; i < tiers.length; i++) {
+      const info = getTierInfo(tiers[i]);
+      ctx.fillStyle = ENEMY_STATS[info.type].color;
+      ctx.fillRect(CANVAS_W - 167 + i * 18, 45, 14, 14);
+      if (info.big) {
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1;
+        ctx.strokeRect(CANVAS_W - 167 + i * 18, 45, 14, 14);
+      }
+    }
+
+    // Progress text
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px monospace';
+    if (this.bossActive) {
+      ctx.fillStyle = '#f66';
+      ctx.fillText('BOSS FIGHT!', CANVAS_W - 167, 66);
+    } else if (this.typesUnlocked >= 3) {
+      ctx.fillText(`Boss in ${Math.max(0, this.killsForBoss - this.killsSinceUnlock)} kills`, CANVAS_W - 167, 66);
+    } else {
+      ctx.fillText(`New type in ${Math.max(0, this.killsToUnlock - this.killsSinceUnlock)} kills`, CANVAS_W - 167, 66);
+    }
+
+    // Boss HP bar (top center)
+    if (this.boss && !this.boss.dead) {
+      const bw = 300;
+      const bx = CANVAS_W / 2 - bw / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(bx - 4, 6, bw + 8, 24);
+      ctx.fillStyle = '#f44';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(this.boss.name, bx, 20);
+      const labelW = ctx.measureText(this.boss.name).width + 8;
+      ctx.fillStyle = '#400';
+      ctx.fillRect(bx + labelW, 10, bw - labelW, 14);
+      ctx.fillStyle = this.boss.phase === 2 ? '#f22' : '#e44';
+      ctx.fillRect(bx + labelW, 10, (bw - labelW) * (this.boss.hp / this.boss.maxHp), 14);
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px monospace';
+      ctx.fillText(`${this.boss.hp}/${this.boss.maxHp}`, bx + bw - 55, 21);
+    }
+
+    // Wave / boss message (center screen)
+    if (this.waveMessageTimer > 0) {
+      ctx.globalAlpha = Math.min(1, this.waveMessageTimer / 30);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 22px monospace';
+      const tw = ctx.measureText(this.waveMessage).width;
+      ctx.fillText(this.waveMessage, CANVAS_W / 2 - tw / 2, CANVAS_H / 2 - 60);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ============================================================
+//  Game Loop (fixed timestep)
+// ============================================================
+const game = new Game();
+let lastTime = 0;
+let accumulator = 0;
+
+function gameLoop(timestamp) {
+  const delta = timestamp - lastTime;
+  lastTime = timestamp;
+  accumulator += delta;
+
+  // Cap accumulator to prevent spiral of death
+  if (accumulator > 200) accumulator = 200;
+
+  while (accumulator >= FIXED_DT) {
+    if (hitstopFrames > 0) {
+      hitstopFrames--;
+      // During hitstop: skip game update but still consume input
+      for (const k in justPressed) justPressed[k] = false;
+      accumulator -= FIXED_DT;
+      continue;
+    }
+    game.update();
+    accumulator -= FIXED_DT;
+    // Clear justPressed after each logical frame
+    for (const k in justPressed) justPressed[k] = false;
+  }
+
+  game.render();
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(ts => {
+  lastTime = ts;
+  gameLoop(ts);
+});
+</script>
+</body>
+</html>
