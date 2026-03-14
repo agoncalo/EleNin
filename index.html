@@ -8,6 +8,8 @@
 body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
 canvas { border: 2px solid #333; image-rendering: pixelated; }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -24,6 +26,82 @@ const TILE = 32;
 const GRAVITY = 0.55;
 const MAX_FALL = 12;
 const FIXED_DT = 1000 / 60; // 60 fps timestep
+
+// ── Firebase + Leaderboard ───────────────────────────────────
+// REPLACE this config with your own Firebase project config!
+const FIREBASE_CONFIG = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "YOUR_APP_ID"
+};
+
+let firebaseReady = false;
+let dbRef = null;
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  dbRef = firebase.database().ref();
+  firebaseReady = true;
+} catch(e) { console.warn('Firebase init failed, using localStorage only:', e); }
+
+const Leaderboard = {
+  scores: [],
+  totalPlays: 0,
+  loaded: false,
+
+  init() {
+    // Load total plays from localStorage as fallback
+    this.totalPlays = parseInt(localStorage.getItem('elenin_totalPlays') || '0', 10);
+    this.scores = JSON.parse(localStorage.getItem('elenin_highscores') || '[]');
+    this.loaded = true;
+
+    if (firebaseReady) {
+      // Fetch leaderboard
+      dbRef.child('scores').orderByChild('time').limitToFirst(10).on('value', snap => {
+        const data = snap.val();
+        if (data) {
+          this.scores = Object.values(data).sort((a, b) => a.time - b.time).slice(0, 10);
+        }
+        this.loaded = true;
+      });
+      // Fetch total plays
+      dbRef.child('totalPlays').on('value', snap => {
+        this.totalPlays = snap.val() || 0;
+      });
+    }
+  },
+
+  incrementPlays() {
+    this.totalPlays++;
+    localStorage.setItem('elenin_totalPlays', String(this.totalPlays));
+    if (firebaseReady) {
+      dbRef.child('totalPlays').set(this.totalPlays);
+    }
+  },
+
+  submitScore(name, time, kills, deaths, ninja) {
+    const entry = { name: name.substring(0, 12), time, kills, deaths, ninja, date: Date.now() };
+    // localStorage
+    this.scores.push(entry);
+    this.scores.sort((a, b) => a.time - b.time);
+    this.scores = this.scores.slice(0, 10);
+    localStorage.setItem('elenin_highscores', JSON.stringify(this.scores));
+    // Firebase
+    if (firebaseReady) {
+      dbRef.child('scores').push(entry);
+    }
+  },
+
+  formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+};
+Leaderboard.init();
 
 // Hitstop
 let hitstopFrames = 0;
@@ -2482,6 +2560,12 @@ class Game {
     this.waveMessage = '';
     this.waveMessageTimer = 0;
     this.gameWon = false;
+    this.gameTime = 0; // frames elapsed
+    this.nameEntry = '';
+    this.nameSubmitted = false;
+    this.showHighscores = false;
+
+    Leaderboard.incrementPlays();
 
     this.buildLevel();
     this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
@@ -2621,12 +2705,17 @@ class Game {
   update() {
     this.tick++;
 
-    // Restart on R key (when game won)
-    if (this.gameWon && consumePress('KeyR')) {
+    // Restart on R key (when game won and score submitted)
+    if (this.gameWon && this.nameSubmitted && consumePress('KeyR')) {
       Object.assign(this, new Game());
       return;
     }
-    if (this.gameWon) return;
+    if (this.gameWon) {
+      // Name entry input
+      return;
+    }
+
+    this.gameTime++;
 
     // Ninja switching (1–6)
     if (consumePress('Digit1')) this.player.switchNinja('fire');
@@ -2920,15 +3009,18 @@ class Game {
     ctx.font = '10px monospace';
     ctx.fillText('WASD/Arrows=Move  Z=Attack  X=Special  1-6=Switch Ninja', CANVAS_W / 2 - 175, CANVAS_H - 6);
 
-    // ── Death counter (top left) ──
+    // ── Death counter + Timer (top left) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(8, 8, 90, 24);
+    ctx.fillRect(8, 8, 145, 24);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(8, 8, 90, 24);
+    ctx.strokeRect(8, 8, 145, 24);
     ctx.fillStyle = '#f66';
     ctx.font = 'bold 11px monospace';
     ctx.fillText(`Deaths: ${this.deaths}`, 16, 25);
+    ctx.fillStyle = '#adf';
+    const timerStr = Leaderboard.formatTime(this.gameTime / 60);
+    ctx.fillText(timerStr, 105, 25);
 
     // ── Wave info panel (top right) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -3006,26 +3098,108 @@ class Game {
 
     // Victory screen
     if (this.gameWon) {
-      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      const cx = CANVAS_W / 2;
+      const timeStr = Leaderboard.formatTime(this.gameTime / 60);
+
       ctx.fillStyle = '#4f4';
       ctx.font = 'bold 36px monospace';
       const vt = 'VICTORY!';
-      const vtw = ctx.measureText(vt).width;
-      ctx.fillText(vt, CANVAS_W / 2 - vtw / 2, CANVAS_H / 2 - 40);
+      ctx.fillText(vt, cx - ctx.measureText(vt).width / 2, 100);
+
       ctx.fillStyle = '#fff';
       ctx.font = '16px monospace';
-      const st = `Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
-      const stw = ctx.measureText(st).width;
-      ctx.fillText(st, CANVAS_W / 2 - stw / 2, CANVAS_H / 2 + 10);
+      const st = `Time: ${timeStr}   Kills: ${this.totalKills}   Deaths: ${this.deaths}`;
+      ctx.fillText(st, cx - ctx.measureText(st).width / 2, 140);
+
       ctx.fillStyle = '#aaa';
+      ctx.font = '14px monospace';
+      const pt = `Total Plays: ${Leaderboard.totalPlays}`;
+      ctx.fillText(pt, cx - ctx.measureText(pt).width / 2, 165);
+
+      if (!this.nameSubmitted) {
+        // Name entry
+        ctx.fillStyle = '#ff4';
+        ctx.font = 'bold 16px monospace';
+        const et = 'Enter your name:';
+        ctx.fillText(et, cx - ctx.measureText(et).width / 2, 210);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px monospace';
+        const nameDisp = this.nameEntry + (Math.floor(this.tick / 20) % 2 ? '_' : ' ');
+        ctx.fillText(nameDisp, cx - ctx.measureText(nameDisp).width / 2, 240);
+
+        ctx.fillStyle = '#888';
+        ctx.font = '12px monospace';
+        const ht = 'Type name + ENTER to submit (max 12 chars)';
+        ctx.fillText(ht, cx - ctx.measureText(ht).width / 2, 265);
+      } else {
+        ctx.fillStyle = '#4f4';
+        ctx.font = '14px monospace';
+        const sub = 'Score submitted!';
+        ctx.fillText(sub, cx - ctx.measureText(sub).width / 2, 210);
+
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px monospace';
+        const rt = 'Press R to restart';
+        ctx.fillText(rt, cx - ctx.measureText(rt).width / 2, 235);
+      }
+
+      // Highscores table
+      ctx.fillStyle = '#ff4';
+      ctx.font = 'bold 16px monospace';
+      const hsTitle = '- HIGHSCORES -';
+      ctx.fillText(hsTitle, cx - ctx.measureText(hsTitle).width / 2, 295);
+
       ctx.font = '12px monospace';
-      const rt = 'Press R to restart';
-      const rtw = ctx.measureText(rt).width;
-      ctx.fillText(rt, CANVAS_W / 2 - rtw / 2, CANVAS_H / 2 + 40);
+      if (Leaderboard.scores.length === 0) {
+        ctx.fillStyle = '#666';
+        const ns = 'No scores yet — be the first!';
+        ctx.fillText(ns, cx - ctx.measureText(ns).width / 2, 320);
+      } else {
+        for (let i = 0; i < Math.min(10, Leaderboard.scores.length); i++) {
+          const s = Leaderboard.scores[i];
+          const y = 320 + i * 18;
+          const rank = `${i + 1}.`.padStart(3);
+          const name = (s.name || '???').padEnd(12);
+          const time = Leaderboard.formatTime(s.time);
+          const line = `${rank} ${name} ${time}  K:${s.kills} D:${s.deaths}`;
+          ctx.fillStyle = i === 0 ? '#ff4' : (i < 3 ? '#ccc' : '#888');
+          ctx.fillText(line, cx - 180, y);
+        }
+      }
     }
   }
 }
+
+// ============================================================
+//  Name entry key handler
+// ============================================================
+document.addEventListener('keydown', (e) => {
+  if (!game.gameWon || game.nameSubmitted) return;
+  if (e.key === 'Enter' && game.nameEntry.length > 0) {
+    Leaderboard.submitScore(
+      game.nameEntry,
+      Math.floor(game.gameTime / 60 * 100) / 100,
+      game.totalKills,
+      game.deaths,
+      game.player.ninjaType
+    );
+    game.nameSubmitted = true;
+    e.preventDefault();
+    return;
+  }
+  if (e.key === 'Backspace') {
+    game.nameEntry = game.nameEntry.slice(0, -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key.length === 1 && game.nameEntry.length < 12 && /[a-zA-Z0-9 _\-]/.test(e.key)) {
+    game.nameEntry += e.key;
+    e.preventDefault();
+  }
+});
 
 // ============================================================
 //  Game Loop (fixed timestep)
