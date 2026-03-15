@@ -14,6 +14,128 @@ canvas { border: 2px solid #333; image-rendering: pixelated; max-width: 100vw; m
 <canvas id="game"></canvas>
 <script>
 // ============================================================
+//  Trimerang (Wind Ninja special)
+// ============================================================
+class Trimerang {
+  constructor(x, y, vx, vy, owner) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.owner = owner;
+    this.radius = 18;
+    this.angle = 0;
+    this.spin = 0.22 + Math.random() * 0.08;
+    this.life = 9999;
+    this.done = false;
+    this.hitSet = new Set();
+    this.turnSpeed = 0.012 + Math.random() * 0.008;
+    this.turnDir = Math.random() < 0.5 ? 1 : -1;
+    // (Wind trail logic moved to update method)
+  }
+  update(game) {
+    // WindPower full: add wind trail effect to enemies (update every frame)
+    // Only show wind tail if enemy is facing the player
+    if (game.player && game.player.ninjaType === 'wind' && game.player.windPower >= 10) {
+      const px = game.player.x + game.player.w / 2;
+      const cx = this.x + this.w / 2;
+      this.facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+      if (this.facingPlayer) {
+        if (!this.windTrails) this.windTrails = [];
+        // Place tail behind enemy (opposite facing)
+        const tailX = this.facing > 0 ? this.x - 10 : this.x + this.w + 10;
+        const tailY = this.y + this.h/2;
+        this.windTrails.push({
+          x: tailX,
+          y: tailY,
+          facing: this.facing,
+          w: this.w,
+          h: this.h,
+          life: 22
+        });
+        if (this.windTrails.length > 12) this.windTrails.shift();
+      } else {
+        this.windTrails = [];
+      }
+    } else {
+      this.facingPlayer = false;
+      this.windTrails = [];
+    }
+    // Slow turning
+    let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    const angleVel = Math.atan2(this.vy, this.vx);
+    const newAngle = angleVel + this.turnDir * this.turnSpeed;
+    // Air drag: slow down gradually
+    speed *= 0.985;
+    // Always accelerate toward player
+    const pl = game.player;
+    const dx = (pl.x + pl.w/2) - this.x;
+    const dy = (pl.y + pl.h/2) - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    const accel = Math.min(0.18, dist / 900);
+    const ax = (dx / dist) * accel;
+    const ay = (dy / dist) * accel;
+    this.vx += ax;
+    this.vy += ay;
+    // Cap speed
+    const maxSpeed = 10;
+    const newSpd = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+    if (newSpd > maxSpeed) {
+      this.vx *= maxSpeed / newSpd;
+      this.vy *= maxSpeed / newSpd;
+    }
+    speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+    this.x += this.vx;
+    this.y += this.vy;
+    this.angle += this.spin;
+    this.life--;
+    // Damage enemies
+    for (const e of game.enemies) {
+      if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w/2) - this.x, (e.y + e.h/2) - this.y) < this.radius + Math.max(e.w, e.h)/2) {
+        e.takeDamage(3 + game.player.windPower, game, this.x);
+        this.hitSet.add(e);
+        game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
+      }
+    }
+    // Damage boss
+    if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w/2) - this.x, (game.boss.y + game.boss.h/2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h)/2) {
+      game.boss.takeDamage(3 + game.player.windPower, game, this.x);
+      this.hitSet.add(game.boss);
+      game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
+    }
+    // If player touches it, end
+    if (Math.hypot((pl.x + pl.w/2) - this.x, (pl.y + pl.h/2) - this.y) < this.radius + Math.max(pl.w, pl.h)/2) {
+      this.done = true;
+      game.effects.push(new Effect(this.x, this.y, '#fff', 12, 4, 16));
+    }
+    // If destroyed by other means, push effect once
+    if (!this._destroyEffect && this.done) {
+      game.effects.push(new Effect(this.x, this.y, '#bff', 14, 4, 18));
+      this._destroyEffect = true;
+    }
+    // Never despawn for out of bounds
+  }
+  render(ctx, cam) {
+    ctx.save();
+    ctx.translate(this.x - cam.x, this.y - cam.y);
+    ctx.rotate(this.angle);
+    ctx.globalAlpha = 0.92;
+    // Draw spinning trimerang (triangle with 3 arms)
+    ctx.beginPath();
+    let a = 0;
+    ctx.moveTo(Math.cos(a) * this.radius, Math.sin(a) * this.radius);
+    for (let i = 1; i <= 3; i++) {
+      a = (i * Math.PI * 2) / 3;
+      ctx.lineTo(Math.cos(a) * this.radius, Math.sin(a) * this.radius);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#bfb';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
 //  EleNin – Single-file HTML5 Elemental Ninja Platformer
 //  No external libraries. Pure Canvas + JS.
 // ============================================================
@@ -61,7 +183,7 @@ const SFX = {
     src.start(); src.stop(audioCtx.currentTime + duration);
   },
   attack() { this.play(320, 'square', 0.08, 0.1, 200); },
-  hit() { this.play(200, 'square', 0.1, 0.12, -100); this.noise(0.06, 0.06); },
+  hit() { this.play(200, 'square', 0.1, 0.12, -100); this.noise(0.1, 0.1); },
   enemyDie() { this.play(400, 'square', 0.12, 0.1, -300); this.noise(0.1, 0.08); },
   playerHurt() { this.play(150, 'sawtooth', 0.2, 0.12, -80); },
   jump() { this.play(260, 'square', 0.1, 0.06, 180); },
@@ -959,6 +1081,7 @@ class Player {
     this.windDashing = false;
     this.windDashTimer = 0;
     this.windTrails = [];
+    this.windFullTrails = [];
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -1013,7 +1136,7 @@ class Player {
 
     // Jump (double jump + bubble bonus jump)
     const maxJ = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
-    const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space') || touchJust.up || gpJust[GP_JUMP] || gpJust[GP_ATTACK];
+    const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space') || touchJust.up || gpJust[GP_JUMP];
     if (jumpPress && this.jumpsLeft > 0) {
       SFX.jump();
       // Wall jump: kick off wall
@@ -1323,7 +1446,8 @@ class Player {
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', 20, 5, 20));
           }
           if (this.ninjaType === 'fire' && game.boss.burnTimer > 0) dmg *= 2;
-          if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10)); }
+          if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10));
+          }
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += Math.floor(this.parryCombo / 2);
           if (this.ninjaType === 'wind') dmg += this.windPower;
@@ -1613,6 +1737,24 @@ class Player {
         this.windTrails.push({ x: this.x, y: this.y, life: 8 });
       }
       this.windTrails = this.windTrails.filter(t => { t.life--; return t.life > 0; });
+      // Windy/shaky trail when windPower is full
+      if (this.windPower >= 10) {
+        // Rectangles come out in all directions, move outward up to half the screen width, matching player size
+        const angle = Math.random() * Math.PI * 2;
+        const screenHalf = 480; // Half of 960px canvas
+        this.windFullTrails.push({
+          x: this.x + this.w/2,
+          y: this.y + this.h/2,
+          angle: angle,
+          age: 0,
+          life: 22
+        });
+        if (this.windFullTrails.length > 16) this.windFullTrails.shift();
+      } else {
+        this.windFullTrails = [];
+      }
+      for (const t of this.windFullTrails) t.life--;
+      this.windFullTrails = this.windFullTrails.filter(t => t.life > 0);
     }
 
     // Fall into pit → take damage and respawn
@@ -1807,19 +1949,37 @@ class Player {
         break;
       }
       case 'wind':
-        // Wind dash — fast horizontal dash
-        this.windDashing = true;
-        this.windDashTimer = 30;
-        this.vx = this.facing * 15;
-        this.vy = -5;
-        this.invincibleTimer = 30;
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 12, 5, 15));
+        // Wind special: throw trimerang toward nearest enemy
+        if (!game.trimerangs) game.trimerangs = [];
+        const px = this.x + this.w / 2 + this.facing * 32;
+        const py = this.y + this.h / 2;
+        const speed = 7 + this.windPower * 0.5;
+        // Always throw in facing direction, no line of sight or target check
+        const vx = this.facing * speed;
+        const vy = -2 + Math.random() * 4;
+        game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
+        SFX.special();
         break;
     }
   }
 
   takeDamage(amount, game) {
     if (this.invincibleTimer > 0) return;
+    // Wind ninja: 50% dodge chance when windPower is full (for normal hits)
+    if (this.ninjaType === 'wind' && this.windPower >= 10 && Math.random() < 0.5) {
+      game.effects.push(new TextEffect(this.x + this.w/2, this.y - 10, 'EVADE', '#8cf'));
+      triggerHitstop(2);
+      return;
+    }
+    // Play bad sound if wind ninja is hit at full windPower
+    if (this.ninjaType === 'wind' && this.windPower >= 10 && typeof SFX !== 'undefined' && SFX.play) {
+      SFX.play(80, 'sawtooth', 0.18, 0.22, -60);
+      SFX.noise(0.18, 0.18);
+    }
+    // If wind ninja is hit (not dodged), destroy all trimerangs
+    if (this.ninjaType === 'wind' && game.trimerangs) {
+      for (const t of game.trimerangs) t.done = true;
+    }
     // Crystal parry blocks damage
     if (this.ninjaType === 'crystal' && this.parrying) return;
     // Fire armor blocks damage
@@ -1864,10 +2024,33 @@ class Player {
 
     // Wind trails
     if (this.ninjaType === 'wind') {
+      // Normal wind trails
       for (const wt of this.windTrails) {
         ctx.globalAlpha = wt.life / 15 * 0.4;
         ctx.fillStyle = '#bfb';
         ctx.fillRect(wt.x - cam.x, wt.y - cam.y, this.w, this.h);
+      }
+      // Windy/shaky trail when windPower is full
+      if (this.windPower >= 10 && this.windFullTrails && this.windFullTrails.length > 0) {
+        for (const t of this.windFullTrails) {
+          // Move outward as they age, up to half the screen width, in all directions
+          t.age = (t.age || 0) + 1;
+          const progress = t.age / 22;
+          const maxOutward = 480; // Half of 960px canvas
+          const outwardX = t.x + Math.cos(t.angle) * maxOutward * progress;
+          const outwardY = t.y + Math.sin(t.angle) * maxOutward * progress;
+          ctx.save();
+          ctx.globalAlpha = 0.07 * (t.life / 22);
+          ctx.fillStyle = '#bff';
+          // Rectangle matches player size, moves far outward in all directions
+          ctx.fillRect(
+            outwardX - cam.x - this.w/2,
+            outwardY - cam.y - this.h/2,
+            this.w,
+            this.h
+          );
+          ctx.restore();
+        }
       }
       ctx.globalAlpha = 1;
     }
@@ -2182,15 +2365,21 @@ class Enemy {
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
     }
 
-    // AI by type
+    // WindPower full: increase resistance if moving toward player
+    let windResist = 1;
+    if (game.player.ninjaType === 'wind' && game.player.windPower >= 10) {
+      // For ground enemies, check if moving toward player
+      const towardPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+      if (towardPlayer) windResist = 0.45; // reduce speed by 55%
+    }
     switch (this.type) {
       case 'walker':
-        this.vx = this.facing * speed;
+        this.vx = this.facing * speed * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         break;
       case 'shooter':
-        this.vx = this.facing * speed * 0.5;
+        this.vx = this.facing * speed * 0.5 * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         this.shootTimer++;
@@ -2204,7 +2393,7 @@ class Enemy {
         }
         break;
       case 'jumper':
-        this.vx = this.facing * speed * 1.2;
+        this.vx = this.facing * speed * 1.2 * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         this.jumpTimer++;
@@ -2214,7 +2403,7 @@ class Enemy {
         }
         break;
       case 'bouncer':
-        this.vx = this.facing * speed * 0.6;
+        this.vx = this.facing * speed * 0.6 * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         this.shootTimer++;
@@ -2230,7 +2419,7 @@ class Enemy {
         }
         break;
       case 'shielded':
-        this.vx = this.facing * speed * 0.7;
+        this.vx = this.facing * speed * 0.7 * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         // Face player when close
@@ -2241,8 +2430,11 @@ class Enemy {
         const fdx = px - cx, fdy = py - cy;
         const fd = Math.sqrt(fdx * fdx + fdy * fdy);
         if (fd > 50) {
-          this.vx = (fdx / fd) * speed * 1.6;
-          this.vy = (fdy / fd) * speed * 1.6 + Math.sin(this.hoverPhase) * 0.5;
+          // Only apply wind resistance if flying toward player
+          let flyResist = windResist;
+          if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((fdx > 0 && px > cx) || (fdx < 0 && px < cx)))) flyResist = 1;
+          this.vx = (fdx / fd) * speed * 1.6 * flyResist;
+          this.vy = (fdy / fd) * speed * 1.6 * flyResist + Math.sin(this.hoverPhase) * 0.5;
         } else {
           this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1.5;
         }
@@ -2254,8 +2446,11 @@ class Enemy {
         const sdx = px - cx, sdy = (py - 80) - cy;
         const sd = Math.sqrt(sdx * sdx + sdy * sdy);
         if (sd > 40) {
-          this.vx = (sdx / sd) * speed * 1.2;
-          this.vy = (sdy / sd) * speed * 1.2 + Math.sin(this.hoverPhase) * 0.4;
+          // Only apply wind resistance if flying toward player
+          let flyResist = windResist;
+          if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((sdx > 0 && px > cx) || (sdx < 0 && px < cx)))) flyResist = 1;
+          this.vx = (sdx / sd) * speed * 1.2 * flyResist;
+          this.vy = (sdy / sd) * speed * 1.2 * flyResist + Math.sin(this.hoverPhase) * 0.4;
         } else {
           this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1;
         }
@@ -2373,11 +2568,30 @@ class Enemy {
   }
 
   render(ctx, cam, game) {
+    // WindPower full: render wind trail
+    // Wind tail afterimage effect (only when facing player)
+    if (this.windTrails && this.windTrails.length && this.facingPlayer) {
+      for (let i = 0; i < this.windTrails.length; ++i) {
+        const t = this.windTrails[i];
+        ctx.save();
+        const alpha = 0.13 * (t.life / 22);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#bff';
+        // Draw a stretched ellipse for a tail
+        ctx.beginPath();
+        ctx.ellipse(t.x - cam.x, t.y - cam.y, t.w * 0.7, t.h * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Fade trail
+      this.windTrails = this.windTrails.filter(t => { t.life--; return t.life > 0; });
+    }
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
     // Blink during damage iframes
     if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
+    // Main body
     ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
     ctx.fillRect(sx, sy, this.w, this.h);
 
@@ -2686,11 +2900,14 @@ class Boss {
       for (const p of game.platforms) {
         if (rectOverlap(this, p)) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-            this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+            this.y = p.y - this.h;
+            this.vy = 0;
+            this.grounded = true;
           } else if (this.phaseThrough > 0) {
             // Boss is phasing through — skip side/ceiling collisions to unstick
           } else if (this.vy < 0 && this.y - this.vy >= p.y + p.h - 4) {
-            this.y = p.y + p.h; this.vy = 0;
+            this.y = p.y + p.h;
+            this.vy = 0;
           } else if (this.vx > 0) {
             this.x = p.x - this.w;
           } else if (this.vx < 0) {
@@ -2847,6 +3064,7 @@ class Game {
     this.orbs = [];
     this.fireTrails = [];
     this.spikes = [];
+    this.trimerangs = [];
     this.deaths = 0;
     this.lives = 3;
     this.gameOver = false;
@@ -3044,6 +3262,10 @@ class Game {
     for (const e of this.enemies) e.update(this);
     if (this.boss && !this.boss.dead) this.boss.update(this);
     for (const p of this.projectiles) p.update(this);
+    if (this.trimerangs) {
+      for (const t of this.trimerangs) t.update(this);
+      this.trimerangs = this.trimerangs.filter(t => !t.done);
+    }
     for (const e of this.effects) e.update();
     for (const b of this.stoneBlocks) b.update(this);
     for (const b of this.bubbles) b.update(this);
@@ -3201,6 +3423,7 @@ class Game {
 
     // Projectiles
     for (const p of this.projectiles) p.render(ctx, cam);
+    if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
 
     // Effects
     for (const e of this.effects) e.render(ctx, cam);
