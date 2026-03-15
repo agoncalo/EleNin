@@ -563,8 +563,9 @@ class StoneConstruct {
     this.done = false;
     this.thrown = false;
     this.powered = false;
+    this.hitCooldown = 0;
   }
-  takeDamage(amt) { this.hp -= amt; }
+  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 30; } }
   canBeThrown() { return true; }
   blockProjectiles() { return true; }
   update(game) {
@@ -574,6 +575,7 @@ class StoneConstruct {
     this.y += this.vy;
     this.vx *= 0.9;
     this.grounded = false;
+    if (this.hitCooldown > 0) this.hitCooldown--;
     // Collide with platforms
     for (const p of game.platforms) {
       if (rectOverlap(this, p)) {
@@ -646,12 +648,13 @@ class StoneConstruct {
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
     // Green HP bar styled exactly like enemies
+    // HP bar
     if (this.hp < this.maxHp) {
       const sx = this.x - cam.x;
       const sy = this.y - cam.y;
-      ctx.fillStyle = '#042';
+      ctx.fillStyle = '#040';
       ctx.fillRect(sx, sy - 8, this.w, 4);
-      ctx.fillStyle = '#3f4';
+      ctx.fillStyle = '#4f4';
       ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
     }
   }
@@ -668,9 +671,13 @@ class StonePillar extends StoneConstruct {
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 8);
     ctx.fillStyle = '#225522';
     ctx.fillRect(this.x - cam.x, this.y - cam.y + this.h - 8, this.w, 8);
-    for (let i = 0; i < this.hp; i++) {
-      ctx.fillStyle = '#bfa';
-      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    if (this.hp < this.maxHp) {
+      const sx = this.x - cam.x;
+      const sy = this.y - cam.y;
+      ctx.fillStyle = '#040';
+      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillStyle = '#4f4';
+      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
     }
   }
 }
@@ -683,13 +690,13 @@ class StoneSpike extends StoneConstruct {
     super.update(game);
     // Damage enemies standing on spike
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e) && e.vy >= 0 && e.y + e.h - e.vy <= this.y + 8) {
+      if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage(3, game);
         game.effects.push(new Effect(e.x + e.w/2, e.y + e.h, '#f33', 8, 2, 10));
       }
     }
     // Damage boss standing on spike
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0 && game.boss.y + game.boss.h - game.boss.vy <= this.y + 8) {
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0) {
       game.boss.takeDamage(3, game);
       game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h, '#f33', 12, 3, 14));
     }
@@ -704,9 +711,13 @@ class StoneSpike extends StoneConstruct {
     ctx.fill();
     ctx.strokeStyle = '#333';
     ctx.stroke();
-    for (let i = 0; i < this.hp; i++) {
-      ctx.fillStyle = '#bfa';
-      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    if (this.hp < this.maxHp) {
+      const sx = this.x - cam.x;
+      const sy = this.y - cam.y;
+      ctx.fillStyle = '#040';
+      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillStyle = '#4f4';
+      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
     }
   }
 }
@@ -746,9 +757,13 @@ class StoneGolem extends StoneConstruct {
     ctx.fillRect(this.x - cam.x + 8, this.y - cam.y + this.h - 12, this.w - 16, 10); // feet
     ctx.fillStyle = '#aee6a3';
     ctx.fillRect(this.x - cam.x + 10, this.y - cam.y + 10, 8, 8); // face
-    for (let i = 0; i < this.hp; i++) {
-      ctx.fillStyle = '#bfa';
-      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    if (this.hp < this.maxHp) {
+      const sx = this.x - cam.x;
+      const sy = this.y - cam.y;
+      ctx.fillStyle = '#040';
+      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillStyle = '#4f4';
+      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
     }
   }
 }
@@ -2686,21 +2701,6 @@ class Enemy {
       ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
     }
 
-    // Crystal ninja: melee warning "!" when enemy is close
-    if (game.player.ninjaType === 'crystal' && this.type !== 'shooter' && this.type !== 'flyshooter') {
-      const dx = (this.x + this.w / 2) - (game.player.x + game.player.w / 2);
-      const dy = (this.y + this.h / 2) - (game.player.y + game.player.h / 2);
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 80 && this.hitCooldown <= 0) {
-        const pulse = Math.sin(game.tick * 0.3) * 0.3 + 0.7;
-        ctx.globalAlpha = pulse;
-        ctx.fillStyle = '#ff0';
-        ctx.font = 'bold 14px monospace';
-        ctx.fillText('!', sx + this.w / 2 - 4, sy - 12);
-        ctx.globalAlpha = 1;
-      }
-    }
-
     // Shield pips
     if (this.type === 'shielded' && this.shieldMax > 0) {
       for (let i = 0; i < this.shieldMax; i++) {
@@ -3255,6 +3255,11 @@ class Game {
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
       this.advanceWave();
+    }
+
+    // Cheat: - to spawn boss (Minus or NumpadSubtract)
+    if ((consumePress('Minus') || consumePress('NumpadSubtract')) && !this.bossActive) {
+      this.spawnBoss();
     }
 
     this.player.update(this);
