@@ -208,6 +208,25 @@ function rectOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x &&
          a.y < b.y + b.h && a.y + a.h > b.y;
 }
+
+// Line of sight: returns true if no blocks/platforms between (x0, y0) and (x1, y1)
+function hasLineOfSight(x0, y0, x1, y1, game) {
+  // Step along the line and check for collision with platforms or stone blocks
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
+  for (let i = 1; i < steps; ++i) {
+    const t = i / steps;
+    const x = x0 + (x1 - x0) * t;
+    const y = y0 + (y1 - y0) * t;
+    const probe = { x: x - 4, y: y - 4, w: 8, h: 8 };
+    for (const p of game.platforms) {
+      if (!p.thin && rectOverlap(probe, p)) return false;
+    }
+    for (const b of game.stoneBlocks) {
+      if (!b.done && rectOverlap(probe, b)) return false;
+    }
+  }
+  return true;
+}
 function lerp(a, b, t) { return a + (b - a) * t; }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
@@ -540,9 +559,18 @@ class Bubble {
     if (this.life <= 0) {
       this.pop(game);
     }
+    for (const e of game.enemies) {
+      if (!e.dead && rectOverlap(this, e)) {
+        e.takeDamage(2, game);
+      }
+    }
   }
   pop(game) {
     this.done = true;
+    let damage = 1;
+    for (const b of game.bubbles) {
+      if(!b.done) damage += 1;
+    }
     game.effects.push(new Effect(this.x + 16, this.y + 16, '#6af', 8, 3, 15));
     // Damage enemies nearby
     for (const e of game.enemies) {
@@ -559,21 +587,24 @@ class Bubble {
     let nearest = null, bestDist = Infinity;
     for (const e of game.enemies) {
       if (e.dead) continue;
+      if (!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
       const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
       const d = dx * dx + dy * dy;
       if (d < bestDist) { bestDist = d; nearest = e; }
     }
     if (game.boss && !game.boss.dead) {
-      const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) { bestDist = d; nearest = game.boss; }
+      if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+        const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; nearest = game.boss; }
+      }
     }
     if (nearest) {
       const dx = (nearest.x + nearest.w / 2) - cx;
       const dy = (nearest.y + nearest.h / 2) - cy;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d > 0) {
-        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', 2, 'player'));
+        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage, 'player'));
       }
     }
   }
@@ -643,12 +674,14 @@ class Projectile {
       }
     }
     // Hit stone blocks (power them up)
-    for (const b of game.stoneBlocks) {
-      if (!b.done && rectOverlap(this, b)) {
-        b.powered = true;
-        this.done = true;
-        game.effects.push(new Effect(this.x, this.y, '#ff0', 6, 2, 12));
-        return;
+    if(this.owner === 'enemy') {
+      for (const b of game.stoneBlocks) {
+        if (!b.done && rectOverlap(this, b)) {
+          b.powered = true;
+          this.done = true;
+          game.effects.push(new Effect(this.x, this.y, '#ff0', 6, 2, 12));
+          return;
+        }
       }
     }
     if (this.owner === 'player') {
@@ -967,6 +1000,32 @@ class Player {
       }
     }
 
+    for (const b of game.stoneBlocks) {
+      if (b.done) continue;
+      if (rectOverlap(this, b)) {
+        // Landing on top
+        if (this.vy > 0 && this.y + this.h - this.vy <= b.y + 4) {
+          this.y = b.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          this.jumpsLeft = maxJ;
+        }
+        // Head bump
+        else if (this.vy < 0 && this.y - this.vy >= b.y + b.h - 4) {
+          this.y = b.y + b.h;
+          this.vy = 0;
+        }
+        // Side collision → wall detection
+        else if (this.vx > 0) {
+          this.x = b.x - this.w;
+          this.onWall = 1;
+        } else if (this.vx < 0) {
+          this.x = b.x + b.w;
+          this.onWall = -1;
+        }
+      }
+    }
+
     // Wall slide: slow fall when touching wall and holding toward it
     if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
       const holdingToward = (this.onWall === 1 && moveX > 0) || (this.onWall === -1 && moveX < 0);
@@ -988,6 +1047,13 @@ class Player {
       this.slamming = false;
       triggerHitstop(8);
       SFX.slam();
+      if(this.ninjaType === 'bubble') {
+        for(const b of game.bubbles) {
+          if(!b.done) {
+            b.pop(game);
+          }
+        }
+      }
       let slamDmg = t.attackDamage + this.bonusDamage + 2;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fa0', 16, 5, 18));
       // Damage nearby enemies
@@ -1097,6 +1163,15 @@ class Player {
             }
             e.takeDamage(dmg, game, this.x + this.w / 2);
             e.hitCooldown = 15;
+
+            if (this.ninjaType === 'crystal') {
+              for(const other of game.enemies) {
+                if(other !== e && !other.dead && other.freezeTimer >= 1) {
+                  other.takeDamage(dmg * 0.75, game, this.x + this.w / 2);
+                }
+              }
+            }
+
             if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
             SFX.hit();
             triggerHitstop(4);
@@ -1117,6 +1192,7 @@ class Player {
             }
           }
         }
+
         // Attack stone blocks (Earth ability) → push them
         for (const b of game.stoneBlocks) {
           if (!b.done && this.attackBox && rectOverlap(this.attackBox, b)) {
@@ -1179,14 +1255,17 @@ class Player {
       let nearest = null, bestDist = Infinity;
       for (const e of game.enemies) {
         if (e.dead) continue;
+        if (!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
         const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
         const d = dx * dx + dy * dy;
         if (d < bestDist) { bestDist = d; nearest = e; }
       }
       if (game.boss && !game.boss.dead) {
-        const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-        const d = dx * dx + dy * dy;
-        if (d < bestDist) { bestDist = d; nearest = game.boss; }
+        if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+          const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+          const d = dx * dx + dy * dy;
+          if (d < bestDist) { bestDist = d; nearest = game.boss; }
+        }
       }
       let svx = this.facing * 8, svy = 0;
       if (nearest) {
@@ -1214,14 +1293,17 @@ class Player {
           let nearest = null, bestDist = Infinity;
           for (const e of game.enemies) {
             if (e.dead) continue;
+            if (!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
             const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
             const d = dx * dx + dy * dy;
             if (d < bestDist) { bestDist = d; nearest = e; }
           }
           if (game.boss && !game.boss.dead) {
-            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) { bestDist = d; nearest = game.boss; }
+            if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+              const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+              const d = dx * dx + dy * dy;
+              if (d < bestDist) { bestDist = d; nearest = game.boss; }
+            }
           }
           let svx = this.facing * 8, svy = 0;
           if (nearest) {
@@ -1478,14 +1560,18 @@ class Player {
           let nearest = null, bestDist = Infinity;
           for (const e of game.enemies) {
             if (e.dead) continue;
+            if(!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
             const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
             const d = dx * dx + dy * dy;
             if (d < bestDist) { bestDist = d; nearest = e; }
           }
           if (game.boss && !game.boss.dead) {
-            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) { bestDist = d; nearest = game.boss; }
+            if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+              const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+              const d = dx * dx + dy * dy;
+
+              if (d < bestDist) { bestDist = d; nearest = game.boss; }
+            }
           }
           let fvx = this.facing * 7, fvy = 0;
           if (nearest) {
@@ -1592,8 +1678,8 @@ class Player {
         // Wind dash — fast horizontal dash
         this.windDashing = true;
         this.windDashTimer = 30;
-        this.vx = this.facing * 20;
-        this.vy = -2;
+        this.vx = this.facing * 15;
+        this.vy = -5;
         this.invincibleTimer = 30;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 12, 5, 15));
         break;
