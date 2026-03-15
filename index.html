@@ -428,19 +428,71 @@ class Spike {
 }
 
 // ============================================================
-//  StoneBlock (Earth ninja ability)
+//  Stone Constructs (Earth ninja ability)
 // ============================================================
-class StoneBlock {
-  constructor(x, y) {
+class StoneConstruct {
+  constructor(x, y, w, h, hp = 3) {
     this.x = x; this.y = y;
-    this.w = TILE; this.h = TILE;
-    this.hp = 3;
-    this.maxHp = 3;
+    this.w = w; this.h = h;
+    this.hp = hp;
+    this.maxHp = hp;
     this.vx = 0; this.vy = 0;
-    this.powered = false;
     this.grounded = false;
     this.done = false;
-    this.thrown = false; // becomes true when hit/pushed fast
+    this.thrown = false;
+    this.powered = false;
+  }
+  takeDamage(amt) { this.hp -= amt; }
+  canBeThrown() { return true; }
+  blockProjectiles() { return true; }
+  update(game) {
+    this.vy += GRAVITY;
+    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.9;
+    this.grounded = false;
+    // Collide with platforms
+    for (const p of game.platforms) {
+      if (rectOverlap(this, p)) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          if (Math.abs(this.vx) < 0.5) this.thrown = false;
+        }
+      }
+    }
+    // Collide with other constructs
+    for (const other of game.stoneBlocks) {
+      if (other === this || other.done) continue;
+      if (rectOverlap(this, other)) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= other.y + 4) {
+          this.y = other.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          if (Math.abs(this.vx) < 0.5) this.thrown = false;
+        }
+        else if (this.vx > 0 && this.x + this.w - this.vx <= other.x + 4) {
+          this.x = other.x - this.w;
+          this.vx = 0;
+        } else if (this.vx < 0 && this.x - this.vx >= other.x + other.w - 4) {
+          this.x = other.x + other.w;
+          this.vx = 0;
+        }
+      }
+    }
+    // Take damage on contact with player
+    if (game.player && rectOverlap(this, game.player)) {
+      this.takeDamage(1);
+    }
+    // Take damage on contact with enemies
+    for (const e of game.enemies) {
+      if (!e.dead && rectOverlap(this, e)) {
+        this.takeDamage(1);
+      }
+    }
+    if (this.hp <= 0) { this.explode(game); }
   }
   explode(game) {
     this.done = true;
@@ -466,70 +518,112 @@ class StoneBlock {
     }
     triggerHitstop(4);
   }
-  update(game) {
-    this.vy += GRAVITY;
-    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
-    this.x += this.vx;
-    this.y += this.vy;
-    const wasMovingFast = Math.abs(this.vx) > 3 || this.thrown;
-    this.vx *= 0.9;
-    this.grounded = false;
-    // Collide with platforms
-    for (const p of game.platforms) {
-      if (rectOverlap(this, p)) {
-        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-          this.y = p.y - this.h;
-          if (this.thrown && Math.abs(this.vy) > 2) { this.explode(game); return; }
-          this.vy = 0;
-          this.grounded = true;
-          if (Math.abs(this.vx) < 0.5) this.thrown = false;
-        }
-      }
-    }
-    // Collide with other stone blocks (stacking)
-    for (const other of game.stoneBlocks) {
-      if (other === this || other.done) continue;
-      if (rectOverlap(this, other)) {
-        // Landing on top
-        if (this.vy > 0 && this.y + this.h - this.vy <= other.y + 4) {
-          this.y = other.y - this.h;
-          if (this.thrown) { this.explode(game); return; }
-          this.vy = 0;
-          this.grounded = true;
-          if (Math.abs(this.vx) < 0.5) this.thrown = false;
-        }
-        // Side collision
-        else if (this.vx > 0 && this.x + this.w - this.vx <= other.x + 4) {
-          this.x = other.x - this.w;
-          if (this.thrown) { this.explode(game); return; }
-          this.vx = 0;
-        } else if (this.vx < 0 && this.x - this.vx >= other.x + other.w - 4) {
-          this.x = other.x + other.w;
-          if (this.thrown) { this.explode(game); return; }
-          this.vx = 0;
-        }
-      }
-    }
-    // Damage enemies if moving fast (and explode on contact)
-    if (wasMovingFast || Math.abs(this.vx) > 1) {
-      for (const e of game.enemies) {
-        if (!e.dead && rectOverlap(this, e)) {
-          if (this.thrown) { this.explode(game); return; }
-          const dmg = this.powered ? 5 : 2;
-          e.takeDamage(dmg, game);
-          this.vx *= 0.5;
-        }
-      }
-    }
-    if (this.hp <= 0) { this.explode(game); }
-  }
-  takeDamage(amt) { this.hp -= amt; }
   render(ctx, cam) {
-    ctx.fillStyle = this.powered ? '#c89b40' : '#8B7355';
+    ctx.fillStyle = this.powered ? '#7ec850' : '#3a7a3a';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
-    // HP pips
+    // Green HP bar styled exactly like enemies
+    if (this.hp < this.maxHp) {
+      const sx = this.x - cam.x;
+      const sy = this.y - cam.y;
+      ctx.fillStyle = '#042';
+      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillStyle = '#3f4';
+      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
+    }
+  }
+}
+
+class StonePillar extends StoneConstruct {
+  constructor(x, y) {
+    super(x, y - TILE, TILE, TILE * 3, 6); // tall, more HP
+  }
+  render(ctx, cam) {
+    ctx.fillStyle = '#4a8a4a';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    ctx.fillStyle = '#aee6a3';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 8);
+    ctx.fillStyle = '#225522';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y + this.h - 8, this.w, 8);
+    for (let i = 0; i < this.hp; i++) {
+      ctx.fillStyle = '#bfa';
+      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    }
+  }
+}
+
+class StoneSpike extends StoneConstruct {
+  constructor(x, y) {
+    super(x, y, TILE, TILE, 10);
+  }
+  update(game) {
+    super.update(game);
+    // Damage enemies standing on spike
+    for (const e of game.enemies) {
+      if (!e.dead && rectOverlap(this, e) && e.vy >= 0 && e.y + e.h - e.vy <= this.y + 8) {
+        e.takeDamage(3, game);
+        game.effects.push(new Effect(e.x + e.w/2, e.y + e.h, '#f33', 8, 2, 10));
+      }
+    }
+    // Damage boss standing on spike
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0 && game.boss.y + game.boss.h - game.boss.vy <= this.y + 8) {
+      game.boss.takeDamage(3, game);
+      game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h, '#f33', 12, 3, 14));
+    }
+  }
+  render(ctx, cam) {
+    ctx.fillStyle = '#6c8';
+    ctx.beginPath();
+    ctx.moveTo(this.x - cam.x, this.y + this.h - cam.y);
+    ctx.lineTo(this.x + this.w/2 - cam.x, this.y - cam.y);
+    ctx.lineTo(this.x + this.w - cam.x, this.y + this.h - cam.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.stroke();
+    for (let i = 0; i < this.hp; i++) {
+      ctx.fillStyle = '#bfa';
+      ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
+    }
+  }
+}
+
+class StoneGolem extends StoneConstruct {
+  constructor(x, y, facing) {
+    super(x, y, TILE, TILE, 6); // smaller golem: TILE x TILE, less HP
+    this.facing = facing || 1;
+    this.golemSpeed = 1.2;
+  }
+  update(game) {
+    if (!this.thrown) this.vx = this.facing * this.golemSpeed;
+    else this.vx *= 0.9;
+    super.update(game);
+    // Damage enemies on contact
+    for (const e of game.enemies) {
+      if (!e.dead && rectOverlap(this, e)) {
+        e.takeDamage(4, game);
+        game.effects.push(new Effect(e.x + e.w/2, e.y + e.h/2, '#f93', 10, 3, 12));
+      }
+    }
+    // Damage boss on contact
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+      game.boss.takeDamage(4, game);
+      game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h/2, '#f93', 14, 4, 16));
+    }
+  }
+  explode(game) {
+    // Golem does not explode, just gets removed
+    this.done = true;
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#aaa', 10, 3, 12));
+  }
+  render(ctx, cam) {
+    ctx.fillStyle = '#4a8a4a';
+    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    ctx.fillStyle = '#225522';
+    ctx.fillRect(this.x - cam.x + 8, this.y - cam.y + this.h - 12, this.w - 16, 10); // feet
+    ctx.fillStyle = '#aee6a3';
+    ctx.fillRect(this.x - cam.x + 10, this.y - cam.y + 10, 8, 8); // face
     for (let i = 0; i < this.hp; i++) {
       ctx.fillStyle = '#bfa';
       ctx.fillRect(this.x - cam.x + 4 + i * 10, this.y - cam.y + this.h - 6, 8, 4);
@@ -1595,7 +1689,17 @@ class Player {
             spawnY = other.y - TILE;
           }
         }
-        game.stoneBlocks.push(new StoneBlock(spawnX, spawnY));
+        // Randomly summon one of three constructs
+        let constructType = Math.floor(Math.random() * 3);
+        let construct;
+        if (constructType === 0) {
+          construct = new StonePillar(spawnX, spawnY);
+        } else if (constructType === 1) {
+          construct = new StoneSpike(spawnX, spawnY + TILE - 8);
+        } else {
+          construct = new StoneGolem(spawnX, spawnY, this.facing);
+        }
+        game.stoneBlocks.push(construct);
         game.effects.push(new Effect(spawnX + TILE/2, spawnY + 16, '#a87', 8, 2, 12));
         break;
       }
