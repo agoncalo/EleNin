@@ -7,7 +7,7 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
-canvas { border: 2px solid #333; image-rendering: pixelated; }
+canvas { border: 2px solid #333; image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object-fit: contain; }
 </style>
 </head>
 <body>
@@ -613,6 +613,8 @@ class Projectile {
     this.life = 180;
     this.reflected = false;
     this.bouncy = false;
+    this.piercing = false;
+    this.hitSet = new Set();
   }
   update(game) {
     if (this.bouncy) this.vy += 0.15;
@@ -651,17 +653,19 @@ class Projectile {
     }
     if (this.owner === 'player') {
       for (const e of game.enemies) {
-        if (!e.dead && rectOverlap(this, e)) {
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(this.damage, game, this.x);
-          this.done = true;
-          return;
+          this.hitSet.add(e);
+          if (!this.piercing) { this.done = true; return; }
+          game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
       }
       // Hit boss
-      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+      if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.damage, game, this.x);
-        this.done = true;
-        return;
+        this.hitSet.add(game.boss);
+        if (!this.piercing) { this.done = true; return; }
+        game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
       const pl = game.player;
@@ -672,11 +676,25 @@ class Projectile {
     }
   }
   render(ctx, cam) {
+    const sx = this.x - cam.x, sy = this.y - cam.y;
+    if (this.piercing) {
+      // Big fireball glow
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#ff0';
+      ctx.beginPath();
+      ctx.arc(sx + this.w/2, sy + this.h/2, this.w * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     ctx.fillStyle = this.color;
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
+    ctx.fillRect(sx, sy, this.w, this.h);
     // trail
     ctx.globalAlpha = 0.4;
     ctx.fillRect(this.x - this.vx - cam.x, this.y - this.vy - cam.y, this.w, this.h);
+    if (this.piercing) {
+      ctx.globalAlpha = 0.2;
+      ctx.fillRect(this.x - this.vx*2 - cam.x, this.y - this.vy*2 - cam.y, this.w, this.h);
+    }
     ctx.globalAlpha = 1;
   }
 }
@@ -970,7 +988,7 @@ class Player {
       this.slamming = false;
       triggerHitstop(8);
       SFX.slam();
-      const slamDmg = t.attackDamage + this.bonusDamage + 2;
+      let slamDmg = t.attackDamage + this.bonusDamage + 2;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fa0', 16, 5, 18));
       // Damage nearby enemies
       for (const e of game.enemies) {
@@ -982,6 +1000,7 @@ class Player {
           e.vy = -5;
           e.vx = Math.sign(dx) * 4;
         }
+        slamDmg *= 0.9; // damage falloff for multiple enemies
       }
       // Damage boss
       if (game.boss && !game.boss.dead) {
@@ -1187,6 +1206,37 @@ class Player {
       if (this.fireArmor) {
         this.fireArmorTimer--;
         if (this.fireArmorTimer <= 0) { this.fireArmor = false; this.comboMeter = 0; }
+        // Fire big piercing fireballs periodically
+        if (this.fireArmorTimer % 20 === 0) {
+          const t = this.type;
+          const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+          const dmg = t.attackDamage + this.bonusDamage + 2;
+          let nearest = null, bestDist = Infinity;
+          for (const e of game.enemies) {
+            if (e.dead) continue;
+            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) { bestDist = d; nearest = e; }
+          }
+          if (game.boss && !game.boss.dead) {
+            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) { bestDist = d; nearest = game.boss; }
+          }
+          let svx = this.facing * 8, svy = 0;
+          if (nearest) {
+            const dx = (nearest.x + nearest.w / 2) - cx;
+            const dy = (nearest.y + nearest.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d > 0) { svx = (dx / d) * 8; svy = (dy / d) * 8; }
+          }
+          const p = new Projectile(cx, cy, svx, svy, '#f93', dmg, 'player');
+          p.w = 14; p.h = 10;
+          p.piercing = true;
+          p.life = 120;
+          game.projectiles.push(p);
+          game.effects.push(new Effect(cx, cy, '#f80', 4, 2, 6));
+        }
         // Damage nearby enemies
         for (const e of game.enemies) {
           if (!e.dead && e.hitCooldown <= 0) {
@@ -1385,11 +1435,11 @@ class Player {
       this.windTrails = this.windTrails.filter(t => { t.life--; return t.life > 0; });
     }
 
-    // Fall into pit → respawn
+    // Fall into pit → take damage and respawn
     if (this.y > 2000) {
-      this.hp -= 2;
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
+      this.takeDamage(2, game);
     }
   }
 
@@ -1582,6 +1632,10 @@ class Player {
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
       game.deaths++;
+      game.lives--;
+      if (game.lives <= 0) {
+        game.gameOver = true;
+      }
     }
   }
 
@@ -2037,8 +2091,8 @@ class Enemy {
     // Respawn if fell off bottom
     if (this.y > 700) { this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(3140, this.x)); return; }
 
-    // Contact damage (not when player is stealthed)
-    if (this.hitCooldown <= 0 && !playerStealthed && rectOverlap(this, game.player)) {
+    // Contact damage
+    if (this.hitCooldown <= 0 && rectOverlap(this, game.player) && !this.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const kbStr = this.big ? 9 : 5;
       game.player.vx = kbDir * kbStr;
@@ -2575,6 +2629,8 @@ class Game {
     this.fireTrails = [];
     this.spikes = [];
     this.deaths = 0;
+    this.lives = 3;
+    this.gameOver = false;
 
     // Wave / spawn system
     this.wave = 1;
@@ -2729,12 +2785,12 @@ class Game {
     this.tick++;
     pollGamepad();
 
-    // Restart on R key (when game won)
-    if (this.gameWon && (consumePress('KeyR') || gpJust[9])) {
+    // Restart on R key (when game won or game over)
+    if ((this.gameWon || this.gameOver) && (consumePress('KeyR') || gpJust[9])) {
       Object.assign(this, new Game());
       return;
     }
-    if (this.gameWon) return;
+    if (this.gameWon || this.gameOver) return;
 
     // Ninja switching (1–6, mouse wheel, LB/RB)
     if (consumePress('Digit1')) this.player.switchNinja('fire');
@@ -2915,6 +2971,15 @@ class Game {
     // Player
     this.player.render(ctx, cam);
 
+    // Low HP red overlay
+    if (this.player.hp / this.player.maxHp <= 0.33 && !this.gameOver) {
+      ctx.save();
+      ctx.globalAlpha = 0.05 + 0.15 * (1 - this.player.hp / this.player.maxHp);
+      ctx.fillStyle = '#f22';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+
     // Projectiles
     for (const p of this.projectiles) p.render(ctx, cam);
 
@@ -3042,15 +3107,19 @@ class Game {
     ctx.font = '10px monospace';
     ctx.fillText('WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch', CANVAS_W / 2 - 215, CANVAS_H - 6);
 
-    // ── Death counter (top left) ──
+    // ── Death counter + Lives (top left) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(8, 8, 90, 24);
+    ctx.fillRect(8, 8, 130, 24);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(8, 8, 90, 24);
+    ctx.strokeRect(8, 8, 130, 24);
     ctx.fillStyle = '#f66';
     ctx.font = 'bold 11px monospace';
     ctx.fillText(`Deaths: ${this.deaths}`, 16, 25);
+    ctx.fillStyle = '#4f4';
+    for (let i = 0; i < this.lives; i++) {
+      ctx.fillText('\u2665', 100 + i * 12, 25);
+    }
 
     // ── Wave info panel (top right) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -3193,6 +3262,27 @@ class Game {
       const rt = 'Press R to restart';
       const rtw = ctx.measureText(rt).width;
       ctx.fillText(rt, CANVAS_W / 2 - rtw / 2, CANVAS_H / 2 + 40);
+    }
+
+    // Game Over screen
+    if (this.gameOver) {
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.fillStyle = '#f44';
+      ctx.font = 'bold 36px monospace';
+      const got = 'GAME OVER';
+      const gotw = ctx.measureText(got).width;
+      ctx.fillText(got, CANVAS_W / 2 - gotw / 2, CANVAS_H / 2 - 40);
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px monospace';
+      const gost = `Wave: ${this.wave}/${TOTAL_WAVES}  Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
+      const gostw = ctx.measureText(gost).width;
+      ctx.fillText(gost, CANVAS_W / 2 - gostw / 2, CANVAS_H / 2 + 10);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '12px monospace';
+      const gort = 'Press R to restart';
+      const gortw = ctx.measureText(gort).width;
+      ctx.fillText(gort, CANVAS_W / 2 - gortw / 2, CANVAS_H / 2 + 40);
     }
   }
 }
