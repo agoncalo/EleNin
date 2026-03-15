@@ -888,6 +888,7 @@ class Projectile {
     this.life--;
     if (this.life <= 0) { this.done = true; return; }
     // Hit platforms (skip thin platforms)
+    if(this.owner !== 'boss') {
     for (const p of game.platforms) {
       if (p.thin) continue;
       if (rectOverlap(this, p)) {
@@ -907,8 +908,9 @@ class Projectile {
         return;
       }
     }
+    }
     // Hit stone blocks (power them up)
-    if(this.owner === 'enemy') {
+    if(this.owner === 'enemy' || this.owner === 'boss') {
       for (const b of game.stoneBlocks) {
         if (!b.done && rectOverlap(this, b)) {
           b.powered = true;
@@ -1903,7 +1905,9 @@ class Player {
         break;
       case 'shadow':
         // Quick dash / blink
-        this.x += this.facing * 80;
+        this.x += this.facing * 300;
+        this.y -= 30;
+        this.vy -= 5;
         this.invincibleTimer = 15;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
         break;
@@ -1998,7 +2002,7 @@ class Player {
     // Crystal parry blocks damage
     if (this.ninjaType === 'crystal' && this.parrying) return;
     // Fire armor blocks damage
-    if (this.fireArmor) return;
+    if (this.fireArmor || this.chainStriking) return;
     // Shield absorbs damage first
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -2815,7 +2819,7 @@ class Boss {
           if (this.stateTimer === 15 || this.stateTimer === 30 || (this.phase === 2 && this.stateTimer === 45)) {
             const d = Math.sqrt(dx*dx + dy*dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
               if (this.bossType === 'bouncer') p.bouncy = true;
               game.projectiles.push(p);
             }
@@ -2860,7 +2864,7 @@ class Boss {
           if (this.stateTimer === 15 || this.stateTimer === 35 || (this.phase === 2 && this.stateTimer === 50)) {
             const d = Math.sqrt(dx*dx + dy*dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+              const p = new Projectile(cx, cy, (dx/d)*5, (dy/d)*5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
               if (this.bossType === 'bouncer') p.bouncy = true;
               game.projectiles.push(p);
             }
