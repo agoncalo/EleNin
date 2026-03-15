@@ -404,7 +404,8 @@ class Orb {
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
           break;
         case 'shuriken':
-          pl.shurikens += 3;
+          pl.maxShurikens += 1;
+          pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ccc', 6, 2, 10));
           break;
       }
@@ -978,7 +979,29 @@ class Projectile {
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(this.damage, game, this.x);
+          // Pushback effect
+            const dx = e.x + e.w / 2 - (this.x + this.w / 2);
+            const dy = e.y + e.h / 2 - (this.y + this.h / 2);
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const pushStrength = 6; // adjust for desired knockback
+            e.vx += (dx / dist) * pushStrength;
+            e.vy += (dy / dist) * (pushStrength * 0.3);
           this.hitSet.add(e);
+          if(game.player.ninjaType === 'fire') {
+            e.burnTimer = 150; // 2.5 seconds of burn
+            game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
+            game.player.comboTimer = 180;
+            // Apply burn when combo is full
+            if (game.player.comboMeter >= 10) {
+              e.burnTimer = 150; // 2.5 seconds of burn
+            }
+            if (game.player.comboMeter >= 8 && !game.player.fireArmor) {
+              game.player.fireArmor = true;
+              game.player.fireArmorTimer = 300;
+              SFX.armor();
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
+            }
+          }
           if (!this.piercing) { this.done = true; return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
@@ -1122,6 +1145,7 @@ class Player {
     this.comboTimer = 0;
     this.fireArmor = false;
     this.fireArmorTimer = 0;
+    this.countsTowardCombo = true;
 
     // Bubble ninja state
     this.bubbleBuffTimer = 0; // frames of floatiness/speed buff remaining
@@ -1160,11 +1184,17 @@ class Player {
     // Shadow instakill threshold (gradual, caps at 15)
     this.shadowKillThreshold = 0;
 
-    // Shurikens
+    // Shurikens (rechargeable)
     this.shurikens = 3;
+    this.maxShurikens = 3;
+    this.shurikenLevel = 1;
 
     // Ground slam
     this.slamming = false;
+
+    // Stop midair
+    this.stopMidair = false;
+    this.stopMidairTimer = 0;
   }
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
@@ -1241,9 +1271,17 @@ class Player {
 
     // Gravity (reduced when bubble buff active = floatiness)
     const grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
-    if (!this.slamming) {
+    if (!this.slamming && !this.windDashing && !this.stopMidair) {
       this.vy += grav;
     }
+    if (this.stopMidair) {
+      this.vy += GRAVITY * 0.1;
+      this.stopMidairTimer--;
+      if (this.stopMidairTimer <= 0) {
+        this.stopMidair = false;
+      }
+    }
+
     const maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
     if (this.vy > maxFall && !this.slamming) this.vy = maxFall;
 
@@ -1282,11 +1320,39 @@ class Player {
         else if (this.vx > 0) {
           this.x = p.x - this.w;
           this.onWall = 1;
-          if (this.windDashing) { this.windDashing = false; this.windDashTimer = 0; this.vx = 0; this.nextHitDouble = true; triggerHitstop(6); game.effects.push(new Effect(this.x + this.w, this.y + this.h / 2, '#bfb', 12, 5, 15)); }
+            if (this.windDashing) {
+              this.windDashing = false;
+              this.windDashTimer = 0;
+              this.vx = 0;
+              this.nextHitDouble = true;
+              triggerHitstop(6);
+              this.stopMidair = true;
+              this.stopMidairTimer = 20;
+              game.effects.push(new Effect(
+                this.x + this.w,
+                this.y + this.h / 2,
+                '#bfb',
+                12, 5, 15
+              ));
+            }
         } else if (this.vx < 0) {
           this.x = p.x + p.w;
           this.onWall = -1;
-          if (this.windDashing) { this.windDashing = false; this.windDashTimer = 0; this.vx = 0; this.nextHitDouble = true; triggerHitstop(6); game.effects.push(new Effect(this.x, this.y + this.h / 2, '#bfb', 12, 5, 15)); }
+            if (this.windDashing) {
+              this.windDashing = false;
+              this.windDashTimer = 0;
+              this.vx = 0;
+              this.nextHitDouble = true;
+              triggerHitstop(6);
+              this.stopMidair = true;
+              this.stopMidairTimer = 20;
+              game.effects.push(new Effect(
+                this.x,
+                this.y + this.h / 2,
+                '#bfb',
+                12, 5, 15
+              ));
+            }
         }
       }
     }
@@ -1347,6 +1413,7 @@ class Player {
       }
       let slamDmg = t.attackDamage + this.bonusDamage + 2;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fa0', 16, 5, 18));
+
       // Damage nearby enemies
       for (const e of game.enemies) {
         if (e.dead) continue;
@@ -1356,6 +1423,21 @@ class Player {
           e.takeDamage(slamDmg, game, this.x + this.w / 2);
           e.vy = -5;
           e.vx = Math.sign(dx) * 4;
+
+          if (this.ninjaType === 'fire') {
+            this.comboMeter = Math.min(this.comboMeter + 1, 10);
+            this.comboTimer = 180;
+            // Apply burn when combo is full
+            if (this.comboMeter >= 10) {
+              e.burnTimer = 150; // 2.5 seconds of burn
+            }
+            if (this.comboMeter >= 8 && !this.fireArmor) {
+              this.fireArmor = true;
+              this.fireArmorTimer = 300;
+              SFX.armor();
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
+            }
+          }
         }
         slamDmg *= 0.9; // damage falloff for multiple enemies
       }
@@ -1408,6 +1490,7 @@ class Player {
         }
         this.attacking = false;
         this.attackBox = null;
+        this.countsTowardCombo = true;
       } else {
         // Check hits
         for (const e of game.enemies) {
@@ -1467,8 +1550,9 @@ class Player {
             SFX.hit();
             triggerHitstop(4);
             // Fire combo
-            if (this.ninjaType === 'fire') {
+            if (this.ninjaType === 'fire' && this.countsTowardCombo) {
               this.comboMeter = Math.min(this.comboMeter + 1, 10);
+              this.countsTowardCombo = false;
               this.comboTimer = 180;
               // Apply burn when combo is full
               if (this.comboMeter >= 10) {
@@ -1540,10 +1624,15 @@ class Player {
     }
 
     // ── Throw shuriken — aims at nearest target ──
+    // Recharge shurikens up to max
+    if (this.shurikens < this.maxShurikens && game.tick % 150 === 0) {
+      this.shurikens = this.maxShurikens;
+    }
+    // ── Throw shuriken — aims at nearest target ──
     if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
       SFX.shuriken();
       this.shurikens--;
-      const dmg = t.attackDamage + this.bonusDamage;
+      const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       let nearest = null, bestDist = Infinity;
       for (const e of game.enemies) {
@@ -1567,7 +1656,9 @@ class Player {
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d > 0) { svx = (dx / d) * 8; svy = (dy / d) * 8; }
       }
-      game.projectiles.push(new Projectile(cx, cy, svx, svy, '#ccc', dmg, 'player'));
+      const color = (this.ninjaType === 'fire') ? '#f93' : '#ccc';
+
+      game.projectiles.push(new Projectile(cx, cy, svx, svy, color, dmg, 'player'));
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
     }
 
@@ -1781,6 +1872,8 @@ class Player {
       if (this.windDashTimer > 0) this.windDashTimer--;
       if (this.windDashing && this.windDashTimer <= 0) {
         this.windDashing = false;
+        this.stopMidair = true;
+        this.stopMidairTimer = 20;
         // Wind: next attack does double damage after dodge
         this.nextHitDouble = true;
       }
@@ -1841,6 +1934,16 @@ class Player {
     this.attackTimer = 10;
     this.attackCooldown = 15;
     SFX.attack();
+    
+    if (this.ninjaType === 'wind') {
+      this.windDashing = true;
+      this.windDashTimer = 15;
+      this.vx = this.facing * 15;
+      this.vy = 0;
+      this.invincibleTimer = 30;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 12, 5, 15));
+    }
+
     // Shadow ninja: bigger attack when fully invisible
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const reach = shadowFullStealth ? 50 : 30;
@@ -1961,8 +2064,10 @@ class Player {
         // Quick dash / blink
         this.x += this.facing * 300;
         this.y -= 30;
-        this.vy -= 5;
+        this.vy = 0;
         this.invincibleTimer = 15;
+        this.stopMidair = true;
+        this.stopMidairTimer = 20;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
         break;
       case 'crystal': {
