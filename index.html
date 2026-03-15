@@ -482,9 +482,9 @@ class StoneConstruct {
         }
       }
     }
-    // Take damage on contact with player
-    if (game.player && rectOverlap(this, game.player)) {
-      this.takeDamage(1);
+    // Out-of-bounds check: if below ground, mark as done
+    if (this.y > CANVAS_H + 100) {
+      this.done = true;
     }
     // Take damage on contact with enemies
     for (const e of game.enemies) {
@@ -657,6 +657,9 @@ class Bubble {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage(2, game);
       }
+    }
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+      game.boss.takeDamage(2, game);
     }
   }
   pop(game) {
@@ -1094,7 +1097,7 @@ class Player {
       }
     }
 
-    for (const b of game.stoneBlocks) {
+    for (const b of game.stonePillars) {
       if (b.done) continue;
       if (rectOverlap(this, b)) {
         // Landing on top
@@ -1177,7 +1180,7 @@ class Player {
       if (rectOverlap(this, s)) {
         this.takeDamage(2, game);
         this.vy = -8;
-        this.y = s.y - this.h - 2;
+        //this.y = s.y - this.h - 2;
         break;
       }
     }
@@ -1293,6 +1296,7 @@ class Player {
             b.vx = this.facing * 8;
             b.vy = -2;
             b.thrown = true;
+            b.takeDamage(1, game);
             // Earth: next attack does double damage after hitting a block
             this.nextHitDouble = true;
           }
@@ -1681,26 +1685,50 @@ class Player {
       case 'earth': {
         // Create stone block in front — stacks on existing blocks
         let spawnX = this.x + this.facing * 40;
-        let spawnY = this.y;
-        // Check if there's already a block or platform below, and stack on top
+        let baseY = this.y;
+        // Find the nearest block or platform within 1.5 tiles vertically
+        let supportY = null;
+        let minDist = TILE * 1.5;
+        // Check stone blocks
         for (const other of game.stoneBlocks) {
-          if (!other.done && Math.abs(other.x - spawnX) < TILE &&
-              other.y <= spawnY + TILE && other.y >= spawnY - TILE * 3) {
-            spawnY = other.y - TILE;
+          if (!other.done && Math.abs(other.x - spawnX) < TILE) {
+            let dist = Math.abs(other.y - baseY);
+            if (dist < minDist) {
+              minDist = dist;
+              supportY = other.y;
+            }
           }
         }
+        // Check platforms
+        for (const p of game.platforms) {
+          if (!p.thin && spawnX + TILE > p.x && spawnX < p.x + p.w) {
+            let dist = Math.abs(p.y - baseY);
+            if (dist < minDist) {
+              minDist = dist;
+              supportY = p.y;
+            }
+          }
+        }
+        // If no support found within threshold, use original baseY
+        if (supportY === null) supportY = baseY;
+
         // Randomly summon one of three constructs
         let constructType = Math.floor(Math.random() * 3);
         let construct;
         if (constructType === 0) {
-          construct = new StonePillar(spawnX, spawnY);
+          // StonePillar: base should sit on supportY
+          let pillarY = supportY - TILE * 3; // pillar is 3 tiles tall
+          construct = new StonePillar(spawnX, pillarY + TILE); // constructor expects y for top, so add TILE
+          game.stonePillars.push(construct);
         } else if (constructType === 1) {
-          construct = new StoneSpike(spawnX, spawnY + TILE - 8);
+          // StoneSpike: 1 tile tall, base on supportY
+          construct = new StoneSpike(spawnX, supportY - TILE + 4); // +4 for visual alignment
         } else {
-          construct = new StoneGolem(spawnX, spawnY, this.facing);
+          // StoneGolem: 1 tile tall, base on supportY
+          construct = new StoneGolem(spawnX, supportY - TILE, this.facing);
         }
         game.stoneBlocks.push(construct);
-        game.effects.push(new Effect(spawnX + TILE/2, spawnY + 16, '#a87', 8, 2, 12));
+        game.effects.push(new Effect(spawnX + TILE/2, supportY, '#a87', 8, 2, 12));
         break;
       }
       case 'bubble':
@@ -2814,6 +2842,7 @@ class Game {
     this.projectiles = [];
     this.effects = [];
     this.stoneBlocks = [];
+    this.stonePillars = [];
     this.bubbles = [];
     this.orbs = [];
     this.fireTrails = [];
@@ -3293,9 +3322,9 @@ class Game {
     }
 
     // Controls hint
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.font = '10px monospace';
-    ctx.fillText('WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch', CANVAS_W / 2 - 215, CANVAS_H - 6);
+    ctx.fillText('WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch', CANVAS_W / 2 - 215, CANVAS_H - 60);
 
     // ── Death counter + Lives (top left) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
