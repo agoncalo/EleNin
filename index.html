@@ -629,6 +629,21 @@ class StoneConstruct {
           this.takeDamage(1);
           e.takeDamage(1, game, this.x + this.w/2);
         }
+        // Bump logic (non-spike constructs only)
+        if (!(this instanceof StoneSpike)) {
+          // Push enemy horizontally away from the construct
+          const overlapLeft = (e.x + e.w) - this.x;
+          const overlapRight = (this.x + this.w) - e.x;
+          if (overlapLeft < overlapRight) {
+            // Push enemy left
+            e.x = this.x - e.w - 1;
+            e.vx = -2;
+          } else {
+            // Push enemy right
+            e.x = this.x + this.w + 1;
+            e.vx = 2;
+          }
+        }
       }
     }
 
