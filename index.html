@@ -627,6 +627,7 @@ class StoneConstruct {
           this.vy = -2;
         } else {
           this.takeDamage(1);
+          e.takeDamage(1, game, this.x + this.w/2);
         }
       }
     }
