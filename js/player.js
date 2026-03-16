@@ -387,16 +387,22 @@ class Player {
         g.timer--;
         // Player is inside the golem — move golem with input
         let moveX = 0;
+        let moveY = 0;
         if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
         if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
+        if (keys['ArrowUp'] || keys['KeyW'] || touchState.up || gpState.axes[1] < -0.3) moveY = -1;
+        if (keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.axes[1] > 0.3) moveY = 1;
         if (moveX !== 0) g.facing = moveX;
         g.x += moveX * 2.5;
-        // Hover — gentle bob
-        g.y = this.y - 24 + Math.sin(game.tick * 0.05) * 4;
+        g.y += moveY * 2.5 + Math.sin(game.tick * 0.05) * 0.5;
         // Keep golem within bounds
         g.x = Math.max(0, Math.min(3200 - g.w, g.x));
+        g.y = Math.max(-50, Math.min(480 - g.h, g.y));
         // Player position follows golem center
         this.x = g.x + g.w / 2 - this.w / 2;
+        this.y = g.y + g.h - this.h - 8;
+        this.vy = 0;
+        this.grounded = false;
 
         // Punch attack (Z/J or mouse)
         if (g.punchCooldown > 0) g.punchCooldown--;
