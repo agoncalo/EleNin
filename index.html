@@ -1217,7 +1217,7 @@ class Player {
 
     // Ultimate system
     this.ultimateCharge = 0;
-    this.ultimateMax = 100;
+    this.ultimateMax = 500;
     this.ultimateReady = false;
     this.ultimateActive = false;
     this.ultimateTimer = 0;
@@ -1421,7 +1421,7 @@ class Player {
         this.ultimateCharge = 0;
         this.ultimateReady = false;
         // Increase ultimate requirement by 20% each time, capped at 400
-        this.ultimateMax = Math.min(Math.round(this.ultimateMax * 1.2), 400);
+        this.ultimateMax = Math.round(this.ultimateMax * 1.2);
       }
     }
     // ── Ultimate activation input ──
@@ -2511,17 +2511,23 @@ class Player {
 
     // Attack slash
     if (this.attacking && this.attackBox) {
-      // Moon-shaped "slicy" effect
+      // Moon-shaped "slicy" effect with single random arc per attack
       ctx.save();
       ctx.globalAlpha = 0.45;
       // Center of arc
       const arcCx = this.attackBox.x - cam.x + this.attackBox.w/2;
       const arcCy = this.attackBox.y - cam.y + this.attackBox.h/2;
       ctx.translate(arcCx, arcCy);
+      // Only randomize once per attack
+      if (!this._arcRandomized || !this.attacking) {
+        this._lastArcAngle = (Math.random() - 0.5) * 1.2; // -0.6 to +0.6 radians
+        this._arcRandomized = true;
+      }
+      if (!this.attacking) this._arcRandomized = false;
+      ctx.rotate((this.facing > 0 ? -0.25 : Math.PI + 0.25) + this._lastArcAngle);
       const arcStart = Math.PI * 0.15;
       const arcEnd = Math.PI * 0.85;
       const arcR = this.attackBox.w * 0.8;
-      ctx.rotate(this.facing > 0 ? -0.25 : Math.PI + 0.25);
       ctx.beginPath();
       ctx.arc(0, 0, arcR, arcStart, arcEnd, false);
       ctx.arc(0, 0, this.attackBox.w * 0.45, arcEnd, arcStart, true);
@@ -2531,29 +2537,36 @@ class Player {
       ctx.shadowBlur = 12;
       ctx.fill();
       ctx.shadowBlur = 0;
-      // Draw sword blade at end of arc, always away from player
+      // Draw katana-like blade at player side (origin of arc)
       ctx.save();
       ctx.globalAlpha = 1;
-      let bladeAngle = arcEnd;
-      let bladeScale = 1;
-      if (this.facing < 0) {
-        bladeAngle = arcEnd;
-        bladeScale = -1;
-      }
-      ctx.rotate(bladeAngle);
-      ctx.scale(bladeScale, 1);
-      ctx.fillStyle = '#ccc';
-      ctx.fillRect(arcR - 2, -3, 18, 6); // blade
-      ctx.fillStyle = '#888';
-      ctx.fillRect(arcR + 16, -2, 4, 4); // tip
+      ctx.rotate(0);
+      // Katana blade path: long, slightly curved, tapered
+      ctx.beginPath();
+      ctx.moveTo(-8, -2.5); // base left
+      ctx.quadraticCurveTo(2, -7, 18, 0); // top edge, slight curve
+      ctx.lineTo(18, 0.8); // tip bottom
+      ctx.quadraticCurveTo(2, 6, -8, 2.5); // bottom edge, slight curve
+      ctx.closePath();
+      ctx.fillStyle = '#e0e0e0'; // blade color
+      ctx.strokeStyle = '#b0b0b0'; // blade outline
+      ctx.lineWidth = 1.2;
+      ctx.fill();
+      ctx.stroke();
+      // Katana edge highlight
+      ctx.beginPath();
+      ctx.moveTo(-7, -1.2);
+      ctx.quadraticCurveTo(2, -5, 17, 0.2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
       ctx.restore();
-      // Draw sword hilt at end of arc, always away from player
+      // Draw sword hilt at player side, same size as blade
       ctx.save();
       ctx.globalAlpha = 0.9;
-      ctx.rotate(bladeAngle);
-      ctx.scale(bladeScale, 1);
+      ctx.rotate(0);
       ctx.fillStyle = t.accentColor;
-      ctx.fillRect(arcR - 8, -7, 6, 14);
+      ctx.fillRect(-12, -7, 6, 14); // hilt, shorter and offset for katana
       ctx.restore();
       ctx.restore();
     }
