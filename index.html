@@ -369,16 +369,34 @@ class Orb {
     if (this.done) return;
     this.life--;
     if (this.life <= 0) { this.done = true; return; }
-    if (!this.grounded) {
-      this.vy += 0.3;
-      if (this.vy > 6) this.vy = 6;
-      this.y += this.vy;
-      for (const p of game.platforms) {
-        if (rectOverlap(this, p) && this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-          this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+
+      // Attraction to player if nearby
+      const pl = game.player;
+      const px = pl.x + pl.w / 2;
+      const py = pl.y + pl.h / 2;
+      const ox = this.x + this.w / 2;
+      const oy = this.y + this.h / 2;
+      const dx = px - ox;
+      const dy = py - oy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 64) {
+        // Move toward player
+        const attractStrength = 0.7;
+        this.vy += 0.3;
+        this.vx = (this.vx || 0) + (dx / dist) * attractStrength;
+        this.vy += (dy / dist) * attractStrength * 0.5;
+        // Clamp speed
+        const maxSpeed = 6;
+        const speed = Math.sqrt((this.vx || 0) ** 2 + this.vy ** 2);
+        if (speed > maxSpeed) {
+          this.vx = (this.vx || 0) * maxSpeed / speed;
+          this.vy = this.vy * maxSpeed / speed;
         }
+        this.x += this.vx || 0;
+        this.y += this.vy;
       }
-    }
+    
+
     // Pickup
     if (rectOverlap(this, game.player)) {
       this.done = true;
