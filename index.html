@@ -1012,6 +1012,22 @@ class Projectile {
         this.hitSet.add(game.boss);
         if (!this.piercing) { this.done = true; return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
+
+        if (game.player.ninjaType === 'fire') {
+          game.boss.burnTimer = 150; // 2.5 seconds of burn
+          game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
+          game.player.comboTimer = 180;
+          // Apply burn when combo is full
+          if (game.player.comboMeter >= 10) {
+            game.boss.burnTimer = 150; // 2.5 seconds of burn
+          }
+          if (game.player.comboMeter >= 8 && !game.player.fireArmor) {
+            game.player.fireArmor = true;
+            game.player.fireArmorTimer = 300;
+            SFX.armor();
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
+          }
+        }
       }
     } else {
       const pl = game.player;
@@ -1513,6 +1529,10 @@ class Player {
                 game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 20, 5, 20));
               }
             }
+
+            if (this.ninjaType === 'fire') {
+              e.burnTimer = 150; // 2.5 seconds of burn
+            }
             // Fire: double damage vs burning enemies
             if (this.ninjaType === 'fire' && e.burnTimer > 0) {
               dmg *= 2;
@@ -1600,7 +1620,10 @@ class Player {
             this.shadowStealth = 0;
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', 20, 5, 20));
           }
-          if (this.ninjaType === 'fire' && game.boss.burnTimer > 0) dmg *= 2;
+          if (this.ninjaType === 'fire') {
+            if (game.boss.burnTimer > 0) dmg *= 2;
+            game.boss.burnTimer = 150; // 2.5 seconds of burn
+          }
           if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10));
           }
           if (this.bubbleBuffTimer > 0) dmg += 1;
@@ -1966,38 +1989,7 @@ class Player {
     SFX.special();
     switch (this.ninjaType) {
       case 'fire':
-        // Dash forward + fireball (auto-aims at nearest)
-        this.vx = this.facing * 12;
-        this.vy = -3;
-        {
-          const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-          let nearest = null, bestDist = Infinity;
-          for (const e of game.enemies) {
-            if (e.dead) continue;
-            if(!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
-            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) { bestDist = d; nearest = e; }
-          }
-          if (game.boss && !game.boss.dead) {
-            if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
-              const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-              const d = dx * dx + dy * dy;
-
-              if (d < bestDist) { bestDist = d; nearest = game.boss; }
-            }
-          }
-          let fvx = this.facing * 7, fvy = 0;
-          if (nearest) {
-            const dx = (nearest.x + nearest.w / 2) - cx;
-            const dy = (nearest.y + nearest.h / 2) - cy;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d > 0) { fvx = (dx / d) * 7; fvy = (dy / d) * 7; }
-          }
-          game.projectiles.push(new Projectile(cx, cy, fvx, fvy, '#f93', 3, 'player'));
-          game.effects.push(new Effect(cx, cy, '#f93', 10, 4, 15));
-        }
-        break;
+        return; // fire needs to hold
       case 'earth': {
         // Create stone block in front — stacks on existing blocks
         let spawnX = this.x + this.facing * 40;
@@ -2357,7 +2349,8 @@ class Player {
       const swordW = 4;
       const swordX = this.facing > 0 ? sx + this.w : sx - swordLen;
       const swordY = sy + 10;
-      ctx.fillStyle = '#dde';
+      const color = this.ninjaType === 'fire' ? '#f80' : '#dde';
+      ctx.fillStyle = color;
       ctx.fillRect(swordX, swordY, swordLen, swordW);
       // Hilt
       ctx.fillStyle = t.accentColor;
@@ -2522,6 +2515,9 @@ class Enemy {
     // Burn DOT
     if (this.burnTimer > 0) {
       this.burnTimer--;
+      if (this.burnTimer % 5 === 0) {
+        game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f63', 6, 2, 10));
+      }
       if (this.burnTimer % 30 === 0) {
         this.hp -= 1;
         this.flashTimer = 4;
@@ -2894,6 +2890,7 @@ class Boss {
     this.dead = false;
     this.hitCooldown = 0;
     this.flashTimer = 0;
+    this.burnTimer = 0;
     this.phase = 1;
     this.actionTimer = 0;
     this.state = 'chase';
@@ -2931,6 +2928,19 @@ class Boss {
     } else {
       this.vy += GRAVITY;
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    }
+
+    if (this.burnTimer > 0) {
+      this.burnTimer--;
+      if (this.burnTimer % 5 === 0) {
+        game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f63', 6, 2, 10));
+      }
+      if (this.burnTimer % 30 === 0) {
+        this.hp -= 1;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f93', 4, 2, 8));
+        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+      }
     }
 
     const px = game.player.x + game.player.w / 2;
@@ -3448,6 +3458,10 @@ class Game {
           if (!e.dead && Math.abs(e.x + e.w/2 - ft.x) < 16 && Math.abs(e.y + e.h - ft.y) < 12) {
             e.burnTimer = Math.max(e.burnTimer, 60);
           }
+        }
+
+        if(this.boss && !this.boss.dead && Math.abs(this.boss.x + this.boss.w/2 - ft.x) < 24 && Math.abs(this.boss.y + this.boss.h - ft.y) < 16) {
+          this.boss.burnTimer = Math.max(this.boss.burnTimer, 60);
         }
       }
     }
