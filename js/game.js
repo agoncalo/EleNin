@@ -15,6 +15,7 @@ class Game {
     this.fireTrails = [];
     this.spikes = [];
     this.trimerangs = [];
+    this.diamondShards = [];
     this.deaths = 0;
     this.lives = 3;
     this.gameOver = false;
@@ -202,12 +203,31 @@ class Game {
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
       this.advanceWave();
     }
-    // Cheat: - to spawn boss
-    if ((consumePress('Minus') || consumePress('NumpadSubtract')) && !this.bossActive) {
-      this.spawnBoss();
+    // Cheat: - to spawn boss / fill ultimate
+    if (consumePress('Minus') || consumePress('NumpadSubtract')) {
+      if (!this.bossActive) {
+        this.spawnBoss();
+      } else {
+        this.player.ultimateCharge = this.player.ultimateMax;
+        this.player.ultimateReady = true;
+      }
     }
 
     this.player.update(this);
+
+    // During ultimate cutscene, freeze everything except effects
+    if (this.player.ultCutscene) {
+      for (const e of this.effects) e.update();
+      this.effects = this.effects.filter(e => !e.done);
+      // Camera still follows
+      const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
+      const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
+      this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
+      this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
+      this.camera.x = Math.max(0, Math.min(this.camera.x, 3200 - CANVAS_W));
+      this.camera.y = Math.max(-100, Math.min(this.camera.y, 540 - CANVAS_H));
+      return; // Skip all other updates during cutscene
+    }
 
     for (const e of this.enemies) e.update(this);
     if (this.boss && !this.boss.dead) this.boss.update(this);
@@ -215,6 +235,10 @@ class Game {
     if (this.trimerangs) {
       for (const t of this.trimerangs) t.update(this);
       this.trimerangs = this.trimerangs.filter(t => !t.done);
+    }
+    if (this.diamondShards) {
+      for (const d of this.diamondShards) d.update(this);
+      this.diamondShards = this.diamondShards.filter(d => !d.done);
     }
     for (const e of this.effects) e.update();
     for (const b of this.stoneBlocks) b.update(this);
@@ -259,7 +283,7 @@ class Game {
       } else {
         const aliveCount = this.enemies.filter(e => !e.dead).length;
         this.spawnTimer++;
-        if (this.spawnTimer >= this.spawnInterval && aliveCount < 4) {
+        if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
           this.spawnTimer = 0;
           this.spawnEnemy();
         }
@@ -344,6 +368,150 @@ class Game {
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
     this.player.render(ctx, cam);
 
+    // ── Ultimate cutscene / active rendering ──
+
+    // Cutscene flash overlay
+    if (this.player.ultCutscene) {
+      const flash = Math.min(1, (60 - this.player.ultCutsceneTimer) / 20);
+      ctx.save();
+      ctx.globalAlpha = flash * 0.3;
+      ctx.fillStyle = this.player.type.color;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+      // Elemental ring around player
+      ctx.save();
+      const ringR = 30 + (60 - this.player.ultCutsceneTimer) * 1.5;
+      ctx.strokeStyle = this.player.type.accentColor;
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.arc(
+        this.player.x + this.player.w / 2 - cam.x,
+        this.player.y + this.player.h / 2 - cam.y,
+        ringR, 0, Math.PI * 2
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Fire ultimate: render meteors
+    if (this.player.ultimateActive && this.player.ninjaType === 'fire') {
+      for (const m of this.player.fireMeteors) {
+        if (m.done || !m.active) continue;
+        // Trail
+        for (const t of m.trail) {
+          ctx.globalAlpha = t.life / 15 * 0.6;
+          ctx.fillStyle = '#f93';
+          ctx.fillRect(t.x - 4 - cam.x, t.y - 4 - cam.y, 8, 8);
+        }
+        ctx.globalAlpha = 1;
+        // Meteor body
+        ctx.fillStyle = '#f44';
+        ctx.beginPath();
+        ctx.arc(m.x - cam.x, m.y - cam.y, m.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath();
+        ctx.arc(m.x - cam.x, m.y - 2 - cam.y, m.size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Earth ultimate: render golem mecha
+    if (this.player.earthGolem) {
+      const g = this.player.earthGolem;
+      const gx = g.x - cam.x;
+      const gy = g.y - cam.y;
+      // Hover glow
+      ctx.save();
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = '#8d8';
+      ctx.fillRect(gx - 4, gy + g.h - 6, g.w + 8, 8);
+      ctx.restore();
+      // Body
+      ctx.fillStyle = '#3a6a3a';
+      ctx.fillRect(gx + 8, gy + 20, g.w - 16, g.h - 24);
+      // Shoulders
+      ctx.fillStyle = '#4a8a4a';
+      ctx.fillRect(gx, gy + 16, g.w, 20);
+      // Head
+      ctx.fillStyle = '#5a9a5a';
+      ctx.fillRect(gx + 18, gy, 28, 20);
+      // Eyes
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(gx + 22 + (g.facing > 0 ? 8 : 0), gy + 6, 6, 6);
+      ctx.fillRect(gx + 32 + (g.facing > 0 ? 4 : -4), gy + 6, 6, 6);
+      // Arms
+      ctx.fillStyle = '#4a8a4a';
+      const armOffsetX = g.punchTimer > 0 ? g.facing * 20 : 0;
+      const armLx = gx - 12 + (g.facing < 0 ? armOffsetX : 0);
+      const armRx = gx + g.w + (g.facing > 0 ? armOffsetX : 0);
+      ctx.fillRect(armLx, gy + 24, 14, 28);
+      ctx.fillRect(armRx, gy + 24, 14, 28);
+      // Fist glow on punch
+      if (g.punchTimer > 0) {
+        const fistX = g.facing > 0 ? armRx + 4 : armLx - 4;
+        ctx.fillStyle = '#ff4';
+        ctx.beginPath();
+        ctx.arc(fistX + 7, gy + 42, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Legs
+      ctx.fillStyle = '#2a5a2a';
+      ctx.fillRect(gx + 14, gy + g.h - 8, 12, 8);
+      ctx.fillRect(gx + g.w - 26, gy + g.h - 8, 12, 8);
+      // HP bar
+      if (g.hp < g.maxHp) {
+        ctx.fillStyle = '#400';
+        ctx.fillRect(gx, gy - 8, g.w, 4);
+        ctx.fillStyle = '#4d4';
+        ctx.fillRect(gx, gy - 8, g.w * (g.hp / g.maxHp), 4);
+      }
+      // Timer bar
+      ctx.fillStyle = '#222';
+      ctx.fillRect(gx, gy - 4, g.w, 2);
+      ctx.fillStyle = '#8d8';
+      ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
+    }
+
+    // Shadow ultimate: darkness overlay + glowing eyes
+    if (this.player.ninjaType === 'shadow' && this.player.shadowDarkness > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.player.shadowDarkness;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (this.player.ninjaType === 'shadow' && this.player.shadowEyesTimer > 0) {
+      ctx.save();
+      const eyeAlpha = Math.min(1, this.player.shadowEyesTimer / 20);
+      ctx.globalAlpha = eyeAlpha * 0.9;
+      const ecx = CANVAS_W / 2;
+      const ecy = CANVAS_H / 2 - 40;
+      const eyeSize = 8 + Math.sin(this.tick * 0.1) * 2;
+      // Left eye
+      ctx.fillStyle = '#f0f';
+      ctx.shadowColor = '#f0f';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.ellipse(ecx - 25, ecy, eyeSize, eyeSize * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Right eye
+      ctx.beginPath();
+      ctx.ellipse(ecx + 25, ecy, eyeSize, eyeSize * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupils
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(ecx - 25, ecy, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(ecx + 25, ecy, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // Low HP red overlay
     if (this.player.hp / this.player.maxHp <= 0.33 && !this.gameOver) {
       ctx.save();
@@ -355,6 +523,66 @@ class Game {
 
     for (const p of this.projectiles) p.render(ctx, cam);
     if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
+    if (this.diamondShards) for (const d of this.diamondShards) d.render(ctx, cam);
+
+    // Crystal ultimate: shatter glass shards
+    if (this.player.crystalShatter > 0 && this.player.crystalShards) {
+      ctx.save();
+      for (const s of this.player.crystalShards) {
+        ctx.globalAlpha = s.life / 30 * 0.8;
+        ctx.translate(s.x - cam.x, s.y - cam.y);
+        ctx.rotate(s.angle);
+        ctx.fillStyle = '#aff';
+        ctx.shadowColor = '#fff';
+        ctx.shadowBlur = 6;
+        ctx.fillRect(-s.size / 2, -s.size / 2, s.size, s.size * 0.6);
+        ctx.shadowBlur = 0;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      ctx.restore();
+      // White flash during shatter
+      ctx.save();
+      ctx.globalAlpha = this.player.crystalShatter / 30 * 0.4;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+
+    // Crystal ultimate: afterimage clones
+    if (this.player.crystalClones) {
+      const pl = this.player;
+      for (const clone of pl.crystalClones) {
+        const cx = pl.x + clone.offsetX - cam.x;
+        const cy = pl.y + clone.offsetY - cam.y;
+        ctx.save();
+        ctx.globalAlpha = clone.alpha;
+        // Clone body
+        ctx.fillStyle = pl.type.color;
+        ctx.fillRect(cx, cy, pl.w, pl.h);
+        // Tint overlay
+        ctx.fillStyle = 'rgba(170,255,255,0.25)';
+        ctx.fillRect(cx, cy, pl.w, pl.h);
+        // Eyes
+        ctx.fillStyle = '#fff';
+        const eyeX = pl.facing > 0 ? cx + 14 : cx + 4;
+        ctx.fillRect(eyeX, cy + 8, 6, 6);
+        ctx.fillStyle = '#0ff';
+        ctx.fillRect(pl.facing > 0 ? eyeX + 3 : eyeX, cy + 10, 3, 3);
+        // Headband
+        ctx.fillStyle = pl.type.accentColor;
+        ctx.fillRect(cx, cy + 5, pl.w, 3);
+        // Clone attack slash
+        if (pl.attacking && pl.attackBox) {
+          ctx.globalAlpha = clone.alpha * 0.4;
+          const reach = pl.attackBox.w;
+          const slashX = pl.facing > 0 ? cx + pl.w : cx - reach;
+          ctx.fillStyle = '#aff';
+          ctx.fillRect(slashX, cy + 4, reach, pl.h - 8);
+        }
+        ctx.restore();
+      }
+    }
+
     for (const e of this.effects) e.render(ctx, cam);
 
     this.renderUI();
@@ -378,7 +606,7 @@ class Game {
     } else if (pl.ninjaType === 'shadow') {
       elemBarVal = pl.shadowStealth; elemBarMax = 300; elemBarColor = '#a4e'; elemBarGlow = pl.backstabReady; elemBarLabel = 'Stealth';
     } else if (pl.ninjaType === 'crystal') {
-      elemBarVal = pl.parryCombo; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = pl.parryCombo >= 10; elemBarLabel = 'Parry';
+      elemBarVal = this.diamondShards ? this.diamondShards.length : 0; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = pl.crystalClones != null; elemBarLabel = 'Crystal';
     } else if (pl.ninjaType === 'wind') {
       elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
     } else if (pl.ninjaType === 'earth') {

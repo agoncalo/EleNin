@@ -66,7 +66,7 @@ class SmallBubble extends Bubble {
     super(x, y);
     this.w = 16;
     this.h = 16;
-    this.life = 24;
+    this.life = 150;
     this.facing = facing;
     this.baseY = y;
     this.bobPhase = 0;
@@ -76,8 +76,10 @@ class SmallBubble extends Bubble {
   update(game) {
     this.x += this.vx;
     this.y += this.vy;
+    this.vx *= 0.98;
+    this.vy *= 0.98;
     this.life--;
-    if (this.life <= 0) this.done = true;
+    if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage(1, game);

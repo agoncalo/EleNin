@@ -21,6 +21,26 @@ class Player {
     this.ultimateActive = false;
     this.ultimateTimer = 0;
 
+    // Ultimate cutscene (Rondo of Blood style)
+    this.ultCutscene = false;
+    this.ultCutsceneTimer = 0;
+    this.ultFloatY = 0; // target Y during float
+
+    // Fire ultimate: meteors
+    this.fireMeteors = [];
+    this.fireMeteorTimer = 0;
+
+    // Earth ultimate: stone golem mecha
+    this.earthGolem = null; // { timer, facing, punchTimer, shootTimer, x, y, w, h, hp }
+
+    // Bubble ultimate: replication cascade
+    this.bubbleReplicationTimer = 0;
+
+    // Shadow ultimate: darkness + eyes
+    this.shadowDarkness = 0;    // 0-1 overlay alpha
+    this.shadowEyesTimer = 0;
+    this.shadowUltBuff = false;  // enhanced stealth/chain after cutscene
+
     // Double jump
     this.jumpsLeft = 2;
     this.maxJumps = 2;
@@ -68,6 +88,9 @@ class Player {
     this.parryVisualTimer = 0;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
+    this.crystalClones = null;
+    this.crystalShatter = 0;
+    this.crystalShards = null;
 
     // Wind ninja state
     this.windPower = 0;
@@ -97,77 +120,165 @@ class Player {
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
 
-  // Ultimate activation logic
+  // Ultimate activation — starts the Rondo-of-Blood-style cutscene float
   activateUltimate(game) {
     this.ultimateActive = true;
     this.ultimateReady = false;
-    this.ultimateTimer = 180; // 3 seconds default
+    this.ultCutscene = true;
+    this.ultCutsceneTimer = 60; // ~1 second float-up before the effect
+    this.ultFloatY = this.y - 60; // float up 60px
+    this.vx = 0;
+    this.vy = 0;
+    this.invincibleTimer = 999; // invincible during cutscene
     SFX.victory();
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 30));
+  }
+
+  // Called when float phase ends — triggers the actual ultimate effect
+  triggerUltimateEffect(game) {
+    this.ultCutscene = false;
     switch (this.ninjaType) {
       case 'fire':
+        // Meteors rain from the sky — 12 meteors over 3 seconds
+        this.ultimateTimer = 180;
         this.fireArmor = true;
         this.fireArmorTimer = 240;
-        for (let i = 0; i < 8; i++) {
-          setTimeout(() => {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 80 + Math.random() * 60;
-            const fx = this.x + this.w / 2 + Math.cos(angle) * dist;
-            const fy = this.y + this.h / 2 + Math.sin(angle) * dist;
-            fireProjectileAtNearestEnemy({
-              x: fx, y: fy, game, speed: 7, color: '#f93', damage: 4, owner: 'player', width: 14, height: 10, piercing: true
-            });
-          }, i * 120);
+        this.fireMeteors = [];
+        this.fireMeteorTimer = 0;
+        for (let i = 0; i < 12; i++) {
+          const delay = i * 15;
+          // Scatter across the visible area near camera
+          const targetX = game.camera.x + randInt(40, CANVAS_W - 40);
+          const targetY = 480; // ground level
+          this.fireMeteors.push({
+            delay,
+            x: targetX + randInt(-80, 80),
+            y: -40 - randInt(0, 60),
+            targetX,
+            targetY,
+            active: false,
+            done: false,
+            trail: [],
+            speed: 6 + Math.random() * 3,
+            size: 10 + randInt(0, 8)
+          });
         }
+        SFX.bossSpawn();
         break;
+
       case 'earth':
-        for (let i = 0; i < 6; i++) {
-          const angle = (i / 6) * Math.PI * 2;
-          const px = this.x + this.w / 2 + Math.cos(angle) * 90;
-          const py = this.y + this.h / 2 + Math.sin(angle) * 60;
-          game.stonePillars.push(new StonePillar(px, py));
-        }
+        // Summon a Megaman X4-style stone golem mecha that the player rides
+        this.ultimateTimer = 480; // 8 seconds
+        this.earthGolem = {
+          timer: 480,
+          facing: this.facing,
+          punchTimer: 0,
+          punchCooldown: 0,
+          shootTimer: 0,
+          shootCooldown: 0,
+          x: this.x - 20,
+          y: this.y - 32,
+          w: 64,
+          h: 80,
+          hp: 50,
+          maxHp: 50,
+          hovering: true,
+          punchHit: false
+        };
+        SFX.slam();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4a8', 25, 6, 20));
         break;
+
       case 'bubble':
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2;
-          const bx = this.x + this.w / 2 + Math.cos(angle) * 70;
-          const by = this.y + this.h / 2 + Math.sin(angle) * 40;
+        // Bubble replication: existing bubbles replicate, plus a big initial wave
+        this.ultimateTimer = 300; // 5 seconds of ongoing replication
+        this.bubbleReplicationTimer = 0;
+        // Initial burst — 10 bubbles scattered across the level
+        for (let i = 0; i < 10; i++) {
+          const bx = game.camera.x + randInt(40, CANVAS_W - 40);
+          const by = randInt(80, 380);
           game.bubbles.push(new Bubble(bx, by));
         }
+        SFX.special();
         break;
+
       case 'shadow':
+        // Screen goes dark, glowing eyes appear
+        this.ultimateTimer = 360; // 6 seconds of buff after cutscene
+        this.shadowDarkness = 0;
+        this.shadowEyesTimer = 60; // eyes visible for 60 frames
+        this.shadowUltBuff = true;
+        // Massive initial shadow strike around the player
+        damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, 8);
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 40, 10, 30));
         this.shadowStealth = 300;
         this.backstabReady = true;
-        this.chainStriking = true;
-        this.chainTimer = 6;
-        this.chainHit = new Set();
+        SFX.backstab();
         break;
+
       case 'crystal':
-        this.parrying = true;
-        this.parryTimer = 60;
+        // Shatter glass effect + spawn two afterimage clones
+        this.ultimateTimer = 480; // 8 seconds of clone action
+        this.crystalShatter = 30; // 30 frames of shatter cutscene
+        // Freeze all enemies during shatter
         for (const e of game.enemies) {
           if (!e.dead) e.freezeTimer = 90;
         }
         if (game.boss && !game.boss.dead) game.boss.freezeTimer = 60;
-        break;
-      case 'wind':
-        this.windPower = 10;
-        for (let i = 0; i < 3; i++) {
-          const px = this.x + this.w / 2 + (i - 1) * 40;
-          const py = this.y + this.h / 2;
-          const speed = 10;
-          const vx = (i - 1) * speed;
-          const vy = -2 + Math.random() * 4;
-          if (!game.trimerangs) game.trimerangs = [];
-          game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
+        // Create glass shards for visual
+        this.crystalShards = [];
+        for (let i = 0; i < 24; i++) {
+          this.crystalShards.push({
+            x: this.x + this.w / 2 + randInt(-40, 40),
+            y: this.y + this.h / 2 + randInt(-40, 40),
+            vx: (Math.random() - 0.5) * 12,
+            vy: (Math.random() - 0.5) * 12,
+            size: 4 + Math.random() * 8,
+            angle: Math.random() * Math.PI * 2,
+            spin: (Math.random() - 0.5) * 0.3,
+            life: 30
+          });
         }
-        this.windDashing = true;
-        this.windDashTimer = 30;
-        this.vx = this.facing * 18;
-        this.vy = 0;
+        // Spawn two afterimage clones (floating side by side)
+        this.crystalClones = [
+          { offsetX: -60, offsetY: -10, alpha: 0.6 },
+          { offsetX: 60, offsetY: -10, alpha: 0.6 }
+        ];
+        SFX.parry();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 25));
+        break;
+
+      case 'wind':
+        this.ultimateTimer = 180;
+        this.windPower = 10;
+        if (!game.trimerangs) game.trimerangs = [];
+        // Spawn +3 new trimerangs
+        for (let i = 0; i < 3; i++) {
+          const angle = (i / 3) * Math.PI * 2;
+          const px = this.x + this.w / 2 + Math.cos(angle) * 40;
+          const py = this.y + this.h / 2 + Math.sin(angle) * 40;
+          game.trimerangs.push(new Trimerang(px, py, Math.cos(angle) * 4, Math.sin(angle) * 4, 'player'));
+        }
+        // Set ALL active trimerangs to orbit mode
+        const totalTrimerangs = game.trimerangs.length;
+        for (let i = 0; i < totalTrimerangs; i++) {
+          const t = game.trimerangs[i];
+          if (t.done) continue;
+          t.orbiting = true;
+          t.orbitTimer = 90; // orbit for ~1.5 seconds
+          t.orbitAngle = (i / totalTrimerangs) * Math.PI * 2;
+          t.orbitRadius = 50 + (i % 3) * 20;
+          t.burstAngle = (i / totalTrimerangs) * Math.PI * 2; // spread evenly outward
+          t.hitSet.clear();
+        }
+        SFX.bossSpawn();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 25, 6, 20));
         this.invincibleTimer = 40;
         break;
+    }
+    // End invincibility boost (set to just a brief window after cutscene)
+    if (this.ninjaType !== 'wind') {
+      this.invincibleTimer = 30;
     }
   }
 
@@ -183,6 +294,7 @@ class Player {
 
   switchNinja(type) {
     if (this.ninjaType === type) return;
+    if (this.ultCutscene || this.earthGolem) return; // Can't switch during ultimate cutscene or golem
     this.ninjaType = type;
     this.comboMeter = 0;
     this.comboTimer = 0;
@@ -195,27 +307,208 @@ class Player {
     this.parrying = false;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
+    this.crystalClones = null;
+    this.crystalShatter = 0;
+    this.crystalShards = null;
     this.windPower = 0;
     this.windDashing = false;
     this.windDashTimer = 0;
   }
 
   update(game) {
-    // Reset ultimate after use
+    // ── Ultimate cutscene float phase ──
+    if (this.ultCutscene) {
+      this.ultCutsceneTimer--;
+      // Float upward smoothly
+      this.y = lerp(this.y, this.ultFloatY, 0.08);
+      this.vx = 0;
+      this.vy = 0;
+      // Sparkle effects during float
+      if (this.ultCutsceneTimer % 6 === 0) {
+        const col = this.type.color;
+        game.effects.push(new Effect(
+          this.x + this.w / 2 + randInt(-20, 20),
+          this.y + this.h / 2 + randInt(-20, 20),
+          col, 6, 2, 12
+        ));
+      }
+      if (this.ultCutsceneTimer <= 0) {
+        this.triggerUltimateEffect(game);
+      }
+      return; // Skip all normal update during cutscene
+    }
+
+    // ── Ultimate active updates ──
     if (this.ultimateActive) {
       this.ultimateTimer--;
+
+      // Fire: update meteors
+      if (this.ninjaType === 'fire') {
+        this.fireMeteorTimer++;
+        for (const m of this.fireMeteors) {
+          if (m.done) continue;
+          if (this.fireMeteorTimer < m.delay) continue;
+          if (!m.active) {
+            m.active = true;
+            // Start from top of screen
+            m.x = m.targetX + randInt(-40, 40);
+            m.y = game.camera.y - 40;
+          }
+          // Move toward ground at angle
+          const dx = m.targetX - m.x;
+          const dy = m.targetY - m.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > 0) {
+            m.x += (dx / d) * m.speed;
+            m.y += (dy / d) * m.speed;
+          }
+          // Trail
+          m.trail.push({ x: m.x, y: m.y, life: 15 });
+          // Impact
+          if (m.y >= m.targetY - 10 || d < 12) {
+            m.done = true;
+            damageInRadius(game, m.targetX, m.targetY, 60, 6);
+            game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
+            game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
+            SFX.slam();
+            triggerHitstop(4);
+          }
+        }
+        // Decay trails
+        for (const m of this.fireMeteors) {
+          for (const t of m.trail) t.life--;
+          m.trail = m.trail.filter(t => t.life > 0);
+        }
+      }
+
+      // Earth: update golem mecha
+      if (this.ninjaType === 'earth' && this.earthGolem) {
+        const g = this.earthGolem;
+        g.timer--;
+        // Player is inside the golem — move golem with input
+        let moveX = 0;
+        if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
+        if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
+        if (moveX !== 0) g.facing = moveX;
+        g.x += moveX * 2.5;
+        // Hover — gentle bob
+        g.y = this.y - 24 + Math.sin(game.tick * 0.05) * 4;
+        // Keep golem within bounds
+        g.x = Math.max(0, Math.min(3200 - g.w, g.x));
+        // Player position follows golem center
+        this.x = g.x + g.w / 2 - this.w / 2;
+
+        // Punch attack (Z/J or mouse)
+        if (g.punchCooldown > 0) g.punchCooldown--;
+        if (g.punchTimer > 0) {
+          g.punchTimer--;
+          if (!g.punchHit && g.punchTimer < 10) {
+            g.punchHit = true;
+            const punchX = g.x + (g.facing > 0 ? g.w : -40);
+            const punchY = g.y + 20;
+            const punchBox = { x: punchX, y: punchY, w: 48, h: 40 };
+            for (const e of game.enemies) {
+              if (!e.dead && rectOverlap(punchBox, e)) {
+                e.takeDamage(10, game, g.x + g.w / 2);
+                game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4a8', 12, 4, 14));
+              }
+            }
+            if (game.boss && !game.boss.dead && rectOverlap(punchBox, game.boss)) {
+              game.boss.takeDamage(10, game, g.x + g.w / 2);
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4a8', 16, 5, 18));
+            }
+            SFX.hit();
+            triggerHitstop(3);
+          }
+        }
+        if (g.punchCooldown <= 0 && (consumePress('KeyZ') || consumePress('KeyJ') || justPressed['MouseAttack'] || gpJust[GP_ATTACK])) {
+          g.punchTimer = 18;
+          g.punchCooldown = 30;
+          g.punchHit = false;
+          SFX.attack();
+        }
+
+        // Shoot projectile (X/K or mouse right)
+        if (g.shootCooldown > 0) g.shootCooldown--;
+        if (g.shootCooldown <= 0 && (consumePress('KeyX') || consumePress('KeyK') || justPressed['MouseSpecial'] || gpJust[GP_SPECIAL])) {
+          g.shootCooldown = 20;
+          const px = g.x + (g.facing > 0 ? g.w + 4 : -12);
+          const py = g.y + g.h / 2;
+          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#8d8', 6, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#8d8', 4, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#8d8', 4, 'player'));
+          SFX.shuriken();
+        }
+
+        // Golem expires
+        if (g.timer <= 0) {
+          game.effects.push(new Effect(g.x + g.w / 2, g.y + g.h / 2, '#aaa', 20, 6, 20));
+          SFX.slam();
+          this.earthGolem = null;
+        }
+      }
+
+      // Bubble: ongoing replication
+      if (this.ninjaType === 'bubble') {
+        this.bubbleReplicationTimer++;
+        // Every 40 frames, each existing bubble spawns a child nearby
+        if (this.bubbleReplicationTimer % 40 === 0) {
+          const existing = game.bubbles.filter(b => !b.done);
+          const maxNew = Math.min(existing.length, 6); // cap spawns per wave
+          for (let i = 0; i < maxNew; i++) {
+            const parent = existing[i];
+            const bx = parent.x + randInt(-60, 60);
+            const by = parent.y + randInt(-40, 40);
+            game.bubbles.push(new Bubble(
+              Math.max(40, Math.min(3160, bx)),
+              Math.max(40, Math.min(440, by))
+            ));
+          }
+          if (maxNew > 0) SFX.special();
+        }
+      }
+
+      // Shadow: darkness decay and buff
+      if (this.ninjaType === 'shadow') {
+        if (this.shadowEyesTimer > 0) {
+          this.shadowEyesTimer--;
+          this.shadowDarkness = Math.min(this.shadowDarkness + 0.04, 0.7);
+        } else {
+          this.shadowDarkness = Math.max(this.shadowDarkness - 0.01, 0);
+        }
+        // Enhanced stealth regen during buff
+        if (this.shadowUltBuff) {
+          this.shadowStealth = Math.min(this.shadowStealth + 3, 300);
+        }
+      }
+
+      // Ultimate expires
       if (this.ultimateTimer <= 0) {
         this.ultimateActive = false;
         this.ultimateCharge = 0;
         this.ultimateReady = false;
         this.ultimateMax = Math.round(this.ultimateMax * 1.2);
+        // Clean up type-specific state
+        this.earthGolem = null;
+        this.fireMeteors = [];
+        this.shadowUltBuff = false;
+        this.shadowDarkness = 0;
+        this.shadowEyesTimer = 0;
       }
     }
+
     // Ultimate activation input
     if (this.ultimateReady && !this.ultimateActive) {
       if (consumePress('KeyV') || consumePress('KeyM') || gpJust[3]) {
         this.activateUltimate(game);
       }
+    }
+
+    // Skip normal movement if in earth golem
+    if (this.earthGolem) {
+      // Still allow invincibility, effects, etc. but skip movement/gravity/collision
+      if (this.invincibleTimer > 0) this.invincibleTimer--;
+      return;
     }
     const t = this.type;
 
@@ -311,9 +604,8 @@ class Player {
         } else if (this.vx > 0) {
           this.x = p.x - this.w;
           this.onWall = 1;
-          if (this.windDashing || this.fireDashing) {
+          if (this.windDashing) {
             this.windDashing = false;
-            this.fireDashing = false;
             this.windDashTimer = 0;
             this.vx = 0;
             this.nextHitDouble = true;
@@ -322,12 +614,18 @@ class Player {
             this.stopMidairTimer = 20;
             game.effects.push(new Effect(this.x + this.w, this.y + this.h / 2, '#bfb', 12, 5, 15));
           }
+          if (this.fireDashing) {
+            this._launchFireball(game);
+            triggerHitstop(5);
+            for (let i = 0; i < 8; i++) {
+              game.effects.push(new Effect(this.x + this.w, this.y + Math.random() * this.h, '#f80', 8 + Math.random() * 6, 3, 12));
+            }
+          }
         } else if (this.vx < 0) {
           this.x = p.x + p.w;
           this.onWall = -1;
-          if (this.windDashing || this.fireDashing) {
+          if (this.windDashing) {
             this.windDashing = false;
-            this.fireDashing = false;
             this.windDashTimer = 0;
             this.vx = 0;
             this.nextHitDouble = true;
@@ -335,6 +633,13 @@ class Player {
             this.stopMidair = true;
             this.stopMidairTimer = 20;
             game.effects.push(new Effect(this.x, this.y + this.h / 2, '#bfb', 12, 5, 15));
+          }
+          if (this.fireDashing) {
+            this._launchFireball(game);
+            triggerHitstop(5);
+            for (let i = 0; i < 8; i++) {
+              game.effects.push(new Effect(this.x, this.y + Math.random() * this.h, '#f80', 8 + Math.random() * 6, 3, 12));
+            }
           }
         }
       }
@@ -506,7 +811,7 @@ class Player {
               dmg += 1;
             }
             if (this.ninjaType === 'crystal') {
-              dmg += Math.floor(this.parryCombo / 2);
+              dmg += this.crystalClones ? 2 : 0;
             }
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
@@ -582,7 +887,7 @@ class Player {
           }
           if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10)); }
           if (this.bubbleBuffTimer > 0) dmg += 1;
-          if (this.ninjaType === 'crystal') dmg += Math.floor(this.parryCombo / 2);
+          if (this.ninjaType === 'crystal') dmg += this.crystalClones ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
           if (!this.ultimateReady && !this.ultimateActive) {
@@ -613,10 +918,11 @@ class Player {
       this.shurikens--;
       const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      const color = (this.ninjaType === 'fire') ? '#f93' : '#ccc';
-      fireProjectileAtNearestEnemy({
+      const color = (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : '#ccc';
+      const sProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6
       });
+      if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
     }
 
@@ -655,7 +961,7 @@ class Player {
       this.chainTimer--;
       if (this.chainTimer <= 0) {
         let nearest = null;
-        let nearDist = 200;
+        let nearDist = this.shadowUltBuff ? 500 : 200; // Bigger radius during ult
         const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
         for (const e of game.enemies) {
           if (e.dead || this.chainHit.has(e)) continue;
@@ -697,8 +1003,9 @@ class Player {
     // Shadow ninja: stealth accumulation
     if (this.ninjaType === 'shadow') {
       const now = game.tick;
+      const stealthRate = this.shadowUltBuff ? 5 : 1; // Way faster during ult
       if (now - this.lastDamageTick > 60 && now - this.lastEnemyTouch > 60) {
-        this.shadowStealth = Math.min(this.shadowStealth + 1, 300);
+        this.shadowStealth = Math.min(this.shadowStealth + stealthRate, 300);
         if (this.shadowStealth % 60 === 0 && this.shadowKillThreshold < 15) {
           this.shadowKillThreshold++;
         }
@@ -730,57 +1037,63 @@ class Player {
       }
     }
 
-    // Crystal ninja: parry state
+    // Crystal ninja: clone update + shatter
     if (this.ninjaType === 'crystal') {
       if (this.parryVisualTimer > 0) this.parryVisualTimer--;
-      if (this.parrying) {
-        this.parryTimer--;
-        if (this.parryTimer <= 0) this.parrying = false;
-        for (const proj of game.projectiles) {
-          if (proj.owner === 'enemy' && !proj.reflected && !proj.done) {
-            const parryBox = {
-              x: this.x - 12, y: this.y - 8,
-              w: this.w + 24, h: this.h + 16
-            };
-            if (rectOverlap(proj, parryBox)) {
-              let nearestE = null;
-              let nearestDist = Infinity;
-              for (const e of game.enemies) {
-                if (e.dead) continue;
-                const edx = (e.x + e.w / 2) - (this.x + this.w / 2);
-                const edy = (e.y + e.h / 2) - (this.y + this.h / 2);
-                const ed = Math.sqrt(edx * edx + edy * edy);
-                if (ed < nearestDist) { nearestDist = ed; nearestE = e; }
-              }
-              if (game.boss && !game.boss.dead) {
-                const bdx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
-                const bdy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
-                const bd = Math.sqrt(bdx * bdx + bdy * bdy);
-                if (bd < nearestDist) { nearestDist = bd; nearestE = game.boss; }
-              }
-              const reflectSpeed = 6;
-              if (nearestE) {
-                const tdx = (nearestE.x + nearestE.w / 2) - proj.x;
-                const tdy = (nearestE.y + nearestE.h / 2) - proj.y;
-                const td = Math.sqrt(tdx * tdx + tdy * tdy);
-                proj.vx = (tdx / td) * reflectSpeed;
-                proj.vy = (tdy / td) * reflectSpeed;
-              } else {
-                proj.vx = this.facing * reflectSpeed;
-                proj.vy = -1;
-              }
-              proj.owner = 'player';
-              proj.damage += this.parryCombo;
-              proj.reflected = true;
-              proj.color = '#0ff';
-              SFX.reflect();
-              this.parryCombo++;
-              this.parryComboTimer = 300;
-              this.nextHitDouble = true;
-              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
+      // Shatter glass shards animation
+      if (this.crystalShatter > 0) {
+        this.crystalShatter--;
+        if (this.crystalShards) {
+          for (const s of this.crystalShards) {
+            s.x += s.vx;
+            s.y += s.vy;
+            s.vy += 0.3;
+            s.angle += s.spin;
+            s.life--;
+          }
+          this.crystalShards = this.crystalShards.filter(s => s.life > 0);
+        }
+      }
+      // Clone attack mirroring — clones deal damage when player attacks
+      if (this.crystalClones && this.attacking && this.attackBox) {
+        for (const clone of this.crystalClones) {
+          const cloneX = this.x + clone.offsetX;
+          const cloneY = this.y + clone.offsetY;
+          const cloneBox = {
+            x: this.facing > 0 ? cloneX + this.w : cloneX - this.attackBox.w,
+            y: cloneY + 4,
+            w: this.attackBox.w,
+            h: this.attackBox.h
+          };
+          for (const e of game.enemies) {
+            if (!e.dead && e.hitCooldown <= 0 && rectOverlap(cloneBox, e)) {
+              const dmg = Math.floor((t.attackDamage + this.bonusDamage) * 0.6);
+              e.takeDamage(dmg, game, cloneX + this.w / 2);
+              e.hitCooldown = 15;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 6, 3, 8));
             }
           }
+          if (game.boss && !game.boss.dead && rectOverlap(cloneBox, game.boss)) {
+            const dmg = Math.floor((t.attackDamage + this.bonusDamage) * 0.6);
+            game.boss.takeDamage(dmg, game, cloneX + this.w / 2);
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 8, 3, 10));
+          }
         }
+      }
+      // Clone special mirroring — clones also spawn diamond shards
+      if (this.crystalClones && this._cloneSpecialTrigger) {
+        for (const clone of this.crystalClones) {
+          if (!game.diamondShards) game.diamondShards = [];
+          const sx = this.x + clone.offsetX + this.w / 2;
+          const sy = this.y + clone.offsetY + this.h / 2;
+          game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+        }
+        this._cloneSpecialTrigger = false;
+      }
+      // End clones when ultimate expires
+      if (this.crystalClones && this.ultimateTimer <= 0) {
+        this.crystalClones = null;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 15, 5, 15));
       }
       if (this.parryComboTimer > 0) this.parryComboTimer--;
       else this.parryCombo = 0;
@@ -789,36 +1102,34 @@ class Player {
     // Fire Ninja dash logic
     if (this.ninjaType === 'fire' && this.fireDashing) {
       this.fireDashTimer--;
-      this.vx = this.facing * 15;
-      this.vy = 0;
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 12, 5, 15));
+      const progress = 1 - this.fireDashTimer / this.fireDashMax;
+      const dashSpeed = 13 * (1 - progress * 0.4);
+      this.vx = this.facing * dashSpeed;
+      this.vy *= 0.5;
+
+      // Fire trail particles
+      for (let i = 0; i < 3; i++) {
+        const ox = -this.facing * (6 + Math.random() * 10);
+        const oy = (Math.random() - 0.5) * this.h;
+        const colors = ['#f80', '#f50', '#fa0', '#f33'];
+        game.effects.push(new Effect(
+          this.x + this.w / 2 + ox, this.y + this.h / 2 + oy,
+          colors[Math.floor(Math.random() * colors.length)], 6 + Math.random() * 4, 2, 8
+        ));
+      }
 
       for (const e of game.enemies) {
         if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
-          const t = this.type;
-          const dmg = t.attackDamage + this.bonusDamage;
+          const dmg = this.type.attackDamage + this.bonusDamage;
           e.takeDamage(dmg, game, this.x + this.w / 2);
-          e.hitCooldown = 15;
-          triggerHitstop(4);
-          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f93', 10, 4, 12));
+          e.burnTimer = Math.max(e.burnTimer || 0, 90);
+          triggerHitstop(3);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f80', 12, 4, 12));
         }
       }
 
       if (this.fireDashTimer <= 0) {
-        this.fireDashing = false;
-        this.vx = 0;
-        if (this._fireballPending) {
-          const fx = this.x + this.facing * (this.w + 12);
-          const fy = this.y + this.h / 2;
-          const speed = 12 * this.facing;
-          const proj = new Projectile(fx, fy, speed, 0, '#f93', 6, 'player');
-          proj.w = 22;
-          proj.h = 14;
-          proj.piercing = true;
-          game.projectiles.push(proj);
-          game.effects.push(new Effect(fx, fy, '#f80', 10, 3, 14));
-          this._fireballPending = false;
-        }
+        this._launchFireball(game);
       }
     }
 
@@ -902,9 +1213,22 @@ class Player {
       }
     }
 
+    // Crystal attack: shoot freeze dust
+    if (this.ninjaType === 'crystal') {
+      const fx = this.x + this.w / 2 + this.facing * 20;
+      const fy = this.y + this.h / 2;
+      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', 1, 'player');
+      proj.w = 10; proj.h = 8;
+      proj.freezeDust = true;
+      proj.life = 60;
+      game.projectiles.push(proj);
+      game.effects.push(new Effect(fx, fy, '#aff', 4, 2, 6));
+    }
+
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
-    const reach = shadowFullStealth ? 50 : 30;
-    const vertExtra = shadowFullStealth ? 10 : 0;
+    const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
+    const reach = shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 30);
+    const vertExtra = shadowUltBonus ? 20 : (shadowFullStealth ? 10 : 0);
     this.attackBox = {
       x: this.facing > 0 ? this.x + this.w : this.x - reach,
       y: this.y + 4 - vertExtra,
@@ -918,18 +1242,37 @@ class Player {
     ));
   }
 
+  _launchFireball(game) {
+    this.fireDashing = false;
+    this.vx = 0;
+    if (this._fireballPending) {
+      const fx = this.x + this.facing * (this.w + 8);
+      const fy = this.y + this.h / 2;
+      const speed = 8 * this.facing;
+      const proj = new Projectile(fx, fy, speed, 0, '#f80', 6 + this.bonusDamage, 'player');
+      proj.w = 18;
+      proj.h = 18;
+      proj.piercing = true;
+      proj.isFireball = true;
+      proj.life = 80;
+      game.projectiles.push(proj);
+      game.effects.push(new Effect(fx, fy, '#f50', 12, 4, 14));
+      this._fireballPending = false;
+    }
+  }
+
   useSpecial(game) {
     this.specialCooldown = 60;
     SFX.special();
     switch (this.ninjaType) {
       case 'fire': {
         this.fireDashing = true;
-        this.fireDashTimer = 10;
-        this.vx = this.facing * 15;
-        this.vy = 0;
-        this.invincibleTimer = 30;
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 12, 5, 15));
+        this.fireDashTimer = 12;
+        this.fireDashMax = 12;
+        this.vy = -1;
+        this.invincibleTimer = 15;
         this._fireballPending = true;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 14, 5, 15));
         break;
       }
       case 'earth': {
@@ -992,54 +1335,15 @@ class Player {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
         break;
       case 'crystal': {
-        let canParry = false;
-        for (const e of game.enemies) {
-          if (e.dead) continue;
-          if (e.type === 'shooter' || e.type === 'flyshooter') continue;
-          const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
-          const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
-          if (Math.sqrt(dx * dx + dy * dy) < 80 && e.hitCooldown <= 0) { canParry = true; break; }
-        }
-        if (!canParry && game.boss && !game.boss.dead) {
-          const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
-          const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
-          if (Math.sqrt(dx * dx + dy * dy) < 100 && game.boss.hitCooldown <= 0) canParry = true;
-        }
-        this.parryVisualTimer = 20;
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, canParry ? '#aff' : '#889', 12, 4, 15));
-        if (!canParry) { SFX.parryFail(); break; }
-        SFX.parry();
-        this.parrying = true;
-        this.parryTimer = 20;
-        this.nextHitDouble = true;
-        for (const e of game.enemies) {
-          if (e.dead) continue;
-          const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
-          const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 120) {
-            const pushDir = dx >= 0 ? 1 : -1;
-            e.vx = pushDir * 14;
-            e.vy = -6;
-            e.freezeTimer = 45;
-            this.parryCombo++;
-            this.parryComboTimer = 300;
-            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#0ff', 6, 3, 10));
-          }
-        }
-        if (game.boss && !game.boss.dead) {
-          const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
-          const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 120) {
-            game.boss.vx = (dx >= 0 ? 1 : -1) * 10;
-            game.boss.vy = -4;
-            game.boss.freezeTimer = 30;
-            this.parryCombo++;
-            this.parryComboTimer = 300;
-            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#0ff', 8, 3, 12));
-          }
-        }
+        // Spawn a diamond shard aimed at nearest enemy
+        if (!game.diamondShards) game.diamondShards = [];
+        const sx = this.x + this.w / 2 + this.facing * 16;
+        const sy = this.y + this.h / 2;
+        game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+        // Signal clones to also spawn shards
+        if (this.crystalClones) this._cloneSpecialTrigger = true;
+        SFX.special();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
         break;
       }
       case 'wind':
@@ -1069,7 +1373,6 @@ class Player {
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
     }
-    if (this.ninjaType === 'crystal' && this.parrying) return;
     if (this.fireArmor || this.chainStriking) return;
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -1107,6 +1410,23 @@ class Player {
     const t = this.type;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
+
+    // Fire dash streak
+    if (this.fireDashing) {
+      ctx.save();
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
+      for (let i = 1; i <= 5; i++) {
+        ctx.globalAlpha = 0.35 / i;
+        ctx.fillStyle = i <= 2 ? '#fa0' : '#f50';
+        ctx.fillRect(
+          cx - this.w / 2 - this.facing * i * 8,
+          cy - this.h / 2 + 2,
+          this.w, this.h - 4
+        );
+      }
+      ctx.restore();
+    }
 
     // Wind trails
     if (this.ninjaType === 'wind') {
@@ -1229,11 +1549,12 @@ class Player {
       ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
     }
 
-    // Parry shield
-    if (this.ninjaType === 'crystal' && this.parryVisualTimer > 0) {
-      ctx.strokeStyle = this.parrying ? '#0ff' : '#667';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(sx - 8, sy - 4, this.w + 16, this.h + 8);
+    // Crystal glow (during clone ultimate)
+    if (this.ninjaType === 'crystal' && this.crystalClones) {
+      const pulse = Math.sin(Date.now() * 0.006) * 0.2 + 0.4;
+      ctx.strokeStyle = `rgba(170,255,255,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
     }
 
     // Wall slide indicator

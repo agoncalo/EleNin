@@ -35,7 +35,28 @@ class Enemy {
 
   update(game) {
     if (this.dead) return;
-    if (this.freezeTimer > 0) { this.freezeTimer--; this.vx = 0; this.vy = 0; return; }
+    if (this.freezeTimer > 0) {
+      this.freezeTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (!p.thin && rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      return;
+    }
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
@@ -260,6 +281,26 @@ class Enemy {
     SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, this.color, this.big ? 18 : 12, 4, 18));
+    // Crystal shatter: scatter diamond shards on kill
+    if (game.player.ninjaType === 'crystal') {
+      if (!game.diamondShards) game.diamondShards = [];
+      const frozen = this.freezeTimer > 0;
+      const count = frozen ? (this.big ? 4 : 2) : (this.big ? 2 : 1);
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      for (let i = 0; i < count; i++) {
+        const shard = new DiamondShard(cx, cy, 'player', game);
+        // Override with random scatter direction
+        const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+        shard.angle = a + Math.PI / 2;
+        shard.dirX = Math.cos(a);
+        shard.dirY = Math.sin(a);
+        shard.speed = 2;
+        shard.maxSpeed = 6;
+        game.diamondShards.push(shard);
+      }
+      game.effects.push(new Effect(cx, cy, '#aff', 14, 5, 15));
+    }
     // Drop orb
     const r = Math.random();
     if (r < 0.35) {
@@ -442,7 +483,28 @@ class Boss extends Enemy {
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
-    if (this.freezeTimer > 0) { this.freezeTimer--; this.vx = 0; this.vy = 0; return; }
+    if (this.freezeTimer > 0) {
+      this.freezeTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      return;
+    }
     this.phase = this.hp <= this.maxHp / 2 ? 2 : 1;
     const speed = (this.phase === 2 ? 3.2 : 2.2) + this.wave * 0.25;
 
