@@ -11,6 +11,13 @@ canvas { border: 2px solid #333; image-rendering: pixelated; max-width: 100vw; m
 </style>
 </head>
 <body>
+<div id="top-ui" style="width:100vw;display:flex;justify-content:center;align-items:center;flex-direction:column;position:absolute;top:0;left:0;z-index:10;pointer-events:none;">
+  <div id="title-controls" style="width:960px;max-width:100vw;display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+    <span id="elenin-title" style="font-family:monospace;font-weight:bold;font-size:1.5em;color:#fff;letter-spacing:2px;">EleNin</span>
+    <span id="controls-hint" style="font-family:monospace;font-size:1em;color:#ccc;">WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch</span>
+  </div>
+  <div id="shuriken-bar" style="margin:0 auto;display:flex;justify-content:center;align-items:center;height:28px;"></div>
+</div>
 <canvas id="game"></canvas>
 <script>
 // ============================================================
@@ -32,6 +39,10 @@ class Trimerang {
     // (Wind trail logic moved to update method)
   }
   update(game) {
+        // Debug: log ultimate activation input and readiness
+        if ((consumePress('KeyV') || consumePress('KeyM') || gpJust[3])) {
+          console.log('Ultimate input detected. Ready:', this.ultimateReady, 'Active:', this.ultimateActive);
+        }
     // WindPower full: add wind trail effect to enemies (update every frame)
     // Only show wind tail if enemy is facing the player
     if (game.player && game.player.ninjaType === 'wind' && game.player.windPower >= 10) {
@@ -325,6 +336,7 @@ const GP_SLAM = 13;    // Dpad Down
 const GP_LB = 4;
 const GP_RB = 5;
 
+
 // ── Utility ──────────────────────────────────────────────────
 function rectOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x &&
@@ -351,6 +363,41 @@ function hasLineOfSight(x0, y0, x1, y1, game) {
 }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+// Fire a projectile at the nearest enemy or boss with line of sight
+function fireProjectileAtNearestEnemy({
+  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false
+}) {
+  let nearest = null, bestDist = Infinity;
+  for (const e of game.enemies) {
+    if (e.dead) continue;
+    if (!hasLineOfSight(x, y, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
+    const dx = (e.x + e.w / 2) - x, dy = (e.y + e.h / 2) - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) { bestDist = d; nearest = e; }
+  }
+  if (game.boss && !game.boss.dead) {
+    if (hasLineOfSight(x, y, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+      const dx = (game.boss.x + game.boss.w / 2) - x, dy = (game.boss.y + game.boss.h / 2) - y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; nearest = game.boss; }
+    }
+  }
+  let vx = speed, vy = 0;
+  if (nearest) {
+    const dx = (nearest.x + nearest.w / 2) - x;
+    const dy = (nearest.y + nearest.h / 2) - y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 0) { vx = (dx / d) * speed; vy = (dy / d) * speed; }
+  }
+  const proj = new Projectile(x, y, vx, vy, color, damage, owner);
+  proj.w = width;
+  proj.h = height;
+  proj.piercing = piercing;
+  proj.bouncy = bouncy;
+  game.projectiles.push(proj);
+  return proj;
+}
 
 // ============================================================
 //  Orb (item drop)
@@ -401,6 +448,10 @@ class Orb {
       this.done = true;
       SFX.pickup();
       const pl = game.player;
+      // Ultimate charge gain: collect orb
+      if (!pl.ultimateReady && !pl.ultimateActive) {
+        pl.addUltimateCharge(5);
+      }
       switch (this.type) {
         case 'heal':
           pl.hp = Math.min(pl.hp + 3, pl.maxHp);
@@ -1019,6 +1070,10 @@ class Projectile {
               game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
             }
           }
+          // Ultimate charge gain: projectile hit
+          if (!game.player.ultimateReady && !game.player.ultimateActive) {
+            game.player.addUltimateCharge(2);
+          }
           if (!this.piercing) { this.done = true; return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
@@ -1027,6 +1082,10 @@ class Projectile {
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.damage, game, this.x);
         this.hitSet.add(game.boss);
+        // Ultimate charge gain: projectile hit boss
+        if (!game.player.ultimateReady && !game.player.ultimateActive) {
+          game.player.addUltimateCharge(3);
+        }
         if (!this.piercing) { this.done = true; return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
 
@@ -1156,6 +1215,16 @@ class Player {
     this.invincibleTimer = 0;
     this.bonusDamage = 0;
 
+    // Ultimate system
+    this.ultimateCharge = 0;
+    this.ultimateMax = 100;
+    this.ultimateReady = false;
+    this.ultimateActive = false;
+    this.ultimateTimer = 0;
+
+    // ...existing code...
+    // ...existing code...
+
     // Double jump
     this.jumpsLeft = 2;
     this.maxJumps = 2;
@@ -1232,6 +1301,98 @@ class Player {
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
 
+    // Ultimate activation logic
+  activateUltimate(game) {
+    this.ultimateActive = true;
+    this.ultimateReady = false;
+    this.ultimateTimer = 180; // 3 seconds default
+    SFX.victory();
+    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#fff', 30, 8, 30));
+    // Unique effects per ninja
+    switch (this.ninjaType) {
+      case 'fire':
+        // Fire: All attacks burn, fire armor, and fireballs rain
+        this.fireArmor = true;
+        this.fireArmorTimer = 240;
+        for (let i = 0; i < 8; i++) {
+          setTimeout(() => {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 80 + Math.random() * 60;
+            const fx = this.x + this.w/2 + Math.cos(angle) * dist;
+            const fy = this.y + this.h/2 + Math.sin(angle) * dist;
+            fireProjectileAtNearestEnemy({
+              x: fx, y: fy, game, speed: 7, color: '#f93', damage: 4, owner: 'player', width: 14, height: 10, piercing: true
+            });
+          }, i * 120);
+        }
+        break;
+      case 'earth':
+        // Earth: Summon stone pillars around player
+        for (let i = 0; i < 6; i++) {
+          const angle = (i / 6) * Math.PI * 2;
+          const px = this.x + this.w/2 + Math.cos(angle) * 90;
+          const py = this.y + this.h/2 + Math.sin(angle) * 60;
+          game.stonePillars.push(new StonePillar(px, py));
+        }
+        break;
+      case 'bubble':
+        // Bubble: Spawn bubbles in a circle
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2;
+          const bx = this.x + this.w/2 + Math.cos(angle) * 70;
+          const by = this.y + this.h/2 + Math.sin(angle) * 40;
+          game.bubbles.push(new Bubble(bx, by));
+        }
+        break;
+      case 'shadow':
+        // Shadow: Instantly stealth, backstab ready, chain strike all enemies in range
+        this.shadowStealth = 300;
+        this.backstabReady = true;
+        this.chainStriking = true;
+        this.chainTimer = 6;
+        this.chainHit = new Set();
+        break;
+      case 'crystal':
+        // Crystal: Parry shield for duration, freeze all enemies
+        this.parrying = true;
+        this.parryTimer = 60;
+        for (const e of game.enemies) {
+          if (!e.dead) e.freezeTimer = 90;
+        }
+        if (game.boss && !game.boss.dead) game.boss.freezeTimer = 60;
+        break;
+      case 'wind':
+        // Wind: Full wind power, dash rapidly, trimerangs
+        this.windPower = 10;
+        for (let i = 0; i < 3; i++) {
+          const px = this.x + this.w/2 + (i-1)*40;
+          const py = this.y + this.h/2;
+          const speed = 10;
+          const vx = (i-1) * speed;
+          const vy = -2 + Math.random() * 4;
+          if (!game.trimerangs) game.trimerangs = [];
+          game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
+        }
+        this.windDashing = true;
+        this.windDashTimer = 30;
+        this.vx = this.facing * 18;
+        this.vy = 0;
+        this.invincibleTimer = 40;
+        break;
+    }
+  }
+
+  // Add ultimate charge externally
+  addUltimateCharge(amount) {
+    if (!this.ultimateReady && !this.ultimateActive) {
+      this.ultimateCharge = Math.min(this.ultimateCharge + amount, this.ultimateMax);
+      if (this.ultimateCharge >= this.ultimateMax) {
+        this.ultimateCharge = this.ultimateMax;
+        this.ultimateReady = true;
+      }
+    }
+  }
+
   switchNinja(type) {
     if (this.ninjaType === type) return;
     this.ninjaType = type;
@@ -1252,6 +1413,23 @@ class Player {
   }
 
   update(game) {
+    // Reset ultimate after use
+    if (this.ultimateActive) {
+      this.ultimateTimer--;
+      if (this.ultimateTimer <= 0) {
+        this.ultimateActive = false;
+        this.ultimateCharge = 0;
+        this.ultimateReady = false;
+        // Increase ultimate requirement by 20% each time, capped at 400
+        this.ultimateMax = Math.min(Math.round(this.ultimateMax * 1.2), 400);
+      }
+    }
+    // ── Ultimate activation input ──
+    if (this.ultimateReady && !this.ultimateActive) {
+      if (consumePress('KeyV') || consumePress('KeyM') || gpJust[3]) {
+        this.activateUltimate(game);
+      }
+    }
     const t = this.type;
 
     // Bubble buff decay
@@ -1502,6 +1680,10 @@ class Player {
         this.bubbleBuffTimer = 240; // 4 seconds of buff
         this.jumpsLeft = Math.min(this.jumpsLeft + 1, maxJ); // bonus jump
         game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#6af', 8, 3, 12));
+        // Ultimate charge gain: collect bubble
+        if (!this.ultimateReady && !this.ultimateActive) {
+          this.addUltimateCharge(3);
+        }
       }
     }
 
@@ -1512,6 +1694,10 @@ class Player {
 
     // ── Attack ──
     if (this.attacking) {
+      // Ultimate charge gain: attacking enemies
+      if (!this.ultimateReady && !this.ultimateActive) {
+        this.addUltimateCharge(2);
+      }
       this.attackTimer--;
       if (this.attackTimer <= 0) {
         // Shadow: reset stealth if attack missed
@@ -1573,6 +1759,10 @@ class Player {
               dmg += this.windPower;
             }
             e.takeDamage(dmg, game, this.x + this.w / 2);
+                        // Ultimate charge gain: hit enemy
+                        if (!this.ultimateReady && !this.ultimateActive) {
+                          this.addUltimateCharge(4);
+                        }
             e.hitCooldown = 15;
 
             if (this.ninjaType === 'crystal') {
@@ -1647,6 +1837,10 @@ class Player {
           if (this.ninjaType === 'crystal') dmg += Math.floor(this.parryCombo / 2);
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+                    // Ultimate charge gain: hit boss
+                    if (!this.ultimateReady && !this.ultimateActive) {
+                      this.addUltimateCharge(6);
+                    }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
           triggerHitstop(5);
         }
@@ -1674,31 +1868,10 @@ class Player {
       this.shurikens--;
       const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      let nearest = null, bestDist = Infinity;
-      for (const e of game.enemies) {
-        if (e.dead) continue;
-        if (!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
-        const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-        const d = dx * dx + dy * dy;
-        if (d < bestDist) { bestDist = d; nearest = e; }
-      }
-      if (game.boss && !game.boss.dead) {
-        if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
-          const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-          const d = dx * dx + dy * dy;
-          if (d < bestDist) { bestDist = d; nearest = game.boss; }
-        }
-      }
-      let svx = this.facing * 8, svy = 0;
-      if (nearest) {
-        const dx = (nearest.x + nearest.w / 2) - cx;
-        const dy = (nearest.y + nearest.h / 2) - cy;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d > 0) { svx = (dx / d) * 8; svy = (dy / d) * 8; }
-      }
       const color = (this.ninjaType === 'fire') ? '#f93' : '#ccc';
-
-      game.projectiles.push(new Projectile(cx, cy, svx, svy, color, dmg, 'player'));
+      fireProjectileAtNearestEnemy({
+        x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6
+      });
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
     }
 
@@ -1714,33 +1887,10 @@ class Player {
           const t = this.type;
           const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
           const dmg = t.attackDamage + this.bonusDamage + 2;
-          let nearest = null, bestDist = Infinity;
-          for (const e of game.enemies) {
-            if (e.dead) continue;
-            if (!hasLineOfSight(cx, cy, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
-            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) { bestDist = d; nearest = e; }
-          }
-          if (game.boss && !game.boss.dead) {
-            if (hasLineOfSight(cx, cy, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
-              const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-              const d = dx * dx + dy * dy;
-              if (d < bestDist) { bestDist = d; nearest = game.boss; }
-            }
-          }
-          let svx = this.facing * 8, svy = 0;
-          if (nearest) {
-            const dx = (nearest.x + nearest.w / 2) - cx;
-            const dy = (nearest.y + nearest.h / 2) - cy;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d > 0) { svx = (dx / d) * 8; svy = (dy / d) * 8; }
-          }
-          const p = new Projectile(cx, cy, svx, svy, '#f93', dmg, 'player');
-          p.w = 14; p.h = 10;
-          p.piercing = true;
-          p.life = 120;
-          game.projectiles.push(p);
+          const p = fireProjectileAtNearestEnemy({
+            x: cx, y: cy, game, speed: 8, color: '#f93', damage: dmg, owner: 'player', width: 14, height: 10, piercing: true
+          });
+          if (p) p.life = 120;
           game.effects.push(new Effect(cx, cy, '#f80', 4, 2, 6));
         }
         // Damage nearby enemies
@@ -2361,22 +2511,51 @@ class Player {
 
     // Attack slash
     if (this.attacking && this.attackBox) {
-      // Sword blade
-      const swordLen = 20;
-      const swordW = 4;
-      const swordX = this.facing > 0 ? sx + this.w : sx - swordLen;
-      const swordY = sy + 10;
-      const color = this.ninjaType === 'fire' ? '#f80' : '#dde';
-      ctx.fillStyle = color;
-      ctx.fillRect(swordX, swordY, swordLen, swordW);
-      // Hilt
+      // Moon-shaped "slicy" effect
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      // Center of arc
+      const arcCx = this.attackBox.x - cam.x + this.attackBox.w/2;
+      const arcCy = this.attackBox.y - cam.y + this.attackBox.h/2;
+      ctx.translate(arcCx, arcCy);
+      const arcStart = Math.PI * 0.15;
+      const arcEnd = Math.PI * 0.85;
+      const arcR = this.attackBox.w * 0.8;
+      ctx.rotate(this.facing > 0 ? -0.25 : Math.PI + 0.25);
+      ctx.beginPath();
+      ctx.arc(0, 0, arcR, arcStart, arcEnd, false);
+      ctx.arc(0, 0, this.attackBox.w * 0.45, arcEnd, arcStart, true);
+      ctx.closePath();
       ctx.fillStyle = t.accentColor;
-      ctx.fillRect(this.facing > 0 ? sx + this.w - 2 : sx, swordY - 3, 4, swordW + 6);
-      // Slash effect (uses hitbox)
-      ctx.globalAlpha = 0.25;
-      ctx.fillStyle = t.accentColor;
-      ctx.fillRect(this.attackBox.x - cam.x, this.attackBox.y - cam.y, this.attackBox.w, this.attackBox.h);
+      ctx.shadowColor = t.accentColor;
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Draw sword blade at end of arc, always away from player
+      ctx.save();
       ctx.globalAlpha = 1;
+      let bladeAngle = arcEnd;
+      let bladeScale = 1;
+      if (this.facing < 0) {
+        bladeAngle = arcEnd;
+        bladeScale = -1;
+      }
+      ctx.rotate(bladeAngle);
+      ctx.scale(bladeScale, 1);
+      ctx.fillStyle = '#ccc';
+      ctx.fillRect(arcR - 2, -3, 18, 6); // blade
+      ctx.fillStyle = '#888';
+      ctx.fillRect(arcR + 16, -2, 4, 4); // tip
+      ctx.restore();
+      // Draw sword hilt at end of arc, always away from player
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.rotate(bladeAngle);
+      ctx.scale(bladeScale, 1);
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(arcR - 8, -7, 6, 14);
+      ctx.restore();
+      ctx.restore();
     }
   }
 }
@@ -3626,119 +3805,149 @@ class Game {
   renderUI() {
     const pl = this.player;
     const t = pl.type;
-
-    // Dark panel
-    // ── Bottom center HUD ──
     const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind'];
-    const barX = CANVAS_W / 2 - 156;
-    const barY = CANVAS_H - 40;
+    // Centered bar positions
+    const barW = 312;
+    const barX = CANVAS_W / 2 - barW / 2;
+    const ninjaBarY = CANVAS_H - 40;
+    // Adjusted: Elemental/HP/Shield bars higher to avoid overlap
+    const barsCenterY = ninjaBarY - 54;
 
-    // HP bar (left of ninja bar)
-    const hpX = barX - 80;
-
-    // Shield bar (top, only if has shield)
-    let hpTop = barY - 2;
+    // Ultimate bar above element bar (bigger)
+    const ultimateBarW = 220;
+    const ultimateBarH = 11;
+    const ultimateBarX = CANVAS_W / 2 - ultimateBarW / 2;
+    const ultimateBarY = barsCenterY + 6;
+    ctx.save();
+    if (pl.ultimateReady || pl.ultimateActive) {
+      ctx.shadowColor = '#ff0';
+      ctx.shadowBlur = 12;
+    }
+    ctx.fillStyle = '#222';
+    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
+    ctx.fillStyle = pl.ultimateActive ? '#ff0' : (pl.ultimateReady ? '#ffd700' : '#888');
+    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW * Math.min(1, pl.ultimateCharge / pl.ultimateMax), ultimateBarH);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    ctx.fillStyle = pl.ultimateActive ? '#fff' : (pl.ultimateReady ? '#ffd700' : '#ccc');
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`ULTIMATE`, ultimateBarX + 4, ultimateBarY + 7);
+    if (pl.ultimateReady && !pl.ultimateActive) {
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText('Press V (keyboard), M, or Y (gamepad) to activate!', ultimateBarX + 10, ultimateBarY + 7);
+    }
+    // HP and Shield bars (complementary, thinner, no overlap)
+    const hpShieldBarW = 160;
+    const hpShieldBarH = 8;
+    const hpShieldBarX = CANVAS_W / 2 - hpShieldBarW / 2;
+    const hpShieldBarY = barsCenterY + 24;
+    // Draw background
+    ctx.fillStyle = '#222';
+    ctx.fillRect(hpShieldBarX, hpShieldBarY, hpShieldBarW, hpShieldBarH);
+    // HP portion
+    const hpRatio = pl.hp / pl.maxHp;
+    const shieldRatio = pl.shield / (pl.maxShield > 0 ? pl.maxShield : 1);
+    let hpW = hpShieldBarW * hpRatio;
+    let shieldW = pl.maxShield > 0 ? hpShieldBarW * shieldRatio : 0;
+    // Draw lost HP (background for missing HP)
+    if (pl.hp < pl.maxHp) {
+      ctx.fillStyle = '#400';
+      ctx.fillRect(hpShieldBarX + hpW, hpShieldBarY, hpShieldBarW - hpW, hpShieldBarH);
+    }
+    // Draw shield from right (always draw a minimum-width bar if maxShield > 0)
     if (pl.maxShield > 0) {
-      ctx.fillStyle = '#4af'; ctx.font = '7px monospace';
-      ctx.fillText(`Shield ${pl.shield}/${pl.maxShield}`, hpX, hpTop - 18);
-      ctx.fillStyle = '#124';
-      ctx.fillRect(hpX, hpTop - 14, 70, 5);
+      ctx.save();
+      ctx.globalAlpha = shieldW > 0 ? 1 : 0.25;
       ctx.fillStyle = '#4af';
-      ctx.fillRect(hpX, hpTop - 14, 70 * (pl.shield / pl.maxShield), 5);
+      ctx.fillRect(hpShieldBarX + hpShieldBarW - (shieldW > 0 ? shieldW : 4), hpShieldBarY, shieldW > 0 ? shieldW : 4, hpShieldBarH);
+      ctx.restore();
     }
-
-    // HP bar
-    ctx.fillStyle = '#fff'; ctx.font = '8px monospace';
-    ctx.fillText(`${pl.hp}/${pl.maxHp}`, hpX, hpTop - 4);
-    ctx.fillStyle = '#400';
-    ctx.fillRect(hpX, hpTop, 70, 8);
+    // Draw HP from left
     ctx.fillStyle = '#e44';
-    ctx.fillRect(hpX, hpTop, 70 * (pl.hp / pl.maxHp), 8);
-
-    // Ninja-specific meter (below HP bar)
-    const meterLX = hpX;
-    const meterLY = hpTop + 12;
+    ctx.fillRect(hpShieldBarX, hpShieldBarY, hpW, hpShieldBarH);
+    // HP and Shield text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`HP ${pl.hp}/${pl.maxHp}` + (pl.maxShield > 0 ? `  SH ${pl.shield}/${pl.maxShield}` : ''), hpShieldBarX, hpShieldBarY - 2);
+    // Elemental/Ultimate bar (glow if ready)
+    let elemBarW = 120, elemBarVal = 0, elemBarMax = 1, elemBarColor = '#aaa', elemBarGlow = false, elemBarLabel = '';
     if (pl.ninjaType === 'fire') {
-      ctx.fillStyle = '#420'; ctx.fillRect(meterLX, meterLY, 70, 5);
-      ctx.fillStyle = '#f93'; ctx.fillRect(meterLX, meterLY, 70 * (pl.comboMeter / 10), 5);
-      if (pl.fireArmor) { ctx.fillStyle = '#f93'; ctx.font = '7px monospace'; ctx.fillText('ARMOR', meterLX, meterLY + 12); }
-    } else if (pl.ninjaType === 'earth') {
-      ctx.fillStyle = '#a87'; ctx.font = '7px monospace'; ctx.fillText(`Blocks:${this.stoneBlocks.length}`, meterLX, meterLY + 5);
+      elemBarW = 120; elemBarVal = pl.comboMeter; elemBarMax = 10; elemBarColor = '#f93'; elemBarGlow = pl.comboMeter >= 10; elemBarLabel = 'Element';
     } else if (pl.ninjaType === 'bubble') {
-      ctx.fillStyle = '#234'; ctx.fillRect(meterLX, meterLY, 70, 5);
-      ctx.fillStyle = '#6af'; ctx.fillRect(meterLX, meterLY, 70 * Math.min(1, pl.bubbleBuffTimer / 240), 5);
-      if (pl.bubbleBuffTimer > 0) { ctx.fillStyle = '#6af'; ctx.font = '7px monospace'; ctx.fillText('FLOAT', meterLX, meterLY + 12); }
+      elemBarW = 120; elemBarVal = pl.bubbleBuffTimer; elemBarMax = 240; elemBarColor = '#6af'; elemBarGlow = pl.bubbleBuffTimer > 200; elemBarLabel = 'Float';
     } else if (pl.ninjaType === 'shadow') {
-      ctx.fillStyle = '#a4e'; ctx.font = '7px monospace';
-      if (pl.backstabReady) {
-        ctx.fillText('BACKSTAB!', meterLX, meterLY + 5);
-      } else {
-        ctx.fillText(`Stealth:${Math.min(100, Math.floor(pl.shadowStealth / 3))}%`, meterLX, meterLY + 5);
-        if (pl.shadowKillThreshold > 0) { ctx.fillStyle = '#c6f'; ctx.fillText(`Kill≤${pl.shadowKillThreshold}HP`, meterLX, meterLY + 14); }
-      }
+      elemBarW = 120; elemBarVal = pl.shadowStealth; elemBarMax = 300; elemBarColor = '#a4e'; elemBarGlow = pl.backstabReady; elemBarLabel = 'Stealth';
     } else if (pl.ninjaType === 'crystal') {
-      ctx.fillStyle = '#234'; ctx.fillRect(meterLX, meterLY, 70, 5);
-      ctx.fillStyle = '#0ff'; ctx.fillRect(meterLX, meterLY, 70 * Math.min(1, pl.parryCombo / 10), 5);
-      if (pl.parrying) { ctx.fillStyle = '#0ff'; ctx.font = '7px monospace'; ctx.fillText('PARRY', meterLX, meterLY + 12); }
+      elemBarW = 120; elemBarVal = pl.parryCombo; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = pl.parryCombo >= 10; elemBarLabel = 'Parry';
     } else if (pl.ninjaType === 'wind') {
-      ctx.fillStyle = '#242'; ctx.fillRect(meterLX, meterLY, 70, 5);
-      ctx.fillStyle = '#8d8'; ctx.fillRect(meterLX, meterLY, 70 * (pl.windPower / 10), 5);
-      if (pl.windDashing) { ctx.fillStyle = '#bfb'; ctx.font = '7px monospace'; ctx.fillText('DASH', meterLX, meterLY + 12); }
+      elemBarW = 120; elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
+    } else if (pl.ninjaType === 'earth') {
+      elemBarW = 120; elemBarVal = this.stoneBlocks.length; elemBarMax = 10; elemBarColor = '#a87'; elemBarGlow = this.stoneBlocks.length >= 10; elemBarLabel = 'Blocks';
     }
-
-    // ATK + Special (right of ninja bar)
-    const rightX = barX + 6 * 52 + 10;
-    const baseDmg = t.attackDamage;
-    let bonusText = '';
-    let totalDmg = baseDmg + pl.bonusDamage;
-    if (pl.bonusDamage > 0) bonusText += `+${pl.bonusDamage}`;
-    if (pl.bubbleBuffTimer > 0) bonusText += '+1';
-    if (pl.ninjaType === 'crystal' && pl.parryCombo > 0) { const cb = Math.floor(pl.parryCombo / 2); totalDmg += cb; if (cb > 0) bonusText += `+${cb}`; }
-    if (pl.ninjaType === 'wind' && pl.windPower > 0) { totalDmg += pl.windPower; bonusText += `+${pl.windPower}`; }
-    if (pl.ninjaType === 'shadow' && pl.backstabReady) { bonusText = ' KILL!'; totalDmg = 9999; }
-    if (pl.nextHitDouble) bonusText += ' x2!';
-    ctx.fillStyle = pl.nextHitDouble ? '#ff0' : '#f80'; ctx.font = 'bold 9px monospace';
-    ctx.fillText(`ATK ${baseDmg}${bonusText}`, rightX, barY + 8);
-    if (pl.specialCooldown > 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '8px monospace';
-      ctx.fillText(`X:${Math.ceil(pl.specialCooldown / 60 * 100)}%`, rightX, barY + 20);
-    } else {
-      ctx.fillStyle = '#8f8'; ctx.font = '8px monospace';
-      ctx.fillText('X:RDY', rightX, barY + 20);
+    const elemBarX = CANVAS_W / 2 - elemBarW / 2;
+    ctx.save();
+    if (elemBarGlow) {
+      ctx.shadowColor = elemBarColor;
+      ctx.shadowBlur = 18;
     }
-    // Shuriken count
-    ctx.fillStyle = pl.shurikens > 0 ? '#ccc' : '#555'; ctx.font = '8px monospace';
-    ctx.fillText(`C:\u2726${pl.shurikens}`, rightX, barY + 32);
-
-    // Ninja name (centered above bar)
-    ctx.fillStyle = t.color; ctx.font = 'bold 9px monospace';
-    const nameW = ctx.measureText(t.name).width;
-    ctx.fillText(t.name, CANVAS_W / 2 - nameW / 2, barY - 4);
-
+    ctx.fillStyle = '#222';
+    ctx.fillRect(elemBarX, barsCenterY + 36, elemBarW, 10);
+    ctx.fillStyle = elemBarColor;
+    ctx.fillRect(elemBarX, barsCenterY + 36, elemBarW * Math.min(1, elemBarVal / elemBarMax), 10);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    ctx.fillStyle = elemBarGlow ? '#fff' : '#ccc';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`${elemBarLabel}`, elemBarX, barsCenterY + 34);
+    // Ninja selection bar (restored)
+    const ninjaBarX = CANVAS_W / 2 - 156;
     for (let i = 0; i < 6; i++) {
       const nt = NINJA_TYPES[ninjaKeys[i]];
-      const bx = barX + i * 52;
+      const bx = ninjaBarX + i * 52;
       const selected = pl.ninjaType === ninjaKeys[i];
       ctx.fillStyle = selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.5)';
-      ctx.fillRect(bx, barY, 48, 28);
+      ctx.fillRect(bx, ninjaBarY, 48, 28);
       if (selected) {
         ctx.strokeStyle = nt.color;
         ctx.lineWidth = 2;
-        ctx.strokeRect(bx, barY, 48, 28);
+        ctx.strokeRect(bx, ninjaBarY, 48, 28);
       }
       ctx.fillStyle = nt.color;
-      ctx.fillRect(bx + 4, barY + 4, 12, 12);
+      ctx.fillRect(bx + 4, ninjaBarY + 4, 12, 12);
       ctx.fillStyle = '#fff';
       ctx.font = '10px monospace';
-      ctx.fillText(`${i + 1}`, bx + 20, barY + 14);
+      ctx.fillText(`${i + 1}`, bx + 20, ninjaBarY + 14);
       ctx.font = '8px monospace';
-      ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, barY + 23);
+      ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, ninjaBarY + 23);
     }
 
-    // Controls hint
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = '10px monospace';
-    ctx.fillText('WASD/Arrows=Move  Z/J=Attack  X/K=Special  C/L=Shuriken  1-6=Switch', CANVAS_W / 2 - 215, CANVAS_H - 60);
+    // Shuriken display directly below the boss/wave bar (top center)
+    if (typeof window !== 'undefined' && document.getElementById('shuriken-bar')) {
+      const shurikenBar = document.getElementById('shuriken-bar');
+      shurikenBar.innerHTML = '';
+      // Position: below boss/wave bar (top center)
+      shurikenBar.style.marginTop = '38px'; // 10px (bar) + 24px (boss bar height) + 4px spacing
+      shurikenBar.style.marginBottom = '0px';
+      shurikenBar.style.height = '38px';
+      shurikenBar.style.display = 'flex';
+      shurikenBar.style.justifyContent = 'center';
+      shurikenBar.style.alignItems = 'center';
+      for (let i = 0; i < pl.maxShurikens; i++) {
+        const span = document.createElement('span');
+        span.style.display = 'inline-block';
+        span.style.width = '28px';
+        span.style.height = '28px';
+        span.style.margin = '0 4px';
+        span.style.opacity = i < pl.shurikens ? '1' : '0.25';
+        span.style.verticalAlign = 'middle';
+        span.innerHTML = '<svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,3 16,12 25,14 16,16 14,25 12,16 3,14 12,12" fill="#ccc"/></svg>';
+        shurikenBar.appendChild(span);
+      }
+    }
+    // ...existing code...
+
+    // Controls hint moved outside canvas (see HTML)
 
     // ── Death counter + Lives (top left) ──
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -3768,12 +3977,7 @@ class Game {
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 38);
 
     // ── Big progress bar (top center) ──
-    // EleNin title
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.font = 'bold 14px monospace';
-    const titleTxt = 'EleNin';
-    const titleW = ctx.measureText(titleTxt).width;
-    ctx.fillText(titleTxt, CANVAS_W / 2 - titleW / 2, 8);
+    // EleNin title is now outside canvas (see HTML)
 
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
       const pbW = 400, pbH = 18;
