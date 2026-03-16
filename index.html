@@ -2411,37 +2411,39 @@ function getTierName(tierIdx) {
 const TOTAL_WAVES = 7;
 const WAVE_DEFS = [
   { // Wave 1 — Walkers
-    boss: 'walker', killsForBoss: 40,
+    boss: 'walker', killsForBoss: 20,
     pool: [
       { type: 'walker', weight: 5 },
+      { type: 'shooter', weight: 3 },
       { type: 'walker', weight: 2, big: true },
     ]
   },
   { // Wave 2 — Shooters join
-    boss: 'shooter', killsForBoss: 50,
+    boss: 'shooter', killsForBoss: 30,
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
+      { type: 'jumper', weight: 3 },
       { type: 'walker', weight: 1, big: true },
       { type: 'shooter', weight: 1, big: true },
     ]
   },
   { // Wave 3 — Jumpers
-    boss: 'jumper', killsForBoss: 56,
+    boss: 'jumper', killsForBoss: 40,
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
       { type: 'jumper', weight: 4 },
+      { type: 'flyer', weight: 2 },
       { type: 'jumper', weight: 1, big: true },
     ]
   },
   { // Wave 4 — Bouncers
     boss: 'bouncer', killsForBoss: 60,
     pool: [
-      { type: 'walker', weight: 2 },
-      { type: 'shooter', weight: 2 },
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
+      { type: 'flyer', weight: 2 },
       { type: 'bouncer', weight: 1, big: true },
       { type: 'walker', weight: 1, big: true },
     ]
@@ -2449,11 +2451,10 @@ const WAVE_DEFS = [
   { // Wave 5 — Shielded
     boss: 'shielded', killsForBoss: 64,
     pool: [
-      { type: 'walker', weight: 1 },
-      { type: 'shooter', weight: 2 },
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 4 },
+      { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
       { type: 'bouncer', weight: 1, big: true },
     ]
@@ -2461,11 +2462,9 @@ const WAVE_DEFS = [
   { // Wave 6 — Flyers
     boss: 'flyer', killsForBoss: 70,
     pool: [
-      { type: 'walker', weight: 1 },
       { type: 'shooter', weight: 2 },
-      { type: 'jumper', weight: 1 },
-      { type: 'bouncer', weight: 1 },
       { type: 'shielded', weight: 2 },
+      { type: 'flyshooter', weight: 2 },
       { type: 'flyer', weight: 4 },
       { type: 'flyer', weight: 1, big: true },
       { type: 'shielded', weight: 1, big: true },
@@ -2474,15 +2473,13 @@ const WAVE_DEFS = [
   { // Wave 7 — Everything + Fly-Shooters
     boss: 'flyshooter', killsForBoss: 76,
     pool: [
-      { type: 'walker', weight: 1, big: true },
-      { type: 'shooter', weight: 2 },
-      { type: 'jumper', weight: 1 },
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'flyshooter', weight: 4 },
       { type: 'flyshooter', weight: 2, big: true },
       { type: 'flyer', weight: 1, big: true },
+      { type: 'shielded', weight: 1, big: true },
     ]
   },
 ];
