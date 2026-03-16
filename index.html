@@ -382,7 +382,6 @@ class Orb {
       if (dist < 64) {
         // Move toward player
         const attractStrength = 0.7;
-        this.vy += 0.3;
         this.vx = (this.vx || 0) + (dx / dist) * attractStrength;
         this.vy += (dy / dist) * attractStrength * 0.5;
         // Clamp speed
