@@ -95,6 +95,7 @@ let toastTimer = 0;
 
 function unlockAchievement(id) {
   if (achievementData[id]) return;
+  if (typeof game !== 'undefined' && game.cheated && id !== 'discovered_cheats' && id !== 'cheater_ending') return;
   achievementData[id] = Date.now();
   achievementData._totalKills = totalKillsAll;
   achievementData._ninjaKills = ninjaKills;
@@ -104,6 +105,7 @@ function unlockAchievement(id) {
 }
 
 function recordKill(ninjaType) {
+  if (typeof game !== 'undefined' && game.cheated) return;
   totalKillsAll++;
   ninjaKills[ninjaType] = (ninjaKills[ninjaType] || 0) + 1;
   // Check milestones
@@ -118,6 +120,7 @@ function recordKill(ninjaType) {
 }
 
 function recordBestiaryKill(enemyType, isBig, isBoss, element) {
+  if (typeof game !== 'undefined' && game.cheated) return;
   const key = isBoss ? `boss_${enemyType}` : (isBig ? `big_${enemyType}` : enemyType);
   const isNew = !bestiaryData[key];
   if (isNew) {

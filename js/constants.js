@@ -82,13 +82,13 @@ const ELEMENT_MATRIX = {
     steel: 'normal',
   },
   steel: {
-    fire: 'resist',    // fire melts steel
-    earth: 'normal',   // steel beats earth
+    fire: 'normal',    // fire melts steel
+    earth: 'resist',   // steel beats earth
     water: 'normal',
     crystal: 'normal',
     wind: 'normal',
     lightning: 'normal',
-    steel: 'normal',   // steel vs steel = normal, not heal
+    steel: 'resist',   // steel vs steel = normal, not heal
   },
 };
 

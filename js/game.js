@@ -868,6 +868,44 @@ class Game {
 
     for (const e of this.effects) e.render(ctx, cam);
 
+    // Screen-wide status effect overlays
+    const pl = this.player;
+    if (pl.statusBurn > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.06 + 0.03 * Math.sin(pl.statusBurn * 0.15);
+      ctx.fillStyle = '#f40';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (pl.statusFreeze > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.08 + 0.03 * Math.sin(pl.statusFreeze * 0.12);
+      ctx.fillStyle = '#0cf';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (pl.statusFloat > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.05 + 0.02 * Math.sin(pl.statusFloat * 0.1);
+      ctx.fillStyle = '#4f4';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (pl.statusParalyse > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.06 + 0.04 * Math.sin(pl.statusParalyse * 0.25);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (pl.statusStun > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.12 + 0.06 * Math.sin(pl.statusStun * 0.5);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+
     this.renderUI();
   }
 

@@ -118,6 +118,14 @@ class Player {
 
     // Shurikens (rechargeable)
     this.shurikens = 3;
+
+    // Elemental status effects from enemy attacks
+    this.statusBurn = 0;    // fire DOT timer
+    this.statusFreeze = 0;  // crystal/water slow timer
+    this.statusFloat = 0;   // wind reduced gravity timer
+    this.statusParalyse = 0; // lightning: steel tools cause stun
+    this.statusStun = 0;    // brief full-stop stun (from paralyse)
+    this.freezeNudge = 0;   // visual nudge from mashing out of freeze
     this.maxShurikens = 3;
     this.shurikenLevel = 1;
     this.shurikenRechargeTimer = 0;
@@ -164,10 +172,21 @@ class Player {
         this.fireMeteorTimer = 0;
         for (let i = 0; i < 12; i++) {
           const delay = i * 15;
-          // Scatter across the visible area — meteors fall diagonally from above
+          // Target enemies when possible, otherwise scatter randomly
+          const aliveEnemies = game.enemies.filter(e => !e.dead);
+          let targetX, targetY;
+          if (aliveEnemies.length > 0 && i < 8) {
+            const target = aliveEnemies[i % aliveEnemies.length];
+            targetX = target.x + target.w / 2 + randInt(-30, 30);
+            targetY = target.y + target.h / 2 + randInt(-10, 10);
+          } else if (game.boss && !game.boss.dead && i >= 8) {
+            targetX = game.boss.x + game.boss.w / 2 + randInt(-20, 20);
+            targetY = game.boss.y + game.boss.h / 2 + randInt(-10, 10);
+          } else {
+            targetX = game.camera.x + randInt(100, CANVAS_W - 100);
+            targetY = randInt(350, 480);
+          }
           const fromLeft = Math.random() < 0.5;
-          const targetX = game.camera.x + randInt(100, CANVAS_W - 100);
-          const targetY = randInt(350, 480);
           const offsetX = randInt(150, 300) * (fromLeft ? -1 : 1);
           const startX = targetX + offsetX;
           const startY = game.camera.y - randInt(40, 120);
@@ -407,7 +426,7 @@ class Player {
           // Impact
           if (m.y >= m.targetY - 10 || d < 12) {
             m.done = true;
-            damageInRadius(game, m.targetX, m.targetY, 60, this.type.attackDamage + this.bonusDamage + 4);
+            damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusDamage + 6, m.targetX);
             game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
             game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
             SFX.slam();
@@ -615,6 +634,54 @@ class Player {
     // Bubble buff decay
     if (this.bubbleBuffTimer > 0) this.bubbleBuffTimer--;
 
+    // Frozen mash-out: pressing left/right rapidly sheds freeze faster
+    if (this.statusFreeze > 0) {
+      const mashL = consumePress('ArrowLeft') || consumePress('KeyA');
+      const mashR = consumePress('ArrowRight') || consumePress('KeyD');
+      if (mashL || mashR) {
+        this.statusFreeze = Math.max(0, this.statusFreeze - 12);
+        this.freezeNudge = 6;
+      }
+    }
+
+    // Stun: can't move or act, only gravity applies
+    if (this.statusStun > 0) {
+      this.vx = 0;
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.y += this.vy;
+      // Platform collision during stun
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p)) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+            this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+          }
+        }
+      }
+      // Tick timers during stun so they don't freeze
+      if (this.invincibleTimer > 0) this.invincibleTimer--;
+      this.statusStun--;
+      if (this.statusParalyse > 0) this.statusParalyse--;
+      if (this.statusBurn > 0) {
+        this.statusBurn--;
+        if (this.statusBurn % 30 === 0 && this.statusBurn > 0) {
+          this.hp -= 1;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
+        }
+      }
+      if (this.statusFreeze > 0) this.statusFreeze--;
+      if (this.statusFloat > 0) this.statusFloat--;
+      // Spark particles
+      if (Math.random() < 0.4) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + Math.random() * this.h,
+          '#ff0', 2, 1.5, 8
+        ));
+      }
+      return;
+    }
+
     // Movement
     let moveX = 0;
     if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
@@ -622,7 +689,8 @@ class Player {
 
     if (!this.windDashing && !this.fireDashing) {
       const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
-      this.vx = moveX * t.speed * speedMult;
+      const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
+      this.vx = moveX * t.speed * speedMult * freezeMult;
       if (moveX !== 0) this.facing = moveX;
     }
 
@@ -660,7 +728,8 @@ class Player {
     }
 
     // Gravity
-    const grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
+    let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
+    if (this.statusFloat > 0) grav *= 0.35;
     if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing) {
       this.vy += grav;
     }
@@ -672,7 +741,8 @@ class Player {
       }
     }
 
-    const maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
+    let maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
+    if (this.statusFloat > 0) maxFall *= 0.4;
     if (this.vy > maxFall && !this.slamming) this.vy = maxFall;
 
     // Apply velocity
@@ -860,6 +930,41 @@ class Player {
     if (this.attackCooldown > 0) this.attackCooldown--;
     if (this.specialCooldown > 0) this.specialCooldown--;
 
+    // Elemental status effects
+    if (this.statusBurn > 0) {
+      this.statusBurn--;
+      if (this.statusBurn % 30 === 0) {
+        this.hp -= 1;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
+        if (this.hp <= 0) {
+          this.hp = this.maxHp;
+          this.x = 100; this.y = 200;
+          this.vx = 0; this.vy = 0;
+          this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0;
+          game.deaths++;
+          game.lives--;
+          if (game.lives <= 0) { game.gameOver = true; recordGameOver(game.totalKills); }
+        }
+      }
+      // Fire particles
+      if (Math.random() < 0.3) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + Math.random() * this.h,
+          Math.random() < 0.5 ? '#f80' : '#fa0', 2, 1, 10
+        ));
+      }
+    }
+    if (this.statusFreeze > 0) {
+      this.statusFreeze--;
+      if (this.freezeNudge > 0) this.freezeNudge--;
+    } else {
+      this.freezeNudge = 0;
+    }
+    if (this.statusFloat > 0) this.statusFloat--;
+    if (this.statusParalyse > 0) this.statusParalyse--;
+    if (this.statusStun > 0) this.statusStun--;
+
     // Attack
     if (this.attacking) {
       this.attackTimer--;
@@ -1025,8 +1130,15 @@ class Player {
     }
 
     if ((consumePress('KeyZ') || consumePress('KeyJ') || consumePress('MouseAttack') || touchJust.attack || gpJust[GP_ATTACK]) && !this.attacking && this.attackCooldown <= 0) {
-      this.shadowAttackHit = false;
-      this.attack(game);
+      if (this.statusParalyse > 0) {
+        this.statusStun = 30;
+        this.statusParalyse = Math.max(0, this.statusParalyse - 30);
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
+        SFX.play(200, 'square', 0.2, 0.15, 0);
+      } else {
+        this.shadowAttackHit = false;
+        this.attack(game);
+      }
     }
 
     // Special ability
@@ -1043,6 +1155,12 @@ class Player {
       }
     }
     if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
+      if (this.statusParalyse > 0) {
+        this.statusStun = 30;
+        this.statusParalyse = Math.max(0, this.statusParalyse - 30);
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
+        SFX.play(200, 'square', 0.2, 0.15, 0);
+      } else {
       SFX.shuriken();
       this.shurikens--;
       const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
@@ -1054,6 +1172,7 @@ class Player {
       if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
       if (sProj && this.ninjaType === 'storm') sProj.soaking = true;
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
+      }
     }
 
     // Fire ninja: combo decay & fire armor
@@ -1640,7 +1759,7 @@ class Player {
     }
   }
 
-  takeDamage(amount, game) {
+  takeDamage(amount, game, element) {
     if (this.godMode) return;
     if (this.earthGolem) return;
     if (this.invincibleTimer > 0) return;
@@ -1678,10 +1797,27 @@ class Player {
     SFX.playerHurt();
     triggerHitstop(6);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
+    // Apply elemental status effect
+    if (element) {
+      if (element === 'fire') {
+        this.statusBurn = 180;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
+      } else if (element === 'crystal' || element === 'water') {
+        this.statusFreeze = 120;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FREEZE!', '#0ff'));
+      } else if (element === 'wind') {
+        this.statusFloat = 150;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FLOAT!', '#8f8'));
+      } else if (element === 'lightning') {
+        this.statusParalyse = 180;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
+      }
+    }
     if (this.hp <= 0) {
       this.hp = this.maxHp;
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
+      this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0;
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
@@ -1693,8 +1829,17 @@ class Player {
 
   render(ctx, cam) {
     const t = this.type;
-    const sx = this.x - cam.x;
+    let sx = this.x - cam.x;
     const sy = this.y - cam.y;
+
+    // Freeze mash nudge offset
+    if (this.freezeNudge > 0) {
+      sx += (this.freezeNudge % 2 === 0 ? 3 : -3);
+    }
+    // Stun shake
+    if (this.statusStun > 0) {
+      sx += (this.statusStun % 4 < 2 ? 2 : -2);
+    }
 
     // Fire dash streak
     if (this.fireDashing) {
@@ -1822,6 +1967,82 @@ class Player {
     if (this.bubbleBuffTimer > 0) {
       ctx.fillStyle = 'rgba(80,160,255,0.25)';
       ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
+    // Status effect overlays
+    if (this.statusBurn > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.3 + 0.1 * Math.sin(this.statusBurn * 0.3);
+      ctx.fillStyle = '#f60';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      ctx.restore();
+    }
+    if (this.statusFreeze > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.1 * Math.sin(this.statusFreeze * 0.2);
+      ctx.fillStyle = '#0ef';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      // Ice crystals
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#aff';
+      ctx.fillRect(sx - 3, sy + 2, 3, 5);
+      ctx.fillRect(sx + this.w, sy + 8, 3, 5);
+      ctx.fillRect(sx + 8, sy - 3, 5, 3);
+      ctx.restore();
+    }
+    if (this.statusFloat > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.2 + 0.08 * Math.sin(this.statusFloat * 0.15);
+      ctx.fillStyle = '#8f8';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      // Swirl lines
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = '#bfb';
+      ctx.lineWidth = 1;
+      const angle = this.statusFloat * 0.1;
+      ctx.beginPath();
+      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.7, angle, angle + 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (this.statusParalyse > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.2 + 0.1 * Math.sin(this.statusParalyse * 0.4);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      // Spark bolts
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 1;
+      const t1 = this.statusParalyse * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(sx + 4, sy + Math.sin(t1) * 6 + 10);
+      ctx.lineTo(sx + 10, sy + Math.sin(t1 + 1) * 4 + 16);
+      ctx.lineTo(sx + 6, sy + Math.sin(t1 + 2) * 5 + 22);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(sx + this.w - 4, sy + Math.cos(t1) * 5 + 8);
+      ctx.lineTo(sx + this.w - 10, sy + Math.cos(t1 + 1) * 4 + 14);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (this.statusStun > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.statusStun * 0.6);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      // Stars around head
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#ff0';
+      ctx.font = '10px monospace';
+      const starAngle = this.statusStun * 0.3;
+      for (let i = 0; i < 3; i++) {
+        const a = starAngle + i * 2.094;
+        const starX = sx + this.w / 2 + Math.cos(a) * 14;
+        const starY = sy - 6 + Math.sin(a) * 5;
+        ctx.fillText('*', starX, starY);
+      }
+      ctx.restore();
     }
 
     // Body

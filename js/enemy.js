@@ -166,7 +166,9 @@ class Enemy {
           const dx = px - cx, dy = py - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 400 && d > 0) {
-            game.projectiles.push(new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
+            const p = new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+            if (this.element) p.element = this.element;
+            game.projectiles.push(p);
           }
         }
         break;
@@ -192,6 +194,7 @@ class Enemy {
           if (d < 450 && d > 0) {
             const p = new Projectile(cx, cy, (dx / d) * 3.5, (dy / d) * 3 - 2, this.element ? this.elementColors.accent : '#f6f', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
             p.bouncy = true;
+            if (this.element) p.element = this.element;
             game.projectiles.push(p);
           }
         }
@@ -238,6 +241,7 @@ class Enemy {
               sh.w = 8; sh.h = 8;
               sh.isShuriken = true;
               sh.life = 120;
+              if (this.element) sh.element = this.element;
               game.projectiles.push(sh);
             }
           }
@@ -290,6 +294,7 @@ class Enemy {
               p.piercing = true;
               p.w = 6; p.h = 6;
               p.life = 90;
+              if (this.element) p.element = this.element;
               game.projectiles.push(p);
               game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
             }
@@ -331,7 +336,9 @@ class Enemy {
           const adx = px - cx, ady = py - cy;
           const ad = Math.sqrt(adx * adx + ady * ady);
           if (ad < 500 && ad > 0) {
-            game.projectiles.push(new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
+            const p = new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+            if (this.element) p.element = this.element;
+            game.projectiles.push(p);
           }
         }
         break;
@@ -393,7 +400,7 @@ class Enemy {
       const kbStr = this.big ? 9 : 5;
       game.player.vx = kbDir * kbStr;
       game.player.vy = this.big ? -5 : -4;
-      game.player.takeDamage(this.contactDmg, game);
+      game.player.takeDamage(this.contactDmg, game, this.element || null);
       this.hitCooldown = 30;
     }
   }
@@ -1082,10 +1089,11 @@ class Boss extends Enemy {
             this.shootTimer = 0;
             const sd = Math.sqrt(dx * dx + dy * dy);
             if (sd > 0 && sd < 600) {
-              const p = new Projectile(cx, cy, (dx / sd) * 7, (dy / sd) * 7, '#f44', this.contactDmg, 'boss');
+              const p = new Projectile(cx, cy, (dx / sd) * 7, (dy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'boss');
               p.piercing = true;
               p.w = 6; p.h = 6;
               p.life = 90;
+              if (this.element) p.element = this.element;
               game.projectiles.push(p);
               game.effects.push(new Effect(cx, cy, '#f66', 6, 2, 8));
             }
@@ -1122,8 +1130,9 @@ class Boss extends Enemy {
           if (this.stateTimer === 15 || this.stateTimer === 30 || (this.phase === 2 && this.stateTimer === 45)) {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
               if (this.bossType === 'bouncer') p.bouncy = true;
+              if (this.element) p.element = this.element;
               game.projectiles.push(p);
             }
           }
@@ -1174,10 +1183,11 @@ class Boss extends Enemy {
               const cos = Math.cos(ang), sin = Math.sin(ang);
               const svx = baseVx * cos - baseVy * sin;
               const svy = baseVx * sin + baseVy * cos;
-              const sh = new Projectile(cx, cy, svx, svy, '#ccc', this.contactDmg, 'boss');
+              const sh = new Projectile(cx, cy, svx, svy, this.element ? this.elementColors.accent : '#ccc', this.contactDmg, 'boss');
               sh.w = 10; sh.h = 10;
               sh.isShuriken = true;
               sh.life = 120;
+              if (this.element) sh.element = this.element;
               game.projectiles.push(sh);
             }
             game.effects.push(new Effect(cx, cy, '#eef', 10, 4, 12));
@@ -1254,8 +1264,9 @@ class Boss extends Enemy {
           if (this.stateTimer === 15 || this.stateTimer === 35 || (this.phase === 2 && this.stateTimer === 50)) {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
               if (this.bossType === 'bouncer') p.bouncy = true;
+              if (this.element) p.element = this.element;
               game.projectiles.push(p);
             }
           }
@@ -1338,7 +1349,7 @@ class Boss extends Enemy {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       game.player.vx = kbDir * 10;
       game.player.vy = -5;
-      game.player.takeDamage(this.contactDmg, game);
+      game.player.takeDamage(this.contactDmg, game, this.element || null);
       this.hitCooldown = 45;
     }
   }

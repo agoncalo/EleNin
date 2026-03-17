@@ -511,7 +511,7 @@ class Projectile {
     } else {
       const pl = game.player;
       if (rectOverlap(this, pl)) {
-        pl.takeDamage(this.damage, game);
+        pl.takeDamage(this.damage, game, this.element || null);
         this.done = true;
       }
     }
