@@ -1142,7 +1142,7 @@ class Player {
     if (this.attacking) {
       this.attackTimer--;
       if (this.attackTimer <= 0) {
-        if (this.ninjaType === 'shadow' && !this.shadowAttackHit) {
+        if (this.ninjaType === 'shadow' && !this.shadowAttackHit && this.shadowStealth >= 180) {
           this.shadowStealth = 0;
           this.backstabReady = false;
           game.effects.push(new TextEffect(this.x + this.w / 2 - 14, this.y - 10, 'MISS!', '#f55'));
@@ -1411,6 +1411,23 @@ class Player {
           if (d < nearDist) { nearest = game.boss; }
         }
         if (nearest) {
+          // Check element resist — stop chain if target resists
+          const atkEl = NINJA_ATTACK_ELEMENTS[this.ninjaType];
+          if (nearest.element && atkEl && ELEMENT_MATRIX[atkEl]) {
+            let res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (atkEl === 'steel' && res === 'heal') res = 'resist';
+            if (res === 'resist' || res === 'heal') {
+              game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
+              game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
+              this.chainStriking = false;
+              for (const a of this.afterimages) { if (a.chain) a.life = 20; }
+              this.backstabReady = false;
+              this.shadowStealth = 0;
+              nearest = null;
+            }
+          }
+        }
+        if (nearest) {
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
           this.y = nearest.y + nearest.h / 2 - this.h / 2;
@@ -1426,11 +1443,14 @@ class Player {
             game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', game.camera));
           }
           this.chainLastHit = nearest;
+          this._spawnChainCut(nearest);
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
           this.chainTimer = 6;
+        } else if (!this.chainStriking) {
+          // Already stopped by resist
         } else {
           this.chainStriking = false;
           // Start fading chain afterimages now
@@ -1460,6 +1480,20 @@ class Player {
           if (d < nearDist) { nearest = game.boss; }
         }
         if (nearest) {
+          // Check element resist — stop chain if target resists
+          const atkEl = 'lightning';
+          if (nearest.element && ELEMENT_MATRIX[atkEl]) {
+            let res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (res === 'resist' || res === 'heal') {
+              game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
+              game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
+              this.stormChaining = false;
+              for (const a of this.stormAfterimages) a.life = 15;
+              nearest = null;
+            }
+          }
+        }
+        if (nearest) {
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
           this.y = nearest.y + nearest.h / 2 - this.h / 2;
@@ -1473,6 +1507,7 @@ class Player {
             game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', game.camera));
           }
           this.stormChainHit.add(nearest);
+          this._spawnChainCut(nearest);
           SFX.chain();
           // Lightning bolt effect between positions
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', 12, 5, 14));
@@ -1480,6 +1515,8 @@ class Player {
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
           this.stormChainTimer = 4;
+        } else if (!this.stormChaining) {
+          // Already stopped by resist
         } else {
           // No unvisited soaked enemies — loop back, but skip the last-hit target
           const lastHit = [...this.stormChainHit].pop();
@@ -1499,6 +1536,19 @@ class Player {
             if (d < loopDist) { loopTarget = game.boss; }
           }
           if (loopTarget) {
+            // Check element resist — stop chain if target resists
+            if (loopTarget.element && ELEMENT_MATRIX['lightning']) {
+              let res = ELEMENT_MATRIX['lightning'][loopTarget.element];
+              if (res === 'resist' || res === 'heal') {
+                game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'RESIST', loopTarget.elementColors.accent));
+                game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, loopTarget.elementColors.accent, 8, 3, 12));
+                this.stormChaining = false;
+                for (const a of this.stormAfterimages) a.life = 15;
+                loopTarget = null;
+              }
+            }
+          }
+          if (loopTarget) {
             const behind = (loopTarget.x + loopTarget.w / 2) > cx ? -1 : 1;
             this.x = loopTarget.x + (behind > 0 ? loopTarget.w + 4 : -this.w - 4);
             this.y = loopTarget.y + loopTarget.h / 2 - this.h / 2;
@@ -1512,12 +1562,15 @@ class Player {
               game.effects.push(new KanjiEffect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', game.camera));
             }
             this.stormChainHit.add(loopTarget);
+            this._spawnChainCut(loopTarget);
             SFX.chain();
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', 12, 5, 14));
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#8af', 8, 3, 10));
             triggerHitstop(3);
             this.invincibleTimer = Math.max(this.invincibleTimer, 8);
             this.stormChainTimer = 4;
+          } else if (!this.stormChaining) {
+            // Already stopped by resist
           } else {
             this.stormChaining = false;
             for (const a of this.stormAfterimages) a.life = 15;
@@ -1794,6 +1847,30 @@ class Player {
       this.attackBox.y + (this.h - 8) / 2,
       this.type.accentColor, 5, 3, 8
     ));
+  }
+
+  _spawnChainCut(target) {
+    const tx = target.x + target.w / 2;
+    const ty = target.y + target.h / 2;
+    if (!this._chainCuts) this._chainCuts = [];
+    // Spawn 2-3 irregular slashes per hit
+    const count = 2 + (Math.random() < 0.4 ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      const ox = (Math.random() - 0.5) * 20;
+      const oy = (Math.random() - 0.5) * 16;
+      const randA = Math.random() * Math.PI * 2 - Math.PI;
+      const randSweep = Math.PI * (0.25 + Math.random() * 0.8);
+      const r = 14 + Math.random() * 26;
+      this._chainCuts.push({
+        cx: tx + ox, cy: ty + oy,
+        dir: Math.random() < 0.5 ? 1 : -1,
+        cutR: r,
+        startAngle: randA,
+        endAngle: randA + randSweep,
+        life: 18, maxLife: 18,
+        color: this.type.accentColor
+      });
+    }
   }
 
   _launchFireball(game) {
@@ -2470,30 +2547,156 @@ class Player {
       for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 3, -2, 1, 4);
       ctx.restore();
 
-      // Moon / crescent slash trail
+      // Moon / crescent slash trail — sized to attack hitbox
       ctx.save();
       ctx.translate(cx, cy);
       if (dir < 0) ctx.scale(-1, 1);
-      const moonAlpha = 0.5 * (1 - slashProgress * 0.7);
-      ctx.globalAlpha = moonAlpha;
-      const outerR = 34;
-      const innerR = 22;
-      const offsetX = -8;
-      const offsetY = -4;
-      const aStart = startA + sweep * Math.max(0, slashProgress - 0.45);
+      const abW = this.attackBox.w;
+      const abH = this.attackBox.h;
+      const outerR = Math.max(abW, abH / 2) + 8;
+      const innerR = outerR - 10 - abW * 0.15;
+      const offsetX = -outerR * 0.2;
+      const offsetY = -outerR * 0.1;
+      const aStart = startA + sweep * Math.max(0, slashProgress - 0.5);
       const aEnd = startA + sweep * slashProgress;
+      // Glow layer
+      ctx.globalAlpha = 0.25 * (1 - slashProgress * 0.6);
+      ctx.beginPath();
+      ctx.arc(0, 0, outerR + 4, aStart, aEnd, false);
+      ctx.arc(offsetX, offsetY, Math.max(innerR - 4, 6), aEnd, aStart, true);
+      ctx.closePath();
+      ctx.fillStyle = t.color;
+      ctx.fill();
+      // Main crescent
+      const moonAlpha = 0.6 * (1 - slashProgress * 0.6);
+      ctx.globalAlpha = moonAlpha;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
-      // Inner arc carved out with offset to form crescent
       ctx.arc(offsetX, offsetY, innerR, aEnd, aStart, true);
       ctx.closePath();
       ctx.fillStyle = t.accentColor;
       ctx.fill();
       // Bright edge on the outer rim
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = moonAlpha * 0.8;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
+      ctx.stroke();
+      ctx.restore();
+
+      // Spawn a lingering white cut line at peak of swing
+      if (slashProgress > 0.5 && !this._cutSpawned) {
+        this._cutSpawned = true;
+        const cutR = outerR + 6;
+        const chaining = this.chainStriking || this.stormChaining;
+        const randA = chaining ? (Math.random() * Math.PI * 2 - Math.PI) : (startA - sweep * 0.1);
+        const randSweep = chaining ? (Math.PI * (0.4 + Math.random() * 0.5)) : (sweep * 0.85);
+        const randR = chaining ? (cutR * (0.7 + Math.random() * 0.6)) : cutR;
+        this._slashCut = {
+          cx: cx - sx + this.x, cy: cy - sy + this.y, // world coords
+          dir: chaining ? (Math.random() < 0.5 ? 1 : -1) : dir,
+          cutR: randR,
+          startAngle: randA,
+          endAngle: randA + randSweep,
+          life: 18, maxLife: 18,
+          color: t.accentColor
+        };
+      }
+      if (slashProgress >= 0.99) this._cutSpawned = false;
+    }
+    if (!this.attacking) this._cutSpawned = false;
+
+    // Lingering slash cut lines
+    // During chain striking, accumulate cuts; they all fade when chain ends
+    if (this.chainStriking || this.stormChaining) {
+      if (!this._chainCuts) this._chainCuts = [];
+      if (this._slashCut && this._slashCut.life > 0) {
+        if (!this._chainCuts.includes(this._slashCut)) this._chainCuts.push(this._slashCut);
+      }
+    } else if (this._chainCuts && this._chainCuts.length > 0) {
+      // Chain ended — move all to fading
+      if (!this._fadingCuts) this._fadingCuts = [];
+      for (const c of this._chainCuts) this._fadingCuts.push(c);
+      this._chainCuts = null;
+    }
+
+    // Render chain cuts (held at full opacity during chain)
+    if (this._chainCuts) {
+      for (const c of this._chainCuts) {
+        const ccx = c.cx - cam.x + this.w / 2;
+        const ccy = c.cy - cam.y + this.h / 2 - 8;
+        ctx.save();
+        ctx.translate(ccx, ccy);
+        if (c.dir < 0) ctx.scale(-1, 1);
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.cutR, c.startAngle, c.endAngle, false);
+        ctx.stroke();
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.cutR - 1.5, c.startAngle, c.endAngle, false);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Fading cuts (after chain ends)
+    if (this._fadingCuts) {
+      for (let i = this._fadingCuts.length - 1; i >= 0; i--) {
+        const c = this._fadingCuts[i];
+        c.life--;
+        if (c.life <= 0) { this._fadingCuts.splice(i, 1); continue; }
+        const fade = c.life / c.maxLife;
+        const ccx = c.cx - cam.x + this.w / 2;
+        const ccy = c.cy - cam.y + this.h / 2 - 8;
+        ctx.save();
+        ctx.translate(ccx, ccy);
+        if (c.dir < 0) ctx.scale(-1, 1);
+        ctx.globalAlpha = fade * 0.85;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3 * fade + 0.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.cutR, c.startAngle, c.endAngle, false);
+        ctx.stroke();
+        ctx.globalAlpha = fade * fade;
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = 1.5 * fade;
+        ctx.beginPath();
+        ctx.arc(0, 0, c.cutR - 1.5, c.startAngle, c.endAngle, false);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this._fadingCuts.length === 0) this._fadingCuts = null;
+    }
+
+    // Single slash cut line (non-chain)
+    if (this._slashCut && this._slashCut.life > 0 && !this._chainCuts) {
+      const c = this._slashCut;
+      c.life--;
+      const fade = c.life / c.maxLife;
+      const ccx = c.cx - cam.x + this.w / 2;
+      const ccy = c.cy - cam.y + this.h / 2 - 8;
+      ctx.save();
+      ctx.translate(ccx, ccy);
+      if (c.dir < 0) ctx.scale(-1, 1);
+      // White cut line
+      ctx.globalAlpha = fade * 0.85;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3 * fade + 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.cutR, c.startAngle, c.endAngle, false);
+      ctx.stroke();
+      // Thinner bright core
+      ctx.globalAlpha = fade * fade;
+      ctx.strokeStyle = c.color;
+      ctx.lineWidth = 1.5 * fade;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.cutR - 1.5, c.startAngle, c.endAngle, false);
       ctx.stroke();
       ctx.restore();
     }
