@@ -1077,7 +1077,7 @@ class Player {
     // Spike collision
     for (const s of game.spikes) {
       if (rectOverlap(this, s)) {
-        this.takeDamage(2, game, 'spike');
+        this.takeDamage(2, game, 'spike', { type: 'spike' });
         this.vy = -8;
         break;
       }
@@ -1120,7 +1120,11 @@ class Player {
           game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
           game.deaths++;
           game.lives--;
-          if (game.lives <= 0) { game.gameOver = true; recordGameOver(game.totalKills); }
+          if (game.lives <= 0) {
+            game.killerInfo = { type: 'burn', element: 'fire', isBoss: false };
+            game.gameOverDelay = 120;
+            recordGameOver(game.totalKills);
+          }
         }
       }
       // Fire particles
@@ -1811,7 +1815,7 @@ class Player {
     if (this.y > 2000) {
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
-      this.takeDamage(2, game);
+      this.takeDamage(2, game, null, { type: 'pit' });
     }
   }
 
@@ -2101,7 +2105,7 @@ class Player {
     }
   }
 
-  takeDamage(amount, game, element) {
+  takeDamage(amount, game, element, killerInfo) {
     if (this.godMode) return;
     if (this.earthGolem) return;
     if (this.bubbleRide) {
@@ -2161,7 +2165,8 @@ class Player {
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
-        game.gameOver = true;
+        game.killerInfo = killerInfo || null;
+        game.gameOverDelay = 120;
         recordGameOver(game.totalKills);
       }
     }

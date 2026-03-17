@@ -39,8 +39,40 @@ class Game {
     this.waveMessageTimer = 0;
     this.gameWon = false;
 
+    // Phrase system
+    this.phraseText = '';
+    this.phraseTimer = 0;
+    this.phraseMaxTimer = 0;
+    this.phraseColor = '#fff';
+    this.phraseSource = null;
+    this.ninjaResponseText = '';
+    this.ninjaResponseTimer = 0;
+    this.ninjaResponseMaxTimer = 0;
+    this.ninjaResponseColor = '#fff';
+    this.ninjaResponseActive = false;
+    this.ninjaResponseSource = null;
+    this.gameOverDelay = 0;
+    this.killerInfo = null;
+    this.killPhraseText = '';
+    this.killPhraseTimer = 0;
+    this.killPhraseMaxTimer = 0;
+    this.killPhraseColor = '#f88';
+    this.killPhrasePos = null;
+    this.ninjaKillResponseText = '';
+    this.ninjaKillResponseTimer = 0;
+    this.ninjaKillResponseMaxTimer = 0;
+    this.ninjaKillResponseColor = '#fff';
+    this.ninjaKillResponsePos = null;
+    this.transitionTimer = 0;
+
     this.buildLevel();
     this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
+    // Start phrase
+    this.phraseText = pickPhrase(START_PHRASES);
+    this.phraseTimer = 100;
+    this.phraseMaxTimer = 100;
+    this.phraseColor = this.player.type.accentColor;
+    this.phraseSource = this.player;
   }
 
   showWaveMessage(text) {
@@ -383,6 +415,24 @@ class Game {
     this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, this.boss.element ? this.boss.elementColors.particle : '#f44', 25, 6, 25));
     SFX.bossSpawn();
     this.showWaveMessage(this.boss.name + ` (${this.wave}/${TOTAL_WAVES})`);
+    // Boss entrance phrase
+    this.ninjaResponseActive = false;
+    const bPhrase = getBattlePhrase(waveDef.boss, this.player.ninjaType, this.boss.element);
+    if (bPhrase) {
+      this.phraseText = bPhrase;
+      this.phraseTimer = 150;
+      this.phraseMaxTimer = 150;
+      this.phraseColor = this.boss.element ? ELEMENT_COLORS[this.boss.element].accent : '#faa';
+      this.phraseSource = this.boss;
+      // Schedule ninja response
+      const nResp = getNinjaResponse(this.player.ninjaType, waveDef.boss, this.boss.element);
+      if (nResp) {
+        this.ninjaResponseText = nResp;
+        this.ninjaResponseTimer = -90;
+        this.ninjaResponseColor = this.player.type.accentColor;
+        this.ninjaResponseSource = this.player;
+      }
+    }
   }
 
   advanceWave() {
@@ -401,6 +451,15 @@ class Game {
       this.showWaveMessage('VICTORY!');
       SFX.victory();
       recordGoodEnding();
+      // Final boss kill phrase
+      const finalPhrases = FINAL_BOSS_KILL_PHRASES[this.player.ninjaType];
+      if (finalPhrases) {
+        this.phraseText = pickPhrase(finalPhrases);
+        this.phraseTimer = 180;
+        this.phraseMaxTimer = 180;
+        this.phraseColor = this.player.type.accentColor;
+        this.phraseSource = this.player;
+      }
       return;
     }
     // Track defeated boss type for earth construct unlocks
@@ -414,6 +473,15 @@ class Game {
     this.bossActive = false;
     this.projectiles = [];
     this.enemies = [];
+    // Boss kill phrase
+    const isLastBoss = this.wave > TOTAL_WAVES;
+    if (!isLastBoss) {
+      this.phraseText = pickPhrase(BOSS_KILL_PHRASES);
+      this.phraseTimer = 90;
+      this.phraseMaxTimer = 90;
+      this.phraseColor = this.player.type.accentColor;
+      this.phraseSource = this.player;
+    }
     const oldLevelType = this.levelType;
     this.buildLevel();
     // Only reposition player if level type changed
@@ -422,6 +490,8 @@ class Game {
       this.player.y = this.levelType === 'tower' ? 400 : 300;
       this.player.vx = 0;
       this.player.vy = 0;
+      this.transitionTimer = 90;
+      this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
     }
     this.spawnTimer = -120;
     SFX.wave();
@@ -436,7 +506,11 @@ class Game {
       Object.assign(this, new Game());
       return;
     }
-    if (this.gameWon || this.gameOver) return;
+    if (this.gameWon || this.gameOver) {
+      if (this.killPhraseTimer > 0) this.killPhraseTimer--;
+      if (this.ninjaKillResponseTimer > 0) this.ninjaKillResponseTimer--;
+      return;
+    }
 
     // Ninja switching
     if (consumePress('Digit1')) this.player.switchNinja('fire');
@@ -503,7 +577,12 @@ class Game {
       }
     }
 
-    this.player.update(this);
+    // Transition freeze — block player control on map change
+    if (this.transitionTimer > 0) {
+      this.transitionTimer--;
+    } else {
+      this.player.update(this);
+    }
 
     // During ultimate cutscene, freeze everything except effects
     if (this.player.ultCutscene) {
@@ -585,6 +664,65 @@ class Game {
 
     if (this.bossMessage > 0) this.bossMessage--;
     if (this.waveMessageTimer > 0) this.waveMessageTimer--;
+    if (this.phraseTimer > 0) this.phraseTimer--;
+    if (this.ninjaResponseTimer < 0) this.ninjaResponseTimer++;
+    else if (this.ninjaResponseTimer > 0) this.ninjaResponseTimer--;
+    // Start ninja response once boss phrase fades
+    if (this.ninjaResponseTimer === 0 && this.ninjaResponseText && !this.ninjaResponseActive && this.phraseTimer <= 0) {
+      this.ninjaResponseTimer = 120;
+      this.ninjaResponseMaxTimer = 120;
+      this.ninjaResponseActive = true;
+    }
+    // Game over delay with kill phrase
+    if (this.gameOverDelay > 0) {
+      this.gameOverDelay--;
+      if (this.gameOverDelay === 115 && this.killerInfo && !this.killPhraseText) {
+        const ki = this.killerInfo;
+        const kPhrase = getKillPhrase(ki.type, this.player.ninjaType, ki.element);
+        if (kPhrase) {
+          this.killPhraseText = kPhrase;
+          this.killPhraseTimer = 90;
+          this.killPhraseMaxTimer = 90;
+          this.killPhraseColor = ki.element && ELEMENT_COLORS[ki.element] ? ELEMENT_COLORS[ki.element].accent : '#f88';
+          // Store killer position for phrase tracking
+          if (ki.isBoss && this.boss) {
+            this.killPhrasePos = { x: this.boss.x + this.boss.w / 2, y: this.boss.y };
+          } else {
+            // Try to find the enemy that killed the player
+            let killerEnemy = null;
+            let minDist = Infinity;
+            for (const e of this.enemies) {
+              if (e.type === ki.type) {
+                const dx = e.x - this.player.x, dy = e.y - this.player.y;
+                const d = dx * dx + dy * dy;
+                if (d < minDist) { minDist = d; killerEnemy = e; }
+              }
+            }
+            if (killerEnemy) {
+              this.killPhrasePos = { x: killerEnemy.x + killerEnemy.w / 2, y: killerEnemy.y };
+            } else {
+              this.killPhrasePos = { x: this.player.x + this.player.w / 2, y: this.player.y - 20 };
+            }
+          }
+        }
+      }
+      if (this.gameOverDelay === 0) {
+        // Ninja response to kill phrase
+        if (this.killerInfo) {
+          const nResp = getNinjaResponse(this.player.ninjaType, this.killerInfo.type, this.killerInfo.element);
+          if (nResp) {
+            this.ninjaKillResponseText = nResp;
+            this.ninjaKillResponseTimer = 100;
+            this.ninjaKillResponseMaxTimer = 100;
+            this.ninjaKillResponseColor = this.player.type.accentColor;
+            this.ninjaKillResponsePos = { x: this.player.x + this.player.w / 2, y: this.player.y };
+          }
+        }
+        this.gameOver = true;
+      }
+    }
+    if (this.killPhraseTimer > 0) this.killPhraseTimer--;
+    if (this.ninjaKillResponseTimer > 0) this.ninjaKillResponseTimer--;
 
     // Cleanup
     this.enemies = this.enemies.filter(e => !e.dead);
@@ -1049,6 +1187,7 @@ class Game {
   }
 
   renderUI() {
+    const cam = this.camera;
     const pl = this.player;
     const t = pl.type;
     const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
@@ -1297,6 +1436,13 @@ class Game {
       ctx.fillText(`${Math.round(this.boss.hp)}/${Math.round(this.boss.maxHp)}`, bx + bw - 55, 21);
     }
 
+    // Map transition overlay
+    if (this.transitionTimer > 0) {
+      const fade = Math.min(1, this.transitionTimer / 30);
+      ctx.fillStyle = 'rgba(0,0,0,' + (fade * 0.6).toFixed(2) + ')';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
+
     // Wave / boss message
     if (this.waveMessageTimer > 0) {
       ctx.globalAlpha = Math.min(1, this.waveMessageTimer / 30);
@@ -1305,6 +1451,108 @@ class Game {
       const tw = ctx.measureText(this.waveMessage).width;
       ctx.fillText(this.waveMessage, CANVAS_W / 2 - tw / 2, CANVAS_H / 2 - 60);
       ctx.globalAlpha = 1;
+    }
+
+    // Boss entrance phrase (follows boss)
+    if (this.phraseTimer > 0 && this.phraseText) {
+      const src = this.phraseSource;
+      const elapsed = this.phraseMaxTimer - this.phraseTimer;
+      const floatY = elapsed * 0.25;
+      let px, py;
+      if (src) {
+        px = src.x + src.w / 2 - cam.x;
+        py = src.y - 14 - cam.y - floatY;
+      } else {
+        px = CANVAS_W / 2;
+        py = CANVAS_H / 2 - 34 - floatY;
+      }
+      const txt = '\u201C' + this.phraseText + '\u201D';
+      ctx.globalAlpha = Math.min(1, this.phraseTimer / 20);
+      ctx.font = 'italic 14px monospace';
+      const ptw = ctx.measureText(txt).width;
+      const tx = Math.max(4, Math.min(px - ptw / 2, CANVAS_W - ptw - 4));
+      ctx.fillStyle = '#000';
+      ctx.fillText(txt, tx + 1, py + 1);
+      ctx.fillStyle = this.phraseColor;
+      ctx.fillText(txt, tx, py);
+      ctx.globalAlpha = 1;
+    }
+
+    // Ninja response to boss entrance (follows player)
+    if (this.ninjaResponseTimer > 0 && this.ninjaResponseText) {
+      const src = this.ninjaResponseSource;
+      const elapsed = this.ninjaResponseMaxTimer - this.ninjaResponseTimer;
+      const floatY = elapsed * 0.2;
+      let px, py;
+      if (src) {
+        px = src.x + src.w / 2 - cam.x;
+        py = src.y - 14 - cam.y - floatY;
+      } else {
+        px = CANVAS_W / 2;
+        py = CANVAS_H / 2 - 14 - floatY;
+      }
+      const txt = '\u201C' + this.ninjaResponseText + '\u201D';
+      ctx.globalAlpha = Math.min(1, this.ninjaResponseTimer / 20);
+      ctx.font = 'italic 13px monospace';
+      const nrtw = ctx.measureText(txt).width;
+      const tx = Math.max(4, Math.min(px - nrtw / 2, CANVAS_W - nrtw - 4));
+      ctx.fillStyle = '#000';
+      ctx.fillText(txt, tx + 1, py + 1);
+      ctx.fillStyle = this.ninjaResponseColor;
+      ctx.fillText(txt, tx, py);
+      ctx.globalAlpha = 1;
+    }
+
+    // Kill phrase (before game over, follows killer position)
+    if (this.killPhraseTimer > 0 && this.killPhraseText) {
+      const pos = this.killPhrasePos;
+      const elapsed = this.killPhraseMaxTimer - this.killPhraseTimer;
+      const floatY = elapsed * 0.2;
+      let px, py;
+      if (pos) {
+        px = pos.x - cam.x;
+        py = pos.y - 16 - cam.y - floatY;
+      } else {
+        px = CANVAS_W / 2;
+        py = CANVAS_H / 2 - 27 - floatY;
+      }
+      const txt = '\u201C' + this.killPhraseText + '\u201D';
+      ctx.globalAlpha = Math.min(1, this.killPhraseTimer / 15);
+      ctx.font = 'italic bold 15px monospace';
+      const kptw = ctx.measureText(txt).width;
+      const tx = Math.max(4, Math.min(px - kptw / 2, CANVAS_W - kptw - 4));
+      ctx.fillStyle = '#000';
+      ctx.fillText(txt, tx + 1, py + 1);
+      ctx.fillStyle = this.killPhraseColor;
+      ctx.fillText(txt, tx, py);
+      ctx.globalAlpha = 1;
+    }
+
+    // Ninja response to kill phrase (follows player death position)
+    if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText) {
+      if (!this.killPhraseTimer || this.killPhraseTimer <= 0) {
+        const pos = this.ninjaKillResponsePos;
+        const elapsed = this.ninjaKillResponseMaxTimer - this.ninjaKillResponseTimer;
+        const floatY = elapsed * 0.2;
+        let px, py;
+        if (pos) {
+          px = pos.x - cam.x;
+          py = pos.y - 14 - cam.y - floatY;
+        } else {
+          px = CANVAS_W / 2;
+          py = CANVAS_H / 2 - 2 - floatY;
+        }
+        const txt = '\u201C' + this.ninjaKillResponseText + '\u201D';
+        ctx.globalAlpha = Math.min(1, this.ninjaKillResponseTimer / 15);
+        ctx.font = 'italic 14px monospace';
+        const nkrtw = ctx.measureText(txt).width;
+        const tx = Math.max(4, Math.min(px - nkrtw / 2, CANVAS_W - nkrtw - 4));
+        ctx.fillStyle = '#000';
+        ctx.fillText(txt, tx + 1, py + 1);
+        ctx.fillStyle = this.ninjaKillResponseColor;
+        ctx.fillText(txt, tx, py);
+        ctx.globalAlpha = 1;
+      }
     }
 
     // Touch controls overlay
@@ -1373,17 +1621,39 @@ class Game {
       ctx.font = 'bold 36px monospace';
       const got = this.cheated ? 'GAME OVER, CHEATER!' : 'GAME OVER';
       const gotw = ctx.measureText(got).width;
-      ctx.fillText(got, CANVAS_W / 2 - gotw / 2, CANVAS_H / 2 - 40);
+      ctx.fillText(got, CANVAS_W / 2 - gotw / 2, CANVAS_H / 2 - 50);
       ctx.fillStyle = '#fff';
       ctx.font = '16px monospace';
       const gost = `Wave: ${this.wave}/${TOTAL_WAVES}  Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
       const gostw = ctx.measureText(gost).width;
-      ctx.fillText(gost, CANVAS_W / 2 - gostw / 2, CANVAS_H / 2 + 10);
+      ctx.fillText(gost, CANVAS_W / 2 - gostw / 2, CANVAS_H / 2);
+
+      // Kill phrase on game over (static, already shown in-game)
+      if (this.killPhraseText) {
+        ctx.globalAlpha = 0.7;
+        ctx.font = 'italic 14px monospace';
+        ctx.fillStyle = this.killPhraseColor;
+        const kpt = '\u201C' + this.killPhraseText + '\u201D';
+        const kptw2 = ctx.measureText(kpt).width;
+        ctx.fillText(kpt, CANVAS_W / 2 - kptw2 / 2, CANVAS_H / 2 + 30);
+        ctx.globalAlpha = 1;
+      }
+      // Ninja response to kill
+      if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText) {
+        ctx.globalAlpha = Math.min(1, this.ninjaKillResponseTimer / 15);
+        ctx.font = 'italic 13px monospace';
+        ctx.fillStyle = this.ninjaKillResponseColor;
+        const nkrt = '"' + this.ninjaKillResponseText + '"';
+        const nkrtw2 = ctx.measureText(nkrt).width;
+        ctx.fillText(nkrt, CANVAS_W / 2 - nkrtw2 / 2, CANVAS_H / 2 + 50);
+        ctx.globalAlpha = 1;
+      }
+
       ctx.fillStyle = '#aaa';
       ctx.font = '12px monospace';
       const gort = 'Press R to restart';
       const gortw = ctx.measureText(gort).width;
-      ctx.fillText(gort, CANVAS_W / 2 - gortw / 2, CANVAS_H / 2 + 40);
+      ctx.fillText(gort, CANVAS_W / 2 - gortw / 2, CANVAS_H / 2 + 75);
     }
   }
 }

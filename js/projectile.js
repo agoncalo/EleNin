@@ -542,7 +542,11 @@ class Projectile {
     } else {
       const pl = game.player;
       if (rectOverlap(this, pl)) {
-        pl.takeDamage(this.damage, game, this.element || null);
+        const isBoss = this.owner === 'boss';
+        let srcType = this.sourceType || null;
+        if (!srcType && isBoss && game.boss) srcType = game.boss.bossType;
+        const ki = { type: srcType || 'enemy', element: this.element || null, isBoss: isBoss };
+        pl.takeDamage(this.damage, game, this.element || null, ki);
         this.done = true;
       }
     }
