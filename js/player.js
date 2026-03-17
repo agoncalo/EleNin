@@ -1118,11 +1118,21 @@ class Player {
           game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
           game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
           game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
+          game.phraseText = '';
+          game.phraseTimer = 0;
+          game.ninjaResponseText = '';
+          game.ninjaResponseTimer = 0;
+          game.ninjaResponseActive = false;
           game.deaths++;
           game.lives--;
           if (game.lives <= 0) {
             game.killerInfo = { type: 'burn', element: 'fire', isBoss: false };
             game.gameOverDelay = 120;
+            game.phraseText = '';
+            game.phraseTimer = 0;
+            game.ninjaResponseText = '';
+            game.ninjaResponseTimer = 0;
+            game.ninjaResponseActive = false;
             recordGameOver(game.totalKills);
           }
         }
@@ -2162,11 +2172,21 @@ class Player {
       game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
       game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
       game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
+      game.phraseText = '';
+      game.phraseTimer = 0;
+      game.ninjaResponseText = '';
+      game.ninjaResponseTimer = 0;
+      game.ninjaResponseActive = false;
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
         game.killerInfo = killerInfo || null;
         game.gameOverDelay = 120;
+        game.phraseText = '';
+        game.phraseTimer = 0;
+        game.ninjaResponseText = '';
+        game.ninjaResponseTimer = 0;
+        game.ninjaResponseActive = false;
         recordGameOver(game.totalKills);
       }
     }

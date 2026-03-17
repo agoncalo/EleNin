@@ -473,9 +473,9 @@ class Game {
     this.bossActive = false;
     this.projectiles = [];
     this.enemies = [];
-    // Boss kill phrase
+    // Boss kill phrase (skip if player is dying)
     const isLastBoss = this.wave > TOTAL_WAVES;
-    if (!isLastBoss) {
+    if (!isLastBoss && !this.gameOverDelay) {
       this.phraseText = pickPhrase(BOSS_KILL_PHRASES);
       this.phraseTimer = 90;
       this.phraseMaxTimer = 90;
@@ -490,12 +490,16 @@ class Game {
       this.player.y = this.levelType === 'tower' ? 400 : 300;
       this.player.vx = 0;
       this.player.vy = 0;
-      this.transitionTimer = 90;
-      this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
+      if (!this.gameOverDelay) {
+        this.transitionTimer = 90;
+        this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
+      }
     }
     this.spawnTimer = -120;
     SFX.wave();
-    this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+    if (!this.gameOverDelay) {
+      this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+    }
   }
 
   update() {
@@ -707,17 +711,6 @@ class Game {
         }
       }
       if (this.gameOverDelay === 0) {
-        // Ninja response to kill phrase
-        if (this.killerInfo) {
-          const nResp = getNinjaResponse(this.player.ninjaType, this.killerInfo.type, this.killerInfo.element);
-          if (nResp) {
-            this.ninjaKillResponseText = nResp;
-            this.ninjaKillResponseTimer = 100;
-            this.ninjaKillResponseMaxTimer = 100;
-            this.ninjaKillResponseColor = this.player.type.accentColor;
-            this.ninjaKillResponsePos = { x: this.player.x + this.player.w / 2, y: this.player.y };
-          }
-        }
         this.gameOver = true;
       }
     }
@@ -1444,7 +1437,7 @@ class Game {
     }
 
     // Wave / boss message
-    if (this.waveMessageTimer > 0) {
+    if (this.waveMessageTimer > 0 && !this.gameOverDelay && !this.gameOver) {
       ctx.globalAlpha = Math.min(1, this.waveMessageTimer / 30);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 22px monospace';
@@ -1454,7 +1447,7 @@ class Game {
     }
 
     // Boss entrance phrase (follows boss)
-    if (this.phraseTimer > 0 && this.phraseText) {
+    if (this.phraseTimer > 0 && this.phraseText && !this.gameOverDelay && !this.gameOver) {
       const src = this.phraseSource;
       const elapsed = this.phraseMaxTimer - this.phraseTimer;
       const floatY = elapsed * 0.25;
@@ -1479,7 +1472,7 @@ class Game {
     }
 
     // Ninja response to boss entrance (follows player)
-    if (this.ninjaResponseTimer > 0 && this.ninjaResponseText) {
+    if (this.ninjaResponseTimer > 0 && this.ninjaResponseText && !this.gameOverDelay && !this.gameOver) {
       const src = this.ninjaResponseSource;
       const elapsed = this.ninjaResponseMaxTimer - this.ninjaResponseTimer;
       const floatY = elapsed * 0.2;
@@ -1504,7 +1497,7 @@ class Game {
     }
 
     // Kill phrase (before game over, follows killer position)
-    if (this.killPhraseTimer > 0 && this.killPhraseText) {
+    if (this.killPhraseTimer > 0 && this.killPhraseText && !this.gameOver) {
       const pos = this.killPhrasePos;
       const elapsed = this.killPhraseMaxTimer - this.killPhraseTimer;
       const floatY = elapsed * 0.2;
@@ -1529,7 +1522,7 @@ class Game {
     }
 
     // Ninja response to kill phrase (follows player death position)
-    if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText) {
+    if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText && !this.gameOver) {
       if (!this.killPhraseTimer || this.killPhraseTimer <= 0) {
         const pos = this.ninjaKillResponsePos;
         const elapsed = this.ninjaKillResponseMaxTimer - this.ninjaKillResponseTimer;
@@ -1615,6 +1608,9 @@ class Game {
 
     // Game Over screen
     if (this.gameOver) {
+      // Ensure no stray phrases render
+      this.phraseText = '';
+      this.ninjaResponseText = '';
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.fillStyle = '#f44';
