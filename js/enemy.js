@@ -22,6 +22,7 @@ class Enemy {
     this.patrolRight = x + 100;
     this.flashTimer = 0;
     this.damageIframes = 0;
+    this.resistTimer = 0;
     this.burnTimer = 0;
     this.soakTimer = 0;
     this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
@@ -89,6 +90,7 @@ class Enemy {
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
+    if (this.resistTimer > 0) this.resistTimer--;
 
     // Burn DOT
     if (this.burnTimer > 0) {
@@ -441,9 +443,12 @@ class Enemy {
         if (result === 'resist') {
           // Colored shield pop — no damage
           this.flashTimer = 6;
-          const col = this.elementColors.accent;
-          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
-          game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
+          if (this.resistTimer <= 0) {
+            const col = this.elementColors.accent;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
+            this.resistTimer = 30;
+          }
           return;
         }
         if (result === 'heal') {
