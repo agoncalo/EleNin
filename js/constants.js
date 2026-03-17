@@ -6,7 +6,7 @@ const GRAVITY = 0.55;
 const MAX_FALL = 12;
 const FIXED_DT = 1000 / 60; // 60 fps timestep
 
-const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind'];
+const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
 const NINJA_TYPES = {
   fire: {
@@ -62,6 +62,15 @@ const NINJA_TYPES = {
     attackDamage: 1,
     jumpPower: -10.5,
     speed: 5
+  },
+  storm: {
+    name: 'Storm Ninja',
+    color: '#36c',
+    accentColor: '#8af',
+    key: '7',
+    attackDamage: 2,
+    jumpPower: -10.5,
+    speed: 4.2
   }
 };
 
@@ -117,7 +126,16 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 1, big: true },
     ]
   },
-  { boss: 'bouncer', killsForBoss: 60,
+  { boss: 'flyer', killsForBoss: 45,
+    pool: [
+      { type: 'shooter', weight: 2 },
+      { type: 'shielded', weight: 2 },
+      { type: 'flyer', weight: 4 },
+      { type: 'flyer', weight: 1, big: true },
+      { type: 'shielded', weight: 1, big: true },
+    ]
+  },
+  { boss: 'bouncer', killsForBoss: 50,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
@@ -127,32 +145,49 @@ const WAVE_DEFS = [
       { type: 'walker', weight: 1, big: true },
     ]
   },
-  { boss: 'shielded', killsForBoss: 64,
+  { boss: 'shielded', killsForBoss: 56,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 4 },
-      { type: 'deflector', weight: 2 },
-      { type: 'protector', weight: 1 },
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
       { type: 'bouncer', weight: 1, big: true },
     ]
   },
-  { boss: 'flyer', killsForBoss: 70,
+  { boss: 'deflector', killsForBoss: 64,
     pool: [
-      { type: 'shooter', weight: 2 },
-      { type: 'shielded', weight: 2 },
-      { type: 'deflector', weight: 2 },
-      { type: 'protector', weight: 1 },
-      { type: 'attacker', weight: 1 },
-      { type: 'flyshooter', weight: 2 },
-      { type: 'flyer', weight: 4 },
-      { type: 'flyer', weight: 1, big: true },
+      { type: 'jumper', weight: 2 },
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 4 },
+      { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
+      { type: 'bouncer', weight: 1, big: true },
     ]
   },
-  { boss: 'flyshooter', killsForBoss: 76,
+  { boss: 'protector', killsForBoss: 70,
+    pool: [
+      { type: 'jumper', weight: 2 },
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 4 },
+      { type: 'flyer', weight: 2 },
+      { type: 'deflector', weight: 2 },
+      { type: 'shielded', weight: 1, big: true },
+      { type: 'bouncer', weight: 1, big: true },
+    ]
+  },
+  { boss: 'attacker', killsForBoss: 76,
+    pool: [
+      { type: 'jumper', weight: 2 },
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 4 },
+      { type: 'flyer', weight: 2 },
+      { type: 'deflector', weight: 2 },
+      { type: 'shielded', weight: 1, big: true },
+      { type: 'bouncer', weight: 1, big: true },
+    ]
+  },
+  { boss: 'flyshooter', killsForBoss: 80,
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },

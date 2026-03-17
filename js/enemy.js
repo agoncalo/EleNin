@@ -24,6 +24,7 @@ class Enemy {
     this.flashTimer = 0;
     this.damageIframes = 0;
     this.burnTimer = 0;
+    this.soakTimer = 0;
     this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : 0;
     this.shieldMax = this.shieldHp;
@@ -111,6 +112,9 @@ class Enemy {
         }
       }
     }
+
+    // Soak decay
+    if (this.soakTimer > 0) this.soakTimer--;
 
     const speed = this.big ? 2.4 : 1.9;
     const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
@@ -537,6 +541,18 @@ class Enemy {
       ctx.globalAlpha = 1;
     }
 
+    // Soak effect overlay
+    if (this.soakTimer > 0) {
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.soakTimer * 0.15);
+      ctx.fillStyle = '#48f';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+      // Drip particles
+      if (Math.random() < 0.15) {
+        game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
+      }
+    }
+
     // Big border
     if (this.big) {
       ctx.strokeStyle = '#ff0';
@@ -909,6 +925,9 @@ class Boss extends Enemy {
       }
     }
 
+    // Soak decay
+    if (this.soakTimer > 0) this.soakTimer--;
+
     const px = game.player.x + game.player.w / 2;
     const py = game.player.y + game.player.h / 2;
     const cx = this.x + this.w / 2;
@@ -1116,6 +1135,14 @@ class Boss extends Enemy {
     if (this.freezeTimer > 0) {
       ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.freezeTimer * 0.2);
       ctx.fillStyle = '#aaf';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+    }
+
+    // Soak effect overlay
+    if (this.soakTimer > 0) {
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.soakTimer * 0.15);
+      ctx.fillStyle = '#48f';
       ctx.fillRect(sx, sy, this.w, this.h);
       ctx.globalAlpha = 1;
     }

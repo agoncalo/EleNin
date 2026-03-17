@@ -30,8 +30,8 @@ let mouseWheelNinja = 0;
 function setupMouseWheel(canvas) {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
-    if (e.deltaY > 0) mouseWheelNinja = (mouseWheelNinja + 1) % 6;
-    else mouseWheelNinja = (mouseWheelNinja + 5) % 6;
+    if (e.deltaY > 0) mouseWheelNinja = (mouseWheelNinja + 1) % 7;
+    else mouseWheelNinja = (mouseWheelNinja + 6) % 7;
     justPressed['WheelSwitch'] = true;
   }, { passive: false });
 }

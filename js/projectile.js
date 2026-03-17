@@ -290,6 +290,50 @@ class Projectile {
     this.hitSet = new Set();
   }
   update(game) {
+    // Orbiting mode: circle the player, bypass terrain
+    if (this.orbiting) {
+      const pl = game.player;
+      this.orbitAngle += this.orbitSpeed;
+      this.x = pl.x + pl.w / 2 + Math.cos(this.orbitAngle) * this.orbitRadius - this.w / 2;
+      this.y = pl.y + pl.h / 2 + Math.sin(this.orbitAngle) * this.orbitRadius - this.h / 2;
+      this.life--;
+      if (this.life <= 0) { this.done = true; return; }
+      // Water trail particles
+      if (this.life % 3 === 0) {
+        game.effects.push(new Effect(
+          this.x + this.w / 2 + (Math.random() - 0.5) * 6,
+          this.y + this.h / 2 + (Math.random() - 0.5) * 6,
+          '#48f', 3, 1.2, 8
+        ));
+      }
+      // Hit enemies while orbiting
+      for (const e of game.enemies) {
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+          e.takeDamage(this.damage, game, this.x);
+          if (this.soaking) {
+            e.soakTimer = Math.max(e.soakTimer, 300);
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#48f', 8, 3, 12));
+          }
+          this.hitSet.add(e);
+          if (!game.player.ultimateReady && !game.player.ultimateActive) {
+            game.player.addUltimateCharge(2);
+          }
+        }
+      }
+      // Hit boss while orbiting
+      if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.damage, game, this.x);
+        if (this.soaking) {
+          game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 10, 4, 14));
+        }
+        this.hitSet.add(game.boss);
+        if (!game.player.ultimateReady && !game.player.ultimateActive) {
+          game.player.addUltimateCharge(3);
+        }
+      }
+      return;
+    }
     if (this.bouncy) this.vy += 0.15;
     this.x += this.vx;
     this.y += this.vy;
@@ -376,6 +420,11 @@ class Projectile {
             e.vy = 0;
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 8, 3, 12));
           }
+          // Soaking: apply soak on hit
+          if (this.soaking) {
+            e.soakTimer = Math.max(e.soakTimer, 300);
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#48f', 8, 3, 12));
+          }
           // Pushback effect (skip if frozen)
           if (!this.freezeDust) {
             const dx = e.x + e.w / 2 - (this.x + this.w / 2);
@@ -417,6 +466,11 @@ class Projectile {
           game.boss.vx = 0;
           game.boss.vy = 0;
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 10, 4, 14));
+        }
+        // Soaking: apply soak on boss hit
+        if (this.soaking) {
+          game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 10, 4, 14));
         }
         this.hitSet.add(game.boss);
         // Ultimate charge gain: projectile hit boss

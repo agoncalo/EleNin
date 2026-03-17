@@ -100,6 +100,14 @@ class Player {
     this.windTrails = [];
     this.windFullTrails = [];
 
+    // Storm ninja state
+    this.stormChaining = false;
+    this.stormChainTargets = [];
+    this.stormChainTimer = 0;
+    this.stormChainHit = new Set();
+    this.stormAfterimages = [];
+    this.stormRaindrops = []; // rain visual during ultimate
+
     // Next-hit-double system
     this.nextHitDouble = false;
 
@@ -286,6 +294,19 @@ class Player {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 25, 6, 20));
         this.invincibleTimer = 40;
         break;
+
+      case 'storm':
+        // Rain ultimate: soak all enemies, no damage
+        this.ultimateTimer = 360; // 6 seconds of rain
+        this.stormRaindrops = [];
+        // Immediately soak all visible enemies
+        for (const e of game.enemies) {
+          if (!e.dead) e.soakTimer = 420;
+        }
+        if (game.boss && !game.boss.dead) game.boss.soakTimer = 420;
+        SFX.special();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#48f', 25, 6, 20));
+        break;
     }
     // End invincibility boost (set to just a brief window after cutscene)
     if (this.ninjaType !== 'wind') {
@@ -324,6 +345,9 @@ class Player {
     this.windPower = 0;
     this.windDashing = false;
     this.windDashTimer = 0;
+    this.stormChaining = false;
+    this.stormChainHit = new Set();
+    this.stormAfterimages = [];
   }
 
   update(game) {
@@ -520,6 +544,32 @@ class Player {
         }
       }
 
+      // Storm: ongoing rain soaks enemies
+      if (this.ninjaType === 'storm') {
+        // Re-soak enemies every 30 frames
+        if (game.tick % 30 === 0) {
+          for (const e of game.enemies) {
+            if (!e.dead) e.soakTimer = Math.max(e.soakTimer, 300);
+          }
+          if (game.boss && !game.boss.dead) game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
+        }
+        // Spawn rain particles
+        for (let i = 0; i < 4; i++) {
+          this.stormRaindrops.push({
+            x: game.camera.x + Math.random() * CANVAS_W,
+            y: game.camera.y - 10,
+            speed: 8 + Math.random() * 6,
+            life: 60
+          });
+        }
+        // Update rain
+        for (const r of this.stormRaindrops) {
+          r.y += r.speed;
+          r.life--;
+        }
+        this.stormRaindrops = this.stormRaindrops.filter(r => r.life > 0 && r.y < game.camera.y + CANVAS_H + 20);
+      }
+
       // Ultimate expires
       if (this.ultimateTimer <= 0) {
         // Don't end fire ult while meteors are still in flight
@@ -536,6 +586,7 @@ class Player {
           this.shadowUltBuff = false;
           this.shadowDarkness = 0;
           this.shadowEyesTimer = 0;
+          this.stormRaindrops = [];
         }
       }
     }
@@ -873,6 +924,16 @@ class Player {
               }
             }
 
+            // Storm: hitting a soaked enemy starts lightning chain
+            if (this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
+              this.stormChaining = true;
+              this.stormChainTimer = 4;
+              this.stormChainHit = new Set();
+              this.stormChainHit.add(e);
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 15, 5, 15));
+              SFX.backstab();
+            }
+
             if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
             SFX.hit();
             triggerHitstop(4);
@@ -936,6 +997,15 @@ class Player {
           if (!this.ultimateReady && !this.ultimateActive) {
             this.addUltimateCharge(6);
           }
+          // Storm: hitting soaked boss starts lightning chain
+          if (this.ninjaType === 'storm' && game.boss.soakTimer > 0 && !this.stormChaining) {
+            this.stormChaining = true;
+            this.stormChainTimer = 4;
+            this.stormChainHit = new Set();
+            this.stormChainHit.add(game.boss);
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 15, 5, 15));
+            SFX.backstab();
+          }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
           triggerHitstop(5);
         }
@@ -961,11 +1031,12 @@ class Player {
       this.shurikens--;
       const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      const color = (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : '#ccc';
+      const color = (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
       const sProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6
       });
       if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
+      if (sProj && this.ninjaType === 'storm') sProj.soaking = true;
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
     }
 
@@ -1043,6 +1114,56 @@ class Player {
           this.shadowStealth = 0;
         }
       }
+    }
+
+    // Storm ninja: lightning chain strike (only soaked enemies, larger radius)
+    if (this.ninjaType === 'storm' && this.stormChaining) {
+      this.stormChainTimer--;
+      if (this.stormChainTimer <= 0) {
+        let nearest = null;
+        let nearDist = 350; // Larger chain radius than shadow
+        const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        for (const e of game.enemies) {
+          if (e.dead || this.stormChainHit.has(e) || e.soakTimer <= 0) continue;
+          const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearDist = d; nearest = e; }
+        }
+        if (!nearest && game.boss && !game.boss.dead && !this.stormChainHit.has(game.boss) && game.boss.soakTimer > 0) {
+          const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearest = game.boss; }
+        }
+        if (nearest) {
+          const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
+          this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
+          this.y = nearest.y + nearest.h / 2 - this.h / 2;
+          this.facing = -behind;
+          this.vx = 0; this.vy = 0;
+          this.stormAfterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
+          const dmg = (this.type.attackDamage + this.bonusDamage) * 2;
+          nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          this.stormChainHit.add(nearest);
+          SFX.chain();
+          // Lightning bolt effect between positions
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', 12, 5, 14));
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#8af', 8, 3, 10));
+          triggerHitstop(3);
+          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this.stormChainTimer = 4;
+        } else {
+          this.stormChaining = false;
+          for (const a of this.stormAfterimages) a.life = 15;
+        }
+      }
+    }
+    // Storm afterimage decay
+    if (this.ninjaType === 'storm') {
+      this.stormAfterimages = this.stormAfterimages.filter(a => {
+        if (this.stormChaining) return true;
+        a.life--;
+        return a.life > 0;
+      });
     }
 
     // Shadow ninja: stealth accumulation
@@ -1276,8 +1397,9 @@ class Player {
 
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
-    const reach = shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 30);
-    const vertExtra = shadowUltBonus ? 20 : (shadowFullStealth ? 10 : 0);
+    const stormReach = this.ninjaType === 'storm' ? 40 : 0;
+    const reach = stormReach || (shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 30));
+    const vertExtra = shadowUltBonus ? 20 : (shadowFullStealth ? 10 : (stormReach ? 6 : 0));
     this.attackBox = {
       x: this.facing > 0 ? this.x + this.w : this.x - reach,
       y: this.y + 4 - vertExtra,
@@ -1416,6 +1538,26 @@ class Player {
         game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
         SFX.special();
         break;
+      case 'storm': {
+        // Water orbs: 3 projectiles orbit the player in a circle, bypassing terrain
+        const wsx = this.x + this.w / 2;
+        const wsy = this.y + this.h / 2;
+        for (let i = 0; i < 3; i++) {
+          const angle = (Math.PI * 2 / 3) * i;
+          const proj = new Projectile(wsx, wsy, 0, 0, '#48f', 1, 'player');
+          proj.w = 12; proj.h = 12;
+          proj.soaking = true;
+          proj.piercing = true;
+          proj.life = 180;
+          proj.orbiting = true;
+          proj.orbitAngle = angle;
+          proj.orbitRadius = 70;
+          proj.orbitSpeed = 0.08;
+          game.projectiles.push(proj);
+        }
+        game.effects.push(new Effect(wsx, wsy, '#48f', 14, 5, 16));
+        break;
+      }
     }
   }
 
@@ -1435,7 +1577,7 @@ class Player {
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
     }
-    if (this.fireArmor || this.chainStriking) return;
+    if (this.fireArmor || this.chainStriking || this.stormChaining) return;
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
       this.shield -= absorbed;
@@ -1488,6 +1630,22 @@ class Player {
         );
       }
       ctx.restore();
+    }
+
+    // Storm afterimages (during lightning chain)
+    if (this.ninjaType === 'storm' && this.stormAfterimages.length > 0) {
+      for (const a of this.stormAfterimages) {
+        const alpha = this.stormChaining ? 0.5 : (a.life / 15) * 0.4;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#8af';
+        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+        // Lightning spark on afterimage
+        ctx.fillStyle = '#ff0';
+        ctx.globalAlpha = alpha * 0.7;
+        const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
+        ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+      }
+      ctx.globalAlpha = 1;
     }
 
     // Wind trails
@@ -1628,7 +1786,8 @@ class Player {
       // Angled diagonally across back, handle over shoulder
       ctx.rotate(this.facing > 0 ? -0.45 : 0.45);
       // Scabbard (dark, extends down from belt and up past shoulder)
-      ctx.fillStyle = '#2a2a2a';
+      if (this.ninjaType === 'storm') { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6; }
+      ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
       ctx.fillRect(-2, -28, 4, 32);
       // Scabbard tip
       ctx.fillStyle = '#444';
@@ -1648,6 +1807,7 @@ class Player {
       // Pommel
       ctx.fillStyle = '#888';
       ctx.fillRect(-1, -38, 2, 3);
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
 
@@ -1683,6 +1843,14 @@ class Player {
       ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
     }
 
+    // Storm ultimate glow
+    if (this.ninjaType === 'storm' && this.ultimateActive) {
+      const pulse = Math.sin(Date.now() * 0.008) * 0.2 + 0.4;
+      ctx.strokeStyle = `rgba(80,160,255,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
     // Wall slide indicator
     if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
@@ -1713,7 +1881,9 @@ class Player {
       ctx.rotate(curA);
 
       // Blade
-      ctx.fillStyle = '#dde';
+      const isLightning = this.ninjaType === 'storm';
+      ctx.fillStyle = isLightning ? '#ff0' : '#dde';
+      if (isLightning) { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 8; }
       ctx.beginPath();
       ctx.moveTo(6, -1.5);
       ctx.lineTo(32, -0.8);
@@ -1722,12 +1892,13 @@ class Player {
       ctx.lineTo(6, 1.5);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = isLightning ? '#ff8' : '#fff';
       ctx.lineWidth = 0.7;
       ctx.beginPath();
       ctx.moveTo(8, -1);
       ctx.lineTo(34, 0);
       ctx.stroke();
+      if (isLightning) ctx.shadowBlur = 0;
       // Tsuba
       ctx.fillStyle = '#aa8';
       ctx.fillRect(4, -3.5, 3, 7);

@@ -351,17 +351,18 @@ class Game {
     if (consumePress('Digit4')) this.player.switchNinja('shadow');
     if (consumePress('Digit5')) this.player.switchNinja('crystal');
     if (consumePress('Digit6')) this.player.switchNinja('wind');
+    if (consumePress('Digit7')) this.player.switchNinja('storm');
     if (justPressed['WheelSwitch']) {
       justPressed['WheelSwitch'] = false;
       this.player.switchNinja(NINJA_ORDER[mouseWheelNinja]);
     }
     if (gpJust[GP_LB]) {
       const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 5) % 6]);
+      this.player.switchNinja(NINJA_ORDER[(idx + 6) % 7]);
     }
     if (gpJust[GP_RB]) {
       const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 1) % 6]);
+      this.player.switchNinja(NINJA_ORDER[(idx + 1) % 7]);
     }
 
     // Cheat: + to skip wave
@@ -490,6 +491,7 @@ class Game {
     // Sky gradient
     const fireUltSky = this.player.ultimateActive && this.player.ninjaType === 'fire';
     const shadowUltSky = this.player.ultimateActive && this.player.ninjaType === 'shadow';
+    const stormUltSky = this.player.ultimateActive && this.player.ninjaType === 'storm';
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
     if (fireUltSky) {
       grad.addColorStop(0, '#4a0a0a');
@@ -497,6 +499,9 @@ class Game {
     } else if (shadowUltSky) {
       grad.addColorStop(0, '#050510');
       grad.addColorStop(1, '#080818');
+    } else if (stormUltSky) {
+      grad.addColorStop(0, '#0a0a1e');
+      grad.addColorStop(1, '#151530');
     } else {
       grad.addColorStop(0, '#0a0a2e');
       grad.addColorStop(1, '#1a1a3e');
@@ -515,7 +520,7 @@ class Game {
     }
 
     // Background mountains
-    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : '#1a1a3a');
+    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : (stormUltSky ? '#0a0a1e' : '#1a1a3a'));
     for (let i = 0; i < this.levelW; i += 200) {
       const bx = i - cam.x * 0.2;
       if (bx > -200 && bx < CANVAS_W + 200) {
@@ -665,6 +670,25 @@ class Game {
       ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
     }
 
+    // Storm ultimate: rain rendering
+    if (this.player.ultimateActive && this.player.ninjaType === 'storm' && this.player.stormRaindrops) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#6af';
+      ctx.lineWidth = 1;
+      for (const r of this.player.stormRaindrops) {
+        const rx = r.x - cam.x;
+        const ry = r.y - cam.y;
+        if (rx > -5 && rx < CANVAS_W + 5 && ry > -10 && ry < CANVAS_H + 10) {
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 1, ry + 8);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
     // Shadow ultimate: glowing eyes (darkness now renders before platforms)
     if (this.player.ninjaType === 'shadow' && this.player.shadowEyesTimer > 0) {
       ctx.save();
@@ -775,7 +799,7 @@ class Game {
   renderUI() {
     const pl = this.player;
     const t = pl.type;
-    const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind'];
+    const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
     // Bottom UI layout (stacked upward from ninja bar)
     const ninjaBarY = CANVAS_H - 36;
@@ -795,6 +819,12 @@ class Game {
       elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
     } else if (pl.ninjaType === 'earth') {
       elemBarVal = this.stoneBlocks.length; elemBarMax = 10; elemBarColor = '#a87'; elemBarGlow = this.stoneBlocks.length >= 10; elemBarLabel = 'Blocks';
+    } else if (pl.ninjaType === 'storm') {
+      // Count soaked enemies
+      let soakedCount = 0;
+      for (const e of this.enemies) { if (!e.dead && e.soakTimer > 0) soakedCount++; }
+      if (this.boss && !this.boss.dead && this.boss.soakTimer > 0) soakedCount++;
+      elemBarVal = soakedCount; elemBarMax = 10; elemBarColor = '#48f'; elemBarGlow = soakedCount >= 3; elemBarLabel = 'Soaked';
     }
     const elemBarH = 10;
     const elemBarY = ninjaBarY - elemBarH - gap;
@@ -886,8 +916,8 @@ class Game {
     }
 
     // Ninja selection bar
-    const ninjaBarX = CANVAS_W / 2 - 156;
-    for (let i = 0; i < 6; i++) {
+    const ninjaBarX = CANVAS_W / 2 - 182;
+    for (let i = 0; i < 7; i++) {
       const nt = NINJA_TYPES[ninjaKeys[i]];
       const bx = ninjaBarX + i * 52;
       const selected = pl.ninjaType === ninjaKeys[i];
