@@ -11,7 +11,7 @@ class Enemy {
     this.vx = 0; this.vy = 0;
     this.hp = (big ? base.hp * 2 : base.hp) * this.wave;
     this.maxHp = this.hp;
-    this.contactDmg = (big ? base.dmg + 2 : base.dmg) + Math.floor((this.wave - 1) * 0.5);
+    this.contactDmg = Math.round((big ? base.dmg + 2 : base.dmg) * (1 + this.wave * 0.1875));
     this.color = base.color;
     this.facing = Math.random() < 0.5 ? -1 : 1;
     this.dead = false;
@@ -845,11 +845,13 @@ class Boss extends Enemy {
     this.bossType = bossType;
     // Override dimensions — boss is bigger than any regular enemy
     this.w = 56; this.h = 56;
-    // Override HP — boss has its own scaling (10x from wave 1 to 10)
-    this.hp = 40 * wave;
+    // Override HP — based on mob's base HP
+    this.hp = ENEMY_STATS[bossType].hp * 10 * wave;
+    if (bossType === 'attacker') this.hp = Math.max(this.hp, 500);
+    if (bossType === 'flyshooter') this.hp = Math.max(this.hp, 1000);
     this.maxHp = this.hp;
     // Override contact damage
-    this.contactDmg = 4 + Math.floor((wave - 1) * 0.5);
+    this.contactDmg = Math.round(4 * (1 + wave * 0.1875));
     // Boss-specific state
     this.phase = 1;
     this.actionTimer = 0;

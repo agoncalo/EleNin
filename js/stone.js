@@ -1,10 +1,11 @@
 // ── Stone Constructs (Earth ninja ability) ───────────────────
 class StoneConstruct {
-  constructor(x, y, w, h, hp = 3) {
+  constructor(x, y, w, h, hp = 3, wave = 1) {
     this.x = x; this.y = y;
     this.w = w; this.h = h;
+    this.wave = wave;
     this.hp = hp;
-    this.maxHp = hp;
+    this.maxHp = this.hp;
     this.vx = 0; this.vy = 0;
     this.grounded = false;
     this.done = false;
@@ -64,13 +65,13 @@ class StoneConstruct {
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
         if (this.vy > 4 && this.y + this.h - this.vy <= e.y + 4) {
-          e.takeDamage(3, game, this.x + this.w/2);
+          e.takeDamage(3 * this.wave, game, this.x + this.w/2);
           this.takeDamage(2);
           game.effects.push(new Effect(this.x + this.w/2, this.y + this.h, '#aaa', 8, 3, 10));
           this.vy = -2;
         } else {
           this.takeDamage(1);
-          e.takeDamage(1, game, this.x + this.w/2);
+          e.takeDamage(1 * this.wave, game, this.x + this.w/2);
         }
         // Push enemy horizontally away (non-spike constructs)
         if (!(this instanceof StoneSpike)) {
@@ -87,10 +88,15 @@ class StoneConstruct {
       }
     }
 
+    // Take damage from boss contact
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+      this.takeDamage(2);
+    }
+
     // Hard landing effects
     if (landedHard) {
       this.takeDamage(Math.max(1, Math.floor(landingVy / 4)));
-      damageInRadius(game, this.x + this.w/2, this.y + this.h/2, 60, 2);
+      damageInRadius(game, this.x + this.w/2, this.y + this.h/2, 60, 2 * this.wave);
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h, '#aaa', 10, 3, 10));
       triggerHitstop(2);
     }
@@ -102,7 +108,7 @@ class StoneConstruct {
     this.done = true;
     game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#a87', 15, 5, 18));
     game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f93', 10, 4, 14));
-    const dmg = this.powered ? 5 : 3;
+    const dmg = (this.powered ? 5 : 3) * this.wave;
     damageInRadius(game, this.x + this.w/2, this.y + this.h/2, 80, dmg);
     triggerHitstop(4);
   }
@@ -116,8 +122,8 @@ class StoneConstruct {
 }
 
 class StonePillar extends StoneConstruct {
-  constructor(x, y) {
-    super(x, y - TILE, TILE, TILE * 3, 4);
+  constructor(x, y, wave) {
+    super(x, y - TILE, TILE, TILE * 3, 4, wave);
   }
   render(ctx, cam) {
     ctx.fillStyle = '#4a8a4a';
@@ -131,19 +137,19 @@ class StonePillar extends StoneConstruct {
 }
 
 class StoneSpike extends StoneConstruct {
-  constructor(x, y) {
-    super(x, y, TILE, TILE, 6);
+  constructor(x, y, wave) {
+    super(x, y, TILE, TILE, 6, wave);
   }
   update(game) {
     super.update(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(3, game);
+        e.takeDamage((3 * this.wave), game);
         game.effects.push(new Effect(e.x + e.w/2, e.y + e.h, '#f33', 8, 2, 10));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0) {
-      game.boss.takeDamage(3, game);
+      game.boss.takeDamage((3 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h, '#f33', 12, 3, 14));
     }
   }
@@ -162,8 +168,8 @@ class StoneSpike extends StoneConstruct {
 }
 
 class StoneGolem extends StoneConstruct {
-  constructor(x, y, facing) {
-    super(x, y, TILE, TILE, 4);
+  constructor(x, y, facing, wave) {
+    super(x, y, TILE, TILE, 4, wave);
     this.facing = facing || 1;
     this.golemSpeed = 1.2;
   }
@@ -173,12 +179,12 @@ class StoneGolem extends StoneConstruct {
     super.update(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(4, game);
+        e.takeDamage((4 * this.wave), game);
         game.effects.push(new Effect(e.x + e.w/2, e.y + e.h/2, '#f93', 10, 3, 12));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(4, game);
+      game.boss.takeDamage((4 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h/2, '#f93', 14, 4, 16));
     }
   }
@@ -199,8 +205,8 @@ class StoneGolem extends StoneConstruct {
 
 // ── StoneShooter — shoots projectiles at nearest enemy ──
 class StoneShooter extends StoneConstruct {
-  constructor(x, y, facing) {
-    super(x, y, TILE, TILE, 4);
+  constructor(x, y, facing, wave) {
+    super(x, y, TILE, TILE, 4, wave);
     this.facing = facing || 1;
     this.shootTimer = 0;
   }
@@ -228,7 +234,7 @@ class StoneShooter extends StoneConstruct {
         const dy = (nearest.y + nearest.h / 2) - cy;
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d > 0) {
-          const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#8d8', 3, 'player');
+          const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#8d8', (3 * this.wave), 'player');
           p.w = 6; p.h = 6; p.life = 90;
           game.projectiles.push(p);
         }
@@ -253,8 +259,8 @@ class StoneShooter extends StoneConstruct {
 
 // ── StoneFlyer — flies toward nearest enemy ──
 class StoneFlyer extends StoneConstruct {
-  constructor(x, y) {
-    super(x, y, TILE, TILE, 3);
+  constructor(x, y, wave) {
+    super(x, y, TILE, TILE, 3, wave);
     this.hoverPhase = Math.random() * Math.PI * 2;
     this.flying = true;
   }
@@ -295,13 +301,13 @@ class StoneFlyer extends StoneConstruct {
     // Damage enemies on contact
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(3, game, this.x + this.w / 2);
+        e.takeDamage((3 * this.wave), game, this.x + this.w / 2);
         this.takeDamage(1);
         game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8d8', 8, 2, 10));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(3, game);
+      game.boss.takeDamage((1 * this.wave), game);
       this.takeDamage(1);
       game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8d8', 10, 3, 12));
     }
@@ -326,8 +332,8 @@ class StoneFlyer extends StoneConstruct {
 
 // ── StoneDeflector — walks toward enemies, deflects enemy projectiles ──
 class StoneDeflector extends StoneConstruct {
-  constructor(x, y, facing) {
-    super(x, y, TILE, TILE, 6);
+  constructor(x, y, facing, wave) {
+    super(x, y, TILE, TILE, 6, wave);
     this.facing = facing || 1;
     this.deflectReady = true;
   }
@@ -362,7 +368,7 @@ class StoneDeflector extends StoneConstruct {
           p.vy = -p.vy * 1.5;
           p.owner = 'player';
           p.reflected = true;
-          p.damage = Math.max(p.damage, 4);
+          p.damage = Math.max(p.damage, (4 * this.wave));
           game.effects.push(new Effect(p.x, p.y, '#8df', 8, 2, 10));
         }
       }
@@ -370,12 +376,12 @@ class StoneDeflector extends StoneConstruct {
     // Contact damage to enemies
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(4, game, this.x + this.w / 2);
+        e.takeDamage((4 * this.wave), game, this.x + this.w / 2);
         game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8df', 10, 3, 12));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(4, game);
+      game.boss.takeDamage((4 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8df', 12, 3, 14));
     }
   }

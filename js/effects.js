@@ -38,6 +38,34 @@ class Effect {
   }
 }
 
+class KanjiEffect {
+  constructor(x, y, color, cam) {
+    this.sx = x - (cam ? cam.x : 0);
+    this.sy = y - (cam ? cam.y : 0);
+    this.color = color;
+    this.life = 80; this.maxLife = 80; this.done = false;
+  }
+  update() { this.life--; if (this.life <= 0) this.done = true; }
+  render(ctx, cam) {
+    const progress = 1 - this.life / this.maxLife;
+    const scale = progress < 0.15 ? progress / 0.15 : 1;
+    const alpha = this.life < 30 ? this.life / 30 : 1;
+    const cx = this.sx;
+    const cy = this.sy - progress * 20;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `bold ${Math.floor(60 * scale)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeText('死', cx, cy);
+    ctx.fillStyle = this.color;
+    ctx.fillText('死', cx, cy);
+    ctx.restore();
+  }
+}
+
 class TextEffect {
   constructor(x, y, text, color) {
     this.x = x; this.y = y; this.text = text; this.color = color;

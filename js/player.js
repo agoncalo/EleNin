@@ -95,6 +95,7 @@ class Player {
 
     // Wind ninja state
     this.windPower = 0;
+    this.windFirstDodge = true;
     this.windDashing = false;
     this.windDashTimer = 0;
     this.windTrails = [];
@@ -107,6 +108,7 @@ class Player {
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
     this.stormRaindrops = []; // rain visual during ultimate
+    this.stormLightningFlash = 0;
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -216,7 +218,7 @@ class Player {
         for (let i = 0; i < 10; i++) {
           const bx = game.camera.x + randInt(40, CANVAS_W - 40);
           const by = randInt(80, 380);
-          game.bubbles.push(new Bubble(bx, by));
+          game.bubbles.push(new Bubble(bx, by, this.type.attackDamage + this.bonusDamage));
         }
         SFX.special();
         break;
@@ -228,7 +230,7 @@ class Player {
         this.shadowEyesTimer = 60; // eyes visible for 60 frames
         this.shadowUltBuff = true;
         // Massive initial shadow strike around the player
-        damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, 8);
+        damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, (this.type.attackDamage + this.bonusDamage) * 3);
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 40, 10, 30));
         this.shadowStealth = 300;
         this.backstabReady = true;
@@ -403,7 +405,7 @@ class Player {
           // Impact
           if (m.y >= m.targetY - 10 || d < 12) {
             m.done = true;
-            damageInRadius(game, m.targetX, m.targetY, 60, 6);
+            damageInRadius(game, m.targetX, m.targetY, 60, this.type.attackDamage + this.bonusDamage + 4);
             game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
             game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
             SFX.slam();
@@ -446,7 +448,7 @@ class Player {
           const golemBox = { x: g.x, y: g.y, w: g.w, h: g.h };
           for (const e of game.enemies) {
             if (!e.dead && rectOverlap(golemBox, e)) {
-              e.takeDamage(5, game, g.x + g.w / 2);
+              e.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, g.x + g.w / 2);
               const kbDir = Math.sign(e.x + e.w / 2 - (g.x + g.w / 2)) || 1;
               e.vx = kbDir * 6;
               e.vy = -4;
@@ -455,7 +457,7 @@ class Player {
             }
           }
           if (g.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap(golemBox, game.boss)) {
-            game.boss.takeDamage(5, game, g.x + g.w / 2);
+            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, g.x + g.w / 2);
             g.contactCd = 15;
           }
         }
@@ -471,12 +473,12 @@ class Player {
             const punchBox = { x: punchX, y: punchY, w: 48, h: 40 };
             for (const e of game.enemies) {
               if (!e.dead && rectOverlap(punchBox, e)) {
-                e.takeDamage(10, game, g.x + g.w / 2);
+                e.takeDamage((this.type.attackDamage + this.bonusDamage) * 3, game, g.x + g.w / 2);
                 game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4a8', 12, 4, 14));
               }
             }
             if (game.boss && !game.boss.dead && rectOverlap(punchBox, game.boss)) {
-              game.boss.takeDamage(10, game, g.x + g.w / 2);
+              game.boss.takeDamage((this.type.attackDamage + this.bonusDamage) * 3, game, g.x + g.w / 2);
               game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4a8', 16, 5, 18));
             }
             SFX.hit();
@@ -496,9 +498,10 @@ class Player {
           g.shootCooldown = 20;
           const px = g.x + (g.facing > 0 ? g.w + 4 : -12);
           const py = g.y + g.h / 2;
-          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#8d8', 6, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#8d8', 4, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#8d8', 4, 'player'));
+          const golemDmg = this.type.attackDamage + this.bonusDamage;
+          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#8d8', golemDmg + 4, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#8d8', golemDmg + 2, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#8d8', golemDmg + 2, 'player'));
           SFX.shuriken();
         }
 
@@ -523,7 +526,8 @@ class Player {
             const by = parent.y + randInt(-40, 40);
             game.bubbles.push(new Bubble(
               Math.max(40, Math.min(3160, bx)),
-              Math.max(40, Math.min(440, by))
+              Math.max(40, Math.min(440, by)),
+              this.type.attackDamage
             ));
           }
           if (maxNew > 0) SFX.special();
@@ -645,7 +649,7 @@ class Player {
 
     // Ground slam
     const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
-    if (holdingDown && !this.grounded && !this.slamming) {
+    if (holdingDown && !this.grounded && !this.slamming && !(this.ninjaType === 'bubble' && this.ultimateActive)) {
       this.slamming = true;
       this.vx = 0;
     }
@@ -991,6 +995,15 @@ class Player {
           if (this.ninjaType === 'crystal') dmg += this.crystalClones ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          if (game.boss.dead) {
+            if (this.ninjaType === 'shadow') {
+              game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', game.camera));
+            }
+            if (this.ninjaType === 'storm') {
+              this.stormLightningFlash = 35;
+              game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', game.camera));
+            }
+          }
           if (!this.ultimateReady && !this.ultimateActive) {
             this.addUltimateCharge(6);
           }
@@ -1059,7 +1072,7 @@ class Player {
             const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
             const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
             if (Math.sqrt(dx * dx + dy * dy) < 50) {
-              e.takeDamage(1, game);
+              e.takeDamage(this.type.attackDamage + this.bonusDamage, game);
               e.hitCooldown = 30;
             }
           }
@@ -1097,6 +1110,9 @@ class Player {
             dmg = 9999;
           }
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          if (nearest === game.boss && nearest.dead) {
+            game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', game.camera));
+          }
           this.chainHit.add(nearest);
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
@@ -1140,6 +1156,10 @@ class Player {
           this.stormAfterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
           const dmg = (this.type.attackDamage + this.bonusDamage) * 2;
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          if (nearest === game.boss && nearest.dead) {
+            this.stormLightningFlash = 35;
+            game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', game.camera));
+          }
           this.stormChainHit.add(nearest);
           SFX.chain();
           // Lightning bolt effect between positions
@@ -1149,8 +1169,47 @@ class Player {
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
           this.stormChainTimer = 4;
         } else {
-          this.stormChaining = false;
-          for (const a of this.stormAfterimages) a.life = 15;
+          // No unvisited soaked enemies — loop back, but skip the last-hit target
+          const lastHit = [...this.stormChainHit].pop();
+          this.stormChainHit.clear();
+          if (lastHit) this.stormChainHit.add(lastHit);
+          let loopTarget = null;
+          let loopDist = 350;
+          for (const e of game.enemies) {
+            if (e.dead || e.soakTimer <= 0 || this.stormChainHit.has(e)) continue;
+            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < loopDist) { loopDist = d; loopTarget = e; }
+          }
+          if (!loopTarget && game.boss && !game.boss.dead && game.boss.soakTimer > 0 && !this.stormChainHit.has(game.boss)) {
+            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < loopDist) { loopTarget = game.boss; }
+          }
+          if (loopTarget) {
+            const behind = (loopTarget.x + loopTarget.w / 2) > cx ? -1 : 1;
+            this.x = loopTarget.x + (behind > 0 ? loopTarget.w + 4 : -this.w - 4);
+            this.y = loopTarget.y + loopTarget.h / 2 - this.h / 2;
+            this.facing = -behind;
+            this.vx = 0; this.vy = 0;
+            this.stormAfterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
+            const dmg = (this.type.attackDamage + this.bonusDamage) * 2;
+            loopTarget.takeDamage(dmg, game, this.x + this.w / 2);
+            if (loopTarget === game.boss && loopTarget.dead) {
+              this.stormLightningFlash = 35;
+              game.effects.push(new KanjiEffect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', game.camera));
+            }
+            this.stormChainHit.add(loopTarget);
+            SFX.chain();
+            game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', 12, 5, 14));
+            game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#8af', 8, 3, 10));
+            triggerHitstop(3);
+            this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+            this.stormChainTimer = 4;
+          } else {
+            this.stormChaining = false;
+            for (const a of this.stormAfterimages) a.life = 15;
+          }
         }
       }
     }
@@ -1294,6 +1353,13 @@ class Player {
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f80', 12, 4, 12));
         }
       }
+      if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
+        const dmg = this.type.attackDamage + this.bonusDamage;
+        game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+        game.boss.burnTimer = Math.max(game.boss.burnTimer || 0, 90);
+        triggerHitstop(3);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f80', 14, 5, 14));
+      }
 
       if (this.fireDashTimer <= 0) {
         this._launchFireball(game);
@@ -1324,6 +1390,13 @@ class Player {
             triggerHitstop(4);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 12));
           }
+        }
+        if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
+          const dmg = t.attackDamage + this.bonusDamage + this.windPower;
+          game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          game.boss.hitCooldown = 15;
+          triggerHitstop(4);
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#bfb', 12, 5, 14));
         }
       } else if (Math.abs(this.vx) > 3) {
         this.windTrails.push({ x: this.x, y: this.y, life: 8 });
@@ -1375,7 +1448,8 @@ class Player {
         game.bubbles.push(new SmallBubble(
           this.x + this.w / 2 + this.facing * 80 + Math.random() * 6,
           this.y + this.h / 2 + offY,
-          this.facing
+          this.facing,
+          this.type.attackDamage
         ));
       }
     }
@@ -1384,7 +1458,7 @@ class Player {
     if (this.ninjaType === 'crystal') {
       const fx = this.x + this.w / 2 + this.facing * 20;
       const fy = this.y + this.h / 2;
-      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', 1, 'player');
+      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this.type.attackDamage + this.bonusDamage, 'player');
       proj.w = 10; proj.h = 8;
       proj.freezeDust = true;
       proj.life = 60;
@@ -1417,7 +1491,7 @@ class Player {
       const fx = this.x + this.facing * (this.w + 8);
       const fy = this.y + this.h / 2;
       const speed = 8 * this.facing;
-      const proj = new Projectile(fx, fy, speed, 0, '#f80', 6 + this.bonusDamage, 'player');
+      const proj = new Projectile(fx, fy, speed, 0, '#f80', this.type.attackDamage + this.bonusDamage + 4, 'player');
       proj.w = 18;
       proj.h = 18;
       proj.piercing = true;
@@ -1473,21 +1547,22 @@ class Player {
         if (this.defeatedBossTypes.has('flyer')) earthPool.push('flyer');
         if (this.defeatedDeflector && Math.random() < 0.15) earthPool.push('deflector');
         const pick = earthPool[Math.floor(Math.random() * earthPool.length)];
+        const earthWave = game.wave || 1;
         let construct;
         if (pick === 'pillar') {
           let pillarY = supportY - TILE * 3;
-          construct = new StonePillar(spawnX, pillarY + TILE);
+          construct = new StonePillar(spawnX, pillarY + TILE, earthWave);
           game.stonePillars.push(construct);
         } else if (pick === 'spike') {
-          construct = new StoneSpike(spawnX, supportY - TILE + 4);
+          construct = new StoneSpike(spawnX, supportY - TILE + 4, earthWave);
         } else if (pick === 'golem') {
-          construct = new StoneGolem(spawnX, supportY - TILE, this.facing);
+          construct = new StoneGolem(spawnX, supportY - TILE, this.facing, earthWave);
         } else if (pick === 'shooter') {
-          construct = new StoneShooter(spawnX, supportY - TILE, this.facing);
+          construct = new StoneShooter(spawnX, supportY - TILE, this.facing, earthWave);
         } else if (pick === 'flyer') {
-          construct = new StoneFlyer(spawnX, supportY - TILE * 2);
+          construct = new StoneFlyer(spawnX, supportY - TILE * 2, earthWave);
         } else if (pick === 'deflector') {
-          construct = new StoneDeflector(spawnX, supportY - TILE, this.facing);
+          construct = new StoneDeflector(spawnX, supportY - TILE, this.facing, earthWave);
         }
         game.stoneBlocks.push(construct);
         game.effects.push(new Effect(spawnX + TILE / 2, supportY, '#a87', 8, 2, 12));
@@ -1499,7 +1574,8 @@ class Player {
           const randOffY = randInt(-20, 20);
           game.bubbles.push(new Bubble(
             this.x + this.facing * (50 + i * 50) + randOffX,
-            this.y - 20 - i * 25 + randOffY
+            this.y - 20 - i * 25 + randOffY,
+            this.type.attackDamage + this.bonusDamage
           ));
         }
         this.nextHitDouble = true;
@@ -1541,7 +1617,7 @@ class Player {
         const wsy = this.y + this.h / 2;
         for (let i = 0; i < 3; i++) {
           const angle = (Math.PI * 2 / 3) * i;
-          const proj = new Projectile(wsx, wsy, 0, 0, '#48f', 1, 'player');
+          const proj = new Projectile(wsx, wsy, 0, 0, '#48f', this.type.attackDamage + this.bonusDamage, 'player');
           proj.w = 12; proj.h = 12;
           proj.soaking = true;
           proj.piercing = true;
@@ -1562,7 +1638,8 @@ class Player {
     if (this.godMode) return;
     if (this.earthGolem) return;
     if (this.invincibleTimer > 0) return;
-    if (this.ninjaType === 'wind' && this.windPower >= 10 && Math.random() < 0.5) {
+    if (this.ninjaType === 'wind' && this.windPower >= 10 && (this.windFirstDodge || Math.random() < 0.5)) {
+      this.windFirstDodge = false;
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'EVADE', '#8cf'));
       triggerHitstop(2);
       return;

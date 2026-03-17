@@ -135,17 +135,26 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
+  { boss: 'deflector', killsForBoss: 45,
+    pool: [
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 3 },
+      { type: 'flyer', weight: 2 },
+      { type: 'shielded', weight: 1, big: true },
+    ]
+  },
   { boss: 'bouncer', killsForBoss: 40,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
-      { type: 'deflector', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'bouncer', weight: 1, big: true },
       { type: 'walker', weight: 1, big: true },
+      { type: 'deflector', weight: 1, big: true }
     ]
   },
-  { boss: 'shielded', killsForBoss: 45,
+
+  { boss: 'shielded', killsForBoss: 50,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -153,14 +162,7 @@ const WAVE_DEFS = [
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
       { type: 'bouncer', weight: 1, big: true },
-    ]
-  },
-  { boss: 'deflector', killsForBoss: 50,
-    pool: [
-      { type: 'bouncer', weight: 2 },
-      { type: 'shielded', weight: 3 },
-      { type: 'flyer', weight: 2 },
-      { type: 'shielded', weight: 1, big: true },
+      { type: 'deflector', weight: 1, big: true }
     ]
   },
   { boss: 'protector', killsForBoss: 56,

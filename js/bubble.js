@@ -1,6 +1,6 @@
 // ── Bubble (Bubble ninja ability) ─────────────────────────────
 class Bubble {
-  constructor(x, y) {
+  constructor(x, y, dmg) {
     this.x = x; this.y = y;
     this.w = 32; this.h = 32;
     this.life = 360;
@@ -8,6 +8,7 @@ class Bubble {
     this.bobPhase = Math.random() * Math.PI * 2;
     this.baseY = y;
     this.consumed = false;
+    this.dmg = dmg || 2;
   }
   update(game) {
     this.bobPhase += 0.03;
@@ -16,9 +17,9 @@ class Bubble {
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) e.takeDamage(2, game);
+      if (!e.dead && rectOverlap(this, e)) e.takeDamage(this.dmg, game);
     }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) game.boss.takeDamage(2, game);
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) game.boss.takeDamage(this.dmg, game);
   }
   pop(game) {
     this.done = true;
@@ -27,7 +28,7 @@ class Bubble {
       if (!b.done) damage += 1;
     }
     game.effects.push(new Effect(this.x + 16, this.y + 16, '#6af', 8, 3, 15));
-    damageInRadius(game, this.x + 16, this.y + 16, 80, 2);
+    damageInRadius(game, this.x + 16, this.y + 16, 80, this.dmg);
     // Fire projectile at nearest target
     const cx = this.x + 16, cy = this.y + 16;
     const nearest = findNearestTarget(cx, cy, game);
@@ -36,7 +37,7 @@ class Bubble {
       const dy = (nearest.y + nearest.h / 2) - cy;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d > 0) {
-        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage, 'player'));
+        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage + this.dmg, 'player'));
       }
     }
   }
@@ -62,8 +63,8 @@ class Bubble {
 
 // ── SmallBubble (short burst bubble for Bubble Ninja attack) ─
 class SmallBubble extends Bubble {
-  constructor(x, y, facing) {
-    super(x, y);
+  constructor(x, y, facing, dmg) {
+    super(x, y, dmg);
     this.w = 16;
     this.h = 16;
     this.life = 150;
@@ -82,13 +83,13 @@ class SmallBubble extends Bubble {
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(1, game);
+        e.takeDamage(this.dmg, game);
         this.done = true;
         game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 6, 2, 8));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(1, game);
+      game.boss.takeDamage(this.dmg, game);
       this.done = true;
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 8, 2, 10));
     }

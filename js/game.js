@@ -28,6 +28,7 @@ class Game {
     this.wave = 1;
     this.waveKills = 0;
     this.totalKills = 0;
+    this.spawnedMiniboss = new Set();
     this.maxEnemies = 32;
     this.spawnTimer = 0;
     this.spawnInterval = 50;
@@ -277,6 +278,10 @@ class Game {
         if (!e.dead && e.type === pick.type) return;
       }
     }
+    // Protector/attacker minibosses: only spawn once per wave
+    if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
+      if (this.spawnedMiniboss.has(pick.type)) return;
+    }
     const isFlying = (pick.type === 'flyer' || pick.type === 'flyshooter');
     const side = Math.random() < 0.5 ? -1 : 1;
     const spawnDist = this.levelW < 1000 ? randInt(150, 300) : randInt(350, 550);
@@ -287,6 +292,9 @@ class Game {
     const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
+    if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
+      this.spawnedMiniboss.add(pick.type);
+    }
     this.enemies.push(e);
     this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#fff', 6, 3, 10));
   }
@@ -324,6 +332,7 @@ class Game {
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     this.wave++;
     this.waveKills = 0;
+    this.spawnedMiniboss = new Set();
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
@@ -594,6 +603,25 @@ class Game {
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
 
     // ── Ultimate cutscene / active rendering ──
+
+    // Storm lightning flash (end of chain)
+    if (this.player.stormLightningFlash > 0) {
+      this.player.stormLightningFlash--;
+      const f = this.player.stormLightningFlash;
+      if (f >= 30 && f <= 33) {
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        ctx.restore();
+      } else if (f >= 1 && f <= 22) {
+        ctx.save();
+        ctx.globalAlpha = 0.15 * (f / 22);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        ctx.restore();
+      }
+    }
 
     // Cutscene flash overlay
     if (this.player.ultCutscene) {
@@ -866,7 +894,9 @@ class Game {
     ctx.fillRect(elemBarX, elemBarY, elemBarW * Math.min(1, elemBarVal / elemBarMax), elemBarH);
     ctx.shadowBlur = 0;
     ctx.restore();
-    ctx.fillStyle = elemBarGlow ? '#fff' : '#ccc';
+    const darkLabelTypes = ['fire', 'bubble', 'crystal', 'wind'];
+    const useDarkLabel = darkLabelTypes.includes(pl.ninjaType) && elemBarVal / elemBarMax > 0.15;
+    ctx.fillStyle = elemBarGlow ? (useDarkLabel ? '#111' : '#fff') : (useDarkLabel ? '#222' : '#ccc');
     ctx.font = 'bold 9px monospace';
     ctx.fillText(elemBarLabel, elemBarX + 3, elemBarY + 8);
 
