@@ -24,13 +24,37 @@ class Enemy {
     this.flashTimer = 0;
     this.damageIframes = 0;
     this.burnTimer = 0;
-    this.flying = (type === 'flyer' || type === 'flyshooter');
+    this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : 0;
     this.shieldMax = this.shieldHp;
     this.hoverPhase = Math.random() * Math.PI * 2;
-    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer');
+    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
+    // Deflector state
+    this.deflectReady = (type === 'deflector');
+    this.deflectTimer = 0;
+    this.swordDrawn = (type === 'deflector');
+    // Deflector: miniboss size
+    if (type === 'deflector') {
+      this.w = big ? 52 : 40;
+      this.h = big ? 52 : 40;
+    }
+    // Protector aura — always huge miniboss size
+    this.auraRadius = (type === 'protector') ? (big ? 260 : 200) : 0;
+    // Attacker state
+    this.attackerInvulnerable = (type === 'attacker');
+    // Protector: always huge
+    if (type === 'protector') {
+      this.w = big ? 64 : 52;
+      this.h = big ? 64 : 52;
+    }
+    // Attacker: large orb, stationary
+    if (type === 'attacker') {
+      this.w = big ? 44 : 36;
+      this.h = big ? 44 : 36;
+      this.attackerAuraRadius = big ? 240 : 180;
+    }
   }
 
   update(game) {
@@ -153,12 +177,85 @@ class Enemy {
           }
         }
         break;
-      case 'shielded':
+      case 'shielded': {
+        this.facing = px > cx ? 1 : -1;
+        // Walk toward the player, shield first
         this.vx = this.facing * speed * 0.7 * windResist;
+        break;
+      }
+      case 'deflector': {
+        // Miniboss samurai — faces player with dead zone to prevent flipping
+        if (Math.abs(px - cx) > 8) this.facing = px > cx ? 1 : -1;
+        const distToPlayer = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+        this.jumpTimer++;
+        if (distToPlayer > 60) {
+          this.vx = this.facing * speed * 0.3 * windResist;
+        } else {
+          this.vx *= 0.85;
+        }
+        // Jump toward player
+        if (this.jumpTimer >= (this.big ? 90 : 120) && this.vy < 1 && distToPlayer < 250) {
+          this.vy = this.big ? -10 : -8;
+          this.vx = this.facing * speed * 2.5 * windResist;
+          this.jumpTimer = 0;
+        }
+        // Always deflect when grounded (not mid-jump)
+        this.deflectReady = (this.vy >= -1 && this.vy <= 1);
+        break;
+      }
+      case 'protector': {
+        // Slow, tanky, walks toward player with shield held
+        this.vx = this.facing * speed * 0.4 * windResist;
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
-        if (Math.abs(px - cx) < 180) this.facing = px > cx ? 1 : -1;
+        if (Math.abs(px - cx) < 200) this.facing = px > cx ? 1 : -1;
         break;
+      }
+      case 'attacker': {
+        // Floating orb — seeks hover height above ground, bobs gently
+        this.hoverPhase += 0.04;
+        this.vx *= 0.9;
+        const hoverTarget = 350;
+        const hoverDist = hoverTarget - this.y;
+        if (Math.abs(hoverDist) > 4) {
+          this.vy += Math.sign(hoverDist) * 0.15;
+          this.vy *= 0.92;
+        } else {
+          this.vy = Math.sin(this.hoverPhase) * 0.6;
+        }
+        this.facing = px > cx ? 1 : -1;
+        // Count alive non-attacker enemies in aura
+        const auraCx = this.x + this.w / 2;
+        const auraCy = this.y + this.h / 2;
+        const aR = this.attackerAuraRadius || 100;
+        let nearbyAlive = 0;
+        for (const other of game.enemies) {
+          if (other === this || other.dead || other.type === 'attacker') continue;
+          const odx = (other.x + other.w / 2) - auraCx;
+          const ody = (other.y + other.h / 2) - auraCy;
+          if (Math.sqrt(odx * odx + ody * ody) <= aR) nearbyAlive++;
+        }
+        this.attackerInvulnerable = nearbyAlive > 0;
+        // Shoot fast piercing projectiles when invulnerable (enemies nearby)
+        if (this.attackerInvulnerable) {
+          this.shootTimer++;
+          const shootRate = this.big ? 25 : 35;
+          if (this.shootTimer >= shootRate) {
+            this.shootTimer = 0;
+            const sdx = px - auraCx, sdy = py - auraCy;
+            const sd = Math.sqrt(sdx * sdx + sdy * sdy);
+            if (sd > 0 && sd < 500) {
+              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, '#f44', this.contactDmg, 'enemy');
+              p.piercing = true;
+              p.w = 6; p.h = 6;
+              p.life = 90;
+              game.projectiles.push(p);
+              game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
+            }
+          }
+        }
+        break;
+      }
       case 'flyer': {
         this.hoverPhase += 0.03;
         const fdx = px - cx, fdy = py - cy;
@@ -219,8 +316,14 @@ class Enemy {
       }
       if (this.edgeAware && this.onPlatform && this.onPlatform.w >= 80) {
         const p = this.onPlatform;
-        if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
-        if (this.x + this.w / 2 > p.x + p.w - 8) this.facing = -1;
+        if (this.type === 'shielded') {
+          // Stop at edges but keep facing player
+          if (this.x + this.w / 2 < p.x + 8) { this.x = p.x + 8 - this.w / 2; this.vx = Math.max(0, this.vx); }
+          if (this.x + this.w / 2 > p.x + p.w - 8) { this.x = p.x + p.w - 8 - this.w / 2; this.vx = Math.min(0, this.vx); }
+        } else {
+          if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
+          if (this.x + this.w / 2 > p.x + p.w - 8) this.facing = -1;
+        }
       }
     } else {
       if (this.y < -50) this.y = -50;
@@ -235,7 +338,7 @@ class Enemy {
     if (this.y > 700) { this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(3140, this.x)); return; }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && rectOverlap(this, game.player) && !this.slamming) {
+    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player) && !this.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const kbStr = this.big ? 9 : 5;
       game.player.vx = kbDir * kbStr;
@@ -248,6 +351,25 @@ class Enemy {
   takeDamage(amount, game, fromX) {
     if (this.dead) return;
     if (this.damageIframes > 0) return;
+    // Attacker: invulnerable while enemies are in its aura
+    if (this.type === 'attacker' && this.attackerInvulnerable) {
+      this.flashTimer = 4;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 5, 2, 6));
+      return;
+    }
+    // Protector aura: non-protector enemies near a protector can't be damaged
+    if (this.type !== 'protector' && this.type !== 'attacker' && game) {
+      for (const other of game.enemies) {
+        if (other.dead || other.type !== 'protector' || other === this) continue;
+        const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
+        const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
+        if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
+          this.flashTimer = 4;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y - 4, '#4f8', 5, 2, 6));
+          return;
+        }
+      }
+    }
     // Shielded: frontal hits absorbed by shield
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
@@ -264,7 +386,7 @@ class Enemy {
     this.hp -= amount;
     this.flashTimer = 6;
     this.damageIframes = 15;
-    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, flyer: 7, flyshooter: 7 };
+    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 7, flyshooter: 7 };
     let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
     this.vx = dir * kb;
@@ -338,8 +460,32 @@ class Enemy {
     if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
 
     // Main body
-    ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
-    ctx.fillRect(sx, sy, this.w, this.h);
+    if (this.type === 'attacker') {
+      // Orb body
+      const orbCx = sx + this.w / 2;
+      const orbCy = sy + this.h / 2;
+      const orbR = this.w / 2;
+      // Outer glow
+      ctx.globalAlpha = this.attackerInvulnerable ? (0.4 + 0.15 * Math.sin((game ? game.tick : 0) * 0.08)) : 0.2;
+      ctx.fillStyle = '#f44';
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR + 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // Core
+      ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.attackerInvulnerable ? '#c22' : '#644'));
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner eye
+      ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
+      ctx.fillRect(sx, sy, this.w, this.h);
+    }
 
     // Freeze effect overlay
     if (this.freezeTimer > 0) {
@@ -398,6 +544,41 @@ class Enemy {
         ctx.fillStyle = '#5a8';
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
         break;
+      case 'deflector': {
+        // Huge sword held from front to above head
+        const sLen = this.big ? 44 : 34;
+        const sWid = this.big ? 5 : 4;
+        ctx.save();
+        // Grip point at front of body, mid-height
+        const gripX = this.facing > 0 ? sx + this.w - 2 : sx + 2;
+        const gripY = sy + this.h * 0.5;
+        ctx.translate(gripX, gripY);
+        // Sword angles from hand upward toward head (~70° from horizontal)
+        ctx.rotate(this.facing > 0 ? -Math.PI * 0.4 : (-Math.PI + Math.PI * 0.4));
+        // Sword blade
+        ctx.fillStyle = this.deflectReady ? '#eef' : '#889';
+        ctx.fillRect(0, -sWid / 2, sLen, sWid);
+        // Sword tip
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(sLen - 4, -sWid / 2, 4, sWid);
+        // Guard
+        ctx.fillStyle = '#aa8';
+        ctx.fillRect(-2, -sWid / 2 - 3, 4, sWid + 6);
+        ctx.restore();
+        // Ready indicator — glow when can deflect
+        if (this.deflectReady) {
+          ctx.globalAlpha = 0.3 + 0.15 * Math.sin(game ? game.tick * 0.1 : 0);
+          ctx.fillStyle = '#aaf';
+          ctx.beginPath();
+          ctx.arc(gripX, gripY - sLen * 0.3, sLen * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        // Headband
+        ctx.fillStyle = '#aac';
+        ctx.fillRect(sx + 2, sy, this.w - 4, 3);
+        break;
+      }
       case 'flyer':
         ctx.fillStyle = '#bdb';
         ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
@@ -410,10 +591,52 @@ class Enemy {
         ctx.fillStyle = '#fa4';
         ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h / 2 - 2, 6, 4);
         break;
+      case 'protector': {
+        // Large shield in facing direction
+        const shX = this.facing > 0 ? sx + this.w - 4 : sx - 3;
+        ctx.fillStyle = '#4f8';
+        ctx.fillRect(shX, sy - 4, 7, this.h + 8);
+        ctx.fillStyle = '#2a5';
+        ctx.fillRect(shX + 1, sy - 2, 5, this.h + 4);
+        // Headband
+        ctx.fillStyle = '#3b6';
+        ctx.fillRect(sx + 2, sy, this.w - 4, 4);
+        // Aura circle
+        if (this.auraRadius > 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.08 + 0.04 * Math.sin((game ? game.tick : 0) * 0.04);
+          ctx.strokeStyle = '#4f8';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx + this.w / 2, sy + this.h / 2, this.auraRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 0.03;
+          ctx.fillStyle = '#4f8';
+          ctx.fill();
+          ctx.restore();
+        }
+        break;
+      }
+      case 'attacker': {
+        // Aura circle (red/negative)
+        const aR = this.attackerAuraRadius || 100;
+        ctx.save();
+        ctx.globalAlpha = this.attackerInvulnerable ? (0.1 + 0.05 * Math.sin((game ? game.tick : 0) * 0.06)) : 0.04;
+        ctx.strokeStyle = '#f44';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sx + this.w / 2, sy + this.h / 2, aR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha *= 0.4;
+        ctx.fillStyle = '#f44';
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
     }
 
     // Melee sword
-    if (this.hitCooldown > 20 && this.type !== 'shooter' && this.type !== 'flyshooter') {
+    if (this.hitCooldown > 20 && this.type !== 'shooter' && this.type !== 'flyshooter' && this.type !== 'attacker') {
       const sl = this.big ? 16 : 12;
       const sw = this.big ? 4 : 3;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;
@@ -437,6 +660,25 @@ class Enemy {
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? '#5ff' : '#234';
         ctx.fillRect(sx + i * 7 + 2, sy - 14, 5, 3);
+      }
+    }
+
+    // Protector aura protection indicator — small shield above protected enemies
+    if (this.type !== 'protector' && this.type !== 'attacker' && game) {
+      for (const other of game.enemies) {
+        if (other.dead || other.type !== 'protector' || other === this) continue;
+        const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
+        const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
+        if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
+          // Small green shield icon above head
+          const iconX = sx + this.w / 2 - 4;
+          const iconY = sy - (this.hp < this.maxHp ? 18 : 12);
+          ctx.fillStyle = '#4f8';
+          ctx.fillRect(iconX, iconY, 8, 6);
+          ctx.fillRect(iconX + 1, iconY + 6, 6, 2);
+          ctx.fillRect(iconX + 2, iconY + 8, 4, 1);
+          break;
+        }
       }
     }
   }

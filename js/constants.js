@@ -66,13 +66,16 @@ const NINJA_TYPES = {
 };
 
 // ── Enemy tier system ────────────────────────────────────────
-const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'flyer', 'flyshooter'];
+const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
   walker:     { color: '#a55', hp: 3, dmg: 3, name: 'Walker' },
   shooter:    { color: '#aa5', hp: 3, dmg: 3, name: 'Shooter' },
   jumper:     { color: '#a8a', hp: 4, dmg: 4, name: 'Jumper' },
   bouncer:    { color: '#a5a', hp: 5, dmg: 4, name: 'Bouncer' },
   shielded:   { color: '#5a8', hp: 6, dmg: 4, name: 'Shielded' },
+  deflector:  { color: '#88a', hp: 14, dmg: 6, name: 'Deflector' },
+  protector:  { color: '#4a6', hp: 18, dmg: 4, name: 'Protector' },
+  attacker:   { color: '#a44', hp: 1, dmg: 10, name: 'Attacker' },
   flyer:      { color: '#8c5', hp: 2, dmg: 5, name: 'Flyer' },
   flyshooter: { color: '#c85', hp: 3, dmg: 5, name: 'Fly-Shooter' }
 };
@@ -118,6 +121,7 @@ const WAVE_DEFS = [
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
+      { type: 'deflector', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'bouncer', weight: 1, big: true },
       { type: 'walker', weight: 1, big: true },
@@ -128,6 +132,8 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 4 },
+      { type: 'deflector', weight: 2 },
+      { type: 'protector', weight: 1 },
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
       { type: 'bouncer', weight: 1, big: true },
@@ -137,6 +143,9 @@ const WAVE_DEFS = [
     pool: [
       { type: 'shooter', weight: 2 },
       { type: 'shielded', weight: 2 },
+      { type: 'deflector', weight: 2 },
+      { type: 'protector', weight: 1 },
+      { type: 'attacker', weight: 1 },
       { type: 'flyshooter', weight: 2 },
       { type: 'flyer', weight: 4 },
       { type: 'flyer', weight: 1, big: true },
@@ -147,18 +156,22 @@ const WAVE_DEFS = [
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
+      { type: 'deflector', weight: 2 },
+      { type: 'protector', weight: 2 },
+      { type: 'attacker', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'flyshooter', weight: 4 },
       { type: 'flyshooter', weight: 2, big: true },
       { type: 'flyer', weight: 1, big: true },
-      { type: 'shielded', weight: 1, big: true },
+      { type: 'deflector', weight: 1, big: true },
     ]
   },
 ];
 
 const BOSS_NAMES = {
   walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
-  bouncer:'BOUNCER', shielded:'GUARDIAN', flyer:'SWOOPER', flyshooter:'OVERLORD'
+  bouncer:'BOUNCER', shielded:'GUARDIAN', deflector:'RONIN',
+  protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
 // Gamepad button map (Standard Gamepad):

@@ -176,6 +176,7 @@ class Player {
           punchCooldown: 0,
           shootTimer: 0,
           shootCooldown: 0,
+          contactCd: 0,
           x: this.x - 20,
           y: this.y - 32,
           w: 64,
@@ -403,6 +404,26 @@ class Player {
         this.y = g.y + g.h - this.h - 8;
         this.vy = 0;
         this.grounded = false;
+
+        // Contact damage
+        if (g.contactCd > 0) g.contactCd--;
+        if (g.contactCd <= 0) {
+          const golemBox = { x: g.x, y: g.y, w: g.w, h: g.h };
+          for (const e of game.enemies) {
+            if (!e.dead && rectOverlap(golemBox, e)) {
+              e.takeDamage(5, game, g.x + g.w / 2);
+              const kbDir = Math.sign(e.x + e.w / 2 - (g.x + g.w / 2)) || 1;
+              e.vx = kbDir * 6;
+              e.vy = -4;
+              g.contactCd = 15;
+              break;
+            }
+          }
+          if (g.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap(golemBox, game.boss)) {
+            game.boss.takeDamage(5, game, g.x + g.w / 2);
+            g.contactCd = 15;
+          }
+        }
 
         // Punch attack (Z/J or mouse)
         if (g.punchCooldown > 0) g.punchCooldown--;

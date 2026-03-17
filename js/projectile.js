@@ -323,6 +323,35 @@ class Projectile {
     if (this.owner === 'player') {
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+          const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
+
+          // Shielded: block projectiles from the front (shield is indestructible)
+          if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
+            e.flashTimer = 4;
+            game.effects.push(new Effect(
+              e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
+            ));
+            if (!this.piercing) { this.done = true; return; }
+            this.hitSet.add(e);
+            continue;
+          }
+
+          // Deflector: deflect projectiles back (always deflects when ready, any direction)
+          if (e.type === 'deflector' && e.deflectReady && !e.freezeTimer) {
+            e.deflectReady = false;
+            e.deflectTimer = e.big ? 50 : 80;
+            this.vx = -this.vx * 1.2;
+            this.vy = (Math.random() - 0.5) * 2;
+            this.owner = 'enemy';
+            this.damage = Math.max(this.damage, 3);
+            this.color = '#aaf';
+            this.hitSet.clear();
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h * 0.4, '#eef', 10, 4, 12));
+            SFX.hit();
+            triggerHitstop(4);
+            return;
+          }
+
           e.takeDamage(this.damage, game, this.x);
           // Freeze dust: also freeze on hit
           if (this.freezeDust) {

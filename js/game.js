@@ -129,6 +129,12 @@ class Game {
       r -= e.weight;
       if (r <= 0) { pick = e; break; }
     }
+    // Miniboss types: only one alive at a time
+    if (pick.type === 'protector' || pick.type === 'attacker' || pick.type === 'deflector') {
+      for (const e of this.enemies) {
+        if (!e.dead && e.type === pick.type) return;
+      }
+    }
     const isFlying = (pick.type === 'flyer' || pick.type === 'flyshooter');
     const side = Math.random() < 0.5 ? -1 : 1;
     let x = this.player.x + side * randInt(350, 550);
