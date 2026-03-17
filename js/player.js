@@ -2441,6 +2441,13 @@ class Player {
       ctx.restore();
     }
 
+    // Special ready indicator
+    if (this.specialCooldown <= 0) {
+      ctx.strokeStyle = t.accentColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
     // Body
     ctx.fillStyle = t.color;
     ctx.fillRect(sx, sy, this.w, this.h);
