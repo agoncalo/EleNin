@@ -49,75 +49,65 @@ class Game {
   }
 
   renderSpawnHouse(ctx, cam) {
-    // Small house at spawn point
-    const hx = this.levelType === 'tower' ? 300 : 40;
-    const groundY = this.levelType === 'tower' ? 440 : 480;
-    const hw = 80, hh = 56;
-    const bx = hx - cam.x;
-    const by = groundY - hh - cam.y;
+    // Small tent at spawn point
+    let tentX, tentGroundY;
+    if (this.levelType === 'tower') {
+      tentX = 380; tentGroundY = 440;
+    } else if (this.levelType === 'arena') {
+      tentX = 130; tentGroundY = 400;
+    } else {
+      tentX = 170; tentGroundY = 340; // on leftmost thin platform
+    }
+    const tw = 70, th = 50;
+    const cx = tentX - cam.x;
+    const by = tentGroundY - cam.y;
 
-    // Wall
-    ctx.fillStyle = '#8b6844';
-    ctx.fillRect(bx, by + 16, hw, hh - 16);
-
-    // Darker wood trim
-    ctx.fillStyle = '#6b4c30';
-    ctx.fillRect(bx, by + 16, hw, 3);
-    ctx.fillRect(bx, by + hh - 3, hw, 3);
-    ctx.fillRect(bx, by + 16, 3, hh - 16);
-    ctx.fillRect(bx + hw - 3, by + 16, 3, hh - 16);
-
-    // Roof (triangle)
-    ctx.fillStyle = '#6a2c2c';
+    // Tent body (triangle)
+    ctx.fillStyle = '#8b5e3c';
     ctx.beginPath();
-    ctx.moveTo(bx - 6, by + 16);
-    ctx.lineTo(bx + hw / 2, by - 8);
-    ctx.lineTo(bx + hw + 6, by + 16);
+    ctx.moveTo(cx - tw / 2, by);
+    ctx.lineTo(cx, by - th);
+    ctx.lineTo(cx + tw / 2, by);
     ctx.closePath();
     ctx.fill();
 
-    // Roof outline
-    ctx.strokeStyle = '#4a1a1a';
+    // Tent outline
+    ctx.strokeStyle = '#5a3420';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(bx - 6, by + 16);
-    ctx.lineTo(bx + hw / 2, by - 8);
-    ctx.lineTo(bx + hw + 6, by + 16);
+    ctx.moveTo(cx - tw / 2, by);
+    ctx.lineTo(cx, by - th);
+    ctx.lineTo(cx + tw / 2, by);
     ctx.stroke();
 
-    // Door
-    ctx.fillStyle = '#4a2a14';
-    ctx.fillRect(bx + hw / 2 - 8, by + hh - 26, 16, 26);
-    ctx.fillStyle = '#d4a030';
+    // Center seam
+    ctx.strokeStyle = '#6b4228';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(bx + hw / 2 + 4, by + hh - 12, 2, 0, Math.PI * 2);
+    ctx.moveTo(cx, by - th);
+    ctx.lineTo(cx, by);
+    ctx.stroke();
+
+    // Door flap (open, slight gap)
+    ctx.fillStyle = '#704a2a';
+    ctx.beginPath();
+    ctx.moveTo(cx - 2, by);
+    ctx.lineTo(cx - 10, by - 28);
+    ctx.lineTo(cx - 2, by - 28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, by);
+    ctx.lineTo(cx + 10, by - 28);
+    ctx.lineTo(cx + 2, by - 28);
+    ctx.closePath();
     ctx.fill();
 
-    // Window left
-    ctx.fillStyle = '#c8d8ff';
-    ctx.fillRect(bx + 10, by + 26, 14, 12);
-    ctx.strokeStyle = '#6b4c30';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(bx + 10, by + 26, 14, 12);
+    // Pole tip
+    ctx.fillStyle = '#c8b070';
     ctx.beginPath();
-    ctx.moveTo(bx + 17, by + 26);
-    ctx.lineTo(bx + 17, by + 38);
-    ctx.moveTo(bx + 10, by + 32);
-    ctx.lineTo(bx + 24, by + 32);
-    ctx.stroke();
-
-    // Window right
-    ctx.fillStyle = '#c8d8ff';
-    ctx.fillRect(bx + hw - 24, by + 26, 14, 12);
-    ctx.strokeStyle = '#6b4c30';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(bx + hw - 24, by + 26, 14, 12);
-    ctx.beginPath();
-    ctx.moveTo(bx + hw - 17, by + 26);
-    ctx.lineTo(bx + hw - 17, by + 38);
-    ctx.moveTo(bx + hw - 24, by + 32);
-    ctx.lineTo(bx + hw - 10, by + 32);
-    ctx.stroke();
+    ctx.arc(cx, by - th - 2, 2.5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   buildLevel() {
