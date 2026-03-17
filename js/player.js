@@ -2462,6 +2462,23 @@ class Player {
     ctx.fillStyle = t.color;
     ctx.fillRect(sx - 6, sy, this.w + 12, 3);
 
+    // Small flower on hat for bubble, crystal, wind
+    if (this.ninjaType === 'bubble' || this.ninjaType === 'crystal' || this.ninjaType === 'wind') {
+      const fx = sx + this.w / 2 + 5;
+      const fy = sy - 6;
+      ctx.fillStyle = t.accentColor;
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+        ctx.beginPath();
+        ctx.arc(fx + Math.cos(a) * 2.5, fy + Math.sin(a) * 2.5, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#fe8';
+      ctx.beginPath();
+      ctx.arc(fx, fy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // Belt / sash
     ctx.fillStyle = t.accentColor;
     ctx.fillRect(sx, sy + this.h - 10, this.w, 3);

@@ -213,10 +213,13 @@ class DiamondShard {
         const dy = (e.y + e.h / 2) - this.y;
         if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(e.w, e.h) / 2) {
           const dmg = game.player.type.attackDamage + game.player.bonusDamage + 1;
+          const prevIframes = e.damageIframes;
           e.takeDamage(dmg, game, this.x);
-          e.vx = 0;
-          e.vy = 0;
-          if (e.freezeTimer < 20) e.freezeTimer = 20;
+          if (e.damageIframes > prevIframes) {
+            e.vx = 0;
+            e.vy = 0;
+            if (e.freezeTimer < 20) e.freezeTimer = 20;
+          }
           game.effects.push(new Effect(this.x, this.y, '#aff', 8, 3, 10));
           triggerHitstop(3);
           this.done = true;
@@ -230,10 +233,13 @@ class DiamondShard {
       const dy = (game.boss.y + game.boss.h / 2) - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
         const dmg = game.player.type.attackDamage + game.player.bonusDamage + 1;
+        const prevIframes = game.boss.damageIframes;
         game.boss.takeDamage(dmg, game, this.x);
-        game.boss.vx = 0;
-        game.boss.vy = 0;
-        if (game.boss.freezeTimer < 20) game.boss.freezeTimer = 20;
+        if (game.boss.damageIframes > prevIframes) {
+          game.boss.vx = 0;
+          game.boss.vy = 0;
+          if (game.boss.freezeTimer < 20) game.boss.freezeTimer = 20;
+        }
         game.effects.push(new Effect(this.x, this.y, '#aff', 10, 4, 12));
         triggerHitstop(3);
         this.done = true;
