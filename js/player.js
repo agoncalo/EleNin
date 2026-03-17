@@ -164,10 +164,10 @@ class Player {
     this.ultCutscene = false;
     switch (this.ninjaType) {
       case 'fire':
-        // Meteors rain from the sky — 12 meteors over 3 seconds
-        this.ultimateTimer = 180;
+        // Meteors rain from the sky — 12 meteors over 3 seconds + 1 big finisher
+        this.ultimateTimer = 210;
         this.fireArmor = true;
-        this.fireArmorTimer = 240;
+        this.fireArmorTimer = 270;
         this.fireMeteors = [];
         this.fireMeteorTimer = 0;
         for (let i = 0; i < 12; i++) {
@@ -202,6 +202,41 @@ class Player {
             speed: 6 + Math.random() * 3,
             size: 10 + randInt(0, 8),
             fromLeft
+          });
+        }
+        // Big finisher meteor — targets center of action
+        {
+          const bigDelay = 12 * 15 + 20;
+          let bigTargetX, bigTargetY;
+          if (game.boss && !game.boss.dead) {
+            bigTargetX = game.boss.x + game.boss.w / 2;
+            bigTargetY = game.boss.y + game.boss.h / 2;
+          } else {
+            const alive = game.enemies.filter(e => !e.dead);
+            if (alive.length > 0) {
+              let cx = 0, cy = 0;
+              for (const e of alive) { cx += e.x + e.w / 2; cy += e.y + e.h / 2; }
+              bigTargetX = cx / alive.length;
+              bigTargetY = cy / alive.length;
+            } else {
+              bigTargetX = this.x + this.w / 2;
+              bigTargetY = this.y + this.h / 2 + 40;
+            }
+          }
+          const bigFromLeft = Math.random() < 0.5;
+          this.fireMeteors.push({
+            delay: bigDelay,
+            x: bigTargetX + randInt(200, 400) * (bigFromLeft ? -1 : 1),
+            y: game.camera.y - randInt(80, 160),
+            targetX: bigTargetX,
+            targetY: bigTargetY,
+            active: false,
+            done: false,
+            trail: [],
+            speed: 4,
+            size: 28,
+            fromLeft: bigFromLeft,
+            big: true
           });
         }
         SFX.bossSpawn();
@@ -426,11 +461,29 @@ class Player {
           // Impact
           if (m.y >= m.targetY - 10 || d < 12) {
             m.done = true;
-            damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusDamage + 6, m.targetX);
-            game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
-            game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
-            SFX.slam();
-            triggerHitstop(4);
+            if (m.big) {
+              damageInRadius(game, m.targetX, m.targetY, 150, (this.type.attackDamage + this.bonusDamage + 6) * 3, m.targetX);
+              if (game.boss && game.boss.health <= 0) {
+                game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f33', game.camera));
+              }
+              game.effects.push(new Effect(m.targetX, m.targetY, '#fff', 30, 10, 24));
+              game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 40, 8, 22));
+              game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 25, 6, 18));
+              for (let i = 0; i < 12; i++) {
+                game.effects.push(new Effect(
+                  m.targetX + randInt(-60, 60), m.targetY + randInt(-40, 20),
+                  i % 2 === 0 ? '#f93' : '#f44', 8 + randInt(0, 6), 3, 14
+                ));
+              }
+              SFX.bossSpawn();
+              triggerHitstop(12);
+            } else {
+              damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusDamage + 6, m.targetX);
+              game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
+              game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
+              SFX.slam();
+              triggerHitstop(4);
+            }
           }
         }
         // Decay trails

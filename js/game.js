@@ -671,11 +671,22 @@ class Game {
         if (m.done || !m.active) continue;
         // Trail
         for (const t of m.trail) {
-          ctx.globalAlpha = t.life / 15 * 0.6;
-          ctx.fillStyle = '#f93';
-          ctx.fillRect(t.x - 4 - cam.x, t.y - 4 - cam.y, 8, 8);
+          const ts = m.big ? 14 : 8;
+          ctx.globalAlpha = t.life / 15 * (m.big ? 0.8 : 0.6);
+          ctx.fillStyle = m.big ? '#ff0' : '#f93';
+          ctx.fillRect(t.x - ts / 2 - cam.x, t.y - ts / 2 - cam.y, ts, ts);
         }
         ctx.globalAlpha = 1;
+        // Glow for big meteor
+        if (m.big) {
+          ctx.save();
+          ctx.globalAlpha = 0.25 + Math.sin(Date.now() * 0.02) * 0.1;
+          ctx.fillStyle = '#f93';
+          ctx.beginPath();
+          ctx.arc(m.x - cam.x, m.y - cam.y, m.size * 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
         // Meteor body
         ctx.fillStyle = '#f44';
         ctx.beginPath();
