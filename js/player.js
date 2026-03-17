@@ -120,6 +120,7 @@ class Player {
     this.shurikens = 3;
     this.maxShurikens = 3;
     this.shurikenLevel = 1;
+    this.shurikenRechargeTimer = 0;
 
     // Ground slam
     this.slamming = false;
@@ -1032,9 +1033,13 @@ class Player {
       this.useSpecial(game);
     }
 
-    // Throw shuriken
-    if (this.shurikens < this.maxShurikens && game.tick % 150 === 0) {
-      this.shurikens = this.maxShurikens;
+    // Throw shuriken — recharge only starts when all shurikens are empty
+    if (this.shurikens <= 0) {
+      this.shurikenRechargeTimer++;
+      if (this.shurikenRechargeTimer >= 150) {
+        this.shurikens = this.maxShurikens;
+        this.shurikenRechargeTimer = 0;
+      }
     }
     if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
       SFX.shuriken();

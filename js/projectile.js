@@ -459,6 +459,20 @@ class Projectile {
       }
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
+        // Deflector boss: deflect projectiles back when ready
+        if (game.boss.bossType === 'deflector' && game.boss.deflectReady && !game.boss.freezeTimer) {
+          game.boss.deflectReady = false;
+          this.vx = -this.vx * 1.2;
+          this.vy = (Math.random() - 0.5) * 2;
+          this.owner = 'enemy';
+          this.damage = Math.max(this.damage, 3);
+          this.color = '#aaf';
+          this.hitSet.clear();
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h * 0.4, '#eef', 10, 4, 12));
+          SFX.hit();
+          triggerHitstop(4);
+          return;
+        }
         game.boss.takeDamage(this.damage, game, this.x);
         // Freeze dust: also freeze boss on hit
         if (this.freezeDust) {
@@ -473,12 +487,6 @@ class Projectile {
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 10, 4, 14));
         }
         this.hitSet.add(game.boss);
-        // Ultimate charge gain: projectile hit boss
-        if (!game.player.ultimateReady && !game.player.ultimateActive) {
-          game.player.addUltimateCharge(3);
-        }
-        if (!this.piercing) { this.done = true; return; }
-        game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         if (game.player.ninjaType === 'fire') {
           game.boss.burnTimer = 150;
           game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
@@ -493,6 +501,12 @@ class Projectile {
             game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
           }
         }
+        // Ultimate charge gain: projectile hit boss
+        if (!game.player.ultimateReady && !game.player.ultimateActive) {
+          game.player.addUltimateCharge(3);
+        }
+        if (!this.piercing) { this.done = true; return; }
+        game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
       const pl = game.player;
