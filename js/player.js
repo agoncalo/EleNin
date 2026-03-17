@@ -856,9 +856,6 @@ class Player {
 
     // Attack
     if (this.attacking) {
-      if (!this.ultimateReady && !this.ultimateActive) {
-        this.addUltimateCharge(2);
-      }
       this.attackTimer--;
       if (this.attackTimer <= 0) {
         if (this.ninjaType === 'shadow' && !this.shadowAttackHit) {

@@ -19,6 +19,7 @@ class Game {
     this.deaths = 0;
     this.lives = 3;
     this.gameOver = false;
+    this.cheated = false;
     this.levelType = 'open';
     this.levelW = 3200;
     this.levelH = 540;
@@ -304,6 +305,13 @@ class Game {
 
   advanceWave() {
     if (this.wave >= TOTAL_WAVES) {
+      if (this.cheated) {
+        this.gameOver = true;
+        this.boss = null;
+        this.bossActive = false;
+        this.showWaveMessage('GAME OVER, CHEATER!');
+        return;
+      }
       this.gameWon = true;
       this.boss = null;
       this.bossActive = false;
@@ -367,16 +375,37 @@ class Game {
 
     // Cheat: + to skip wave
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
+      this.cheated = true;
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
+      // Grant average stats for the wave being skipped
+      const waveDef = WAVE_DEFS[this.wave - 1];
+      if (waveDef) {
+        const kills = waveDef.killsForBoss;
+        // Orb drop rates per kill: 0.13 maxhp, 0.10 damage, 0.08 shield, 0.12 shuriken
+        const pl = this.player;
+        const avgMaxHp = Math.round(kills * 0.13);
+        const avgDmg = Math.round(kills * 0.10);
+        const avgShield = Math.round(kills * 0.08);
+        const avgShuriken = Math.round(kills * 0.12);
+        pl.maxHp += avgMaxHp;
+        pl.hp = Math.min(pl.hp + avgMaxHp, pl.maxHp);
+        pl.bonusDamage += avgDmg;
+        pl.maxShield += avgShield * 3;
+        pl.shield = pl.maxShield;
+        pl.maxShurikens += avgShuriken;
+        pl.shurikens = pl.maxShurikens;
+      }
       this.advanceWave();
     }
     // Cheat: 0 to toggle god mode
     if (consumePress('Digit0') || consumePress('Numpad0')) {
+      this.cheated = true;
       this.player.godMode = !this.player.godMode;
       this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
     }
     // Cheat: - to spawn boss / fill ultimate
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
+      this.cheated = true;
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
@@ -844,7 +873,7 @@ class Game {
     // Shield bar (separate row, only if player has shield)
     const hasShield = pl.maxShield > 0;
     const shieldBarH = 8;
-    const shieldBarW = 160;
+    const shieldBarW = Math.min(CANVAS_W - 40, 100 + pl.maxShield * 2);
     const shieldBarY = hasShield ? elemBarY - shieldBarH - gap : elemBarY;
     const shieldBarX = CANVAS_W / 2 - shieldBarW / 2;
     if (hasShield) {
@@ -860,7 +889,7 @@ class Game {
 
     // HP bar
     const hpBarH = 10;
-    const hpBarW = 180;
+    const hpBarW = Math.min(CANVAS_W - 40, 120 + pl.maxHp * 6);
     const hpBarY = (hasShield ? shieldBarY : elemBarY) - hpBarH - gap;
     const hpBarX = CANVAS_W / 2 - hpBarW / 2;
     const hpRatio = pl.hp / pl.maxHp;
@@ -876,7 +905,7 @@ class Game {
     ctx.fillText(`HP ${pl.hp}/${pl.maxHp}`, hpBarX + 3, hpBarY + 9);
 
     // Ultimate bar
-    const ultimateBarW = 220;
+    const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
     const ultimateBarH = 14;
     const ultimateBarX = CANVAS_W / 2 - ultimateBarW / 2;
     const ultimateBarY = hpBarY - ultimateBarH - gap;
@@ -902,11 +931,19 @@ class Game {
     ctx.globalAlpha = 1;
     ctx.font = 'bold 10px monospace';
     if (pl.ultimateReady && !pl.ultimateActive) {
-      ctx.fillStyle = '#ffd700';
       const readyText = 'ULTIMATE READY! [V/M/Y]';
       const tw = ctx.measureText(readyText).width;
-      ctx.fillText(readyText, CANVAS_W / 2 - tw / 2, ultimateBarY + 11);
+      const tx = CANVAS_W / 2 - tw / 2;
+      const ty = ultimateBarY + 11;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(readyText, tx, ty);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(readyText, tx, ty);
     } else if (pl.ultimateActive) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
       ctx.fillStyle = '#fff';
       ctx.fillText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
     } else {
@@ -943,10 +980,12 @@ class Game {
       shurikenBar.innerHTML = '';
       shurikenBar.style.marginTop = '38px';
       shurikenBar.style.marginBottom = '0px';
-      shurikenBar.style.height = '38px';
+      shurikenBar.style.height = 'auto';
       shurikenBar.style.display = 'flex';
+      shurikenBar.style.flexWrap = 'wrap';
       shurikenBar.style.justifyContent = 'center';
       shurikenBar.style.alignItems = 'center';
+      shurikenBar.style.maxWidth = CANVAS_W + 'px';
       for (let i = 0; i < pl.maxShurikens; i++) {
         const span = document.createElement('span');
         span.style.display = 'inline-block';
@@ -1107,7 +1146,7 @@ class Game {
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.fillStyle = '#f44';
       ctx.font = 'bold 36px monospace';
-      const got = 'GAME OVER';
+      const got = this.cheated ? 'GAME OVER, CHEATER!' : 'GAME OVER';
       const gotw = ctx.measureText(got).width;
       ctx.fillText(got, CANVAS_W / 2 - gotw / 2, CANVAS_H / 2 - 40);
       ctx.fillStyle = '#fff';

@@ -9,8 +9,7 @@ class Enemy {
     this.h = big ? 42 : 28;
     this.x = x; this.y = y;
     this.vx = 0; this.vy = 0;
-    const hpBonus = Math.floor((this.wave - 1) * 1.5);
-    this.hp = (big ? base.hp * 2 : base.hp) + hpBonus;
+    this.hp = (big ? base.hp * 2 : base.hp) * this.wave;
     this.maxHp = this.hp;
     this.contactDmg = (big ? base.dmg + 2 : base.dmg) + Math.floor((this.wave - 1) * 0.5);
     this.color = base.color;
@@ -846,8 +845,8 @@ class Boss extends Enemy {
     this.bossType = bossType;
     // Override dimensions — boss is bigger than any regular enemy
     this.w = 56; this.h = 56;
-    // Override HP — boss has its own scaling
-    this.hp = 25 + wave * 15;
+    // Override HP — boss has its own scaling (10x from wave 1 to 10)
+    this.hp = 40 * wave;
     this.maxHp = this.hp;
     // Override contact damage
     this.contactDmg = 4 + Math.floor((wave - 1) * 0.5);
@@ -866,12 +865,30 @@ class Boss extends Enemy {
     this.lastY = y;
     const colors = {
       walker: '#c33', shooter: '#cc5', jumper: '#c8c',
-      bouncer: '#c5c', shielded: '#5cc', flyer: '#8c5', flyshooter: '#c85'
+      bouncer: '#c5c', shielded: '#5cc', deflector: '#88a',
+      protector: '#4a6', attacker: '#a44', flyer: '#8c5', flyshooter: '#c85'
     };
     this.color = colors[bossType] || '#c33';
     this.name = (BOSS_NAMES[bossType] || 'BIG') + ' BOSS';
     // Boss shouldn't use patrol/edge logic
     this.edgeAware = false;
+    // Deflector boss (Ronin): deflects projectiles, throws shurikens
+    if (bossType === 'deflector') {
+      this.deflectReady = true;
+      this.swordDrawn = true;
+      this.shurikenTimer = 0;
+    }
+    // Protector boss (Aegis): aura that buffs nearby enemies
+    if (bossType === 'protector') {
+      this.auraRadius = 220;
+    }
+    // Attacker boss (Nemesis): floats, invulnerable when enemies nearby
+    if (bossType === 'attacker') {
+      this.flying = true;
+      this.attackerInvulnerable = false;
+      this.attackerAuraRadius = 200;
+      this.shootTimer = 0;
+    }
   }
 
   update(game) {
@@ -943,6 +960,53 @@ class Boss extends Enemy {
 
     if (this.flying) {
       // Flying boss AI
+      const isAttacker = (this.bossType === 'attacker');
+      if (isAttacker) {
+        // Attacker boss: floats, invulnerable when enemies nearby, shoots fast
+        this.hoverPhase += 0.04;
+        const hoverTarget = 200;
+        const hoverDist = hoverTarget - this.y;
+        if (Math.abs(hoverDist) > 10) {
+          this.vy += Math.sign(hoverDist) * 0.12;
+          this.vy *= 0.92;
+        } else {
+          this.vy = Math.sin(this.hoverPhase) * 0.6;
+        }
+        // Drift toward player horizontally
+        if (Math.abs(dx) > 80) {
+          this.vx += this.facing * 0.15;
+          this.vx = Math.max(-speed, Math.min(speed, this.vx));
+        } else {
+          this.vx *= 0.92;
+        }
+        // Check for nearby alive non-boss enemies
+        const aR = this.attackerAuraRadius;
+        let nearbyAlive = 0;
+        for (const other of game.enemies) {
+          if (other.dead || other.type === 'attacker') continue;
+          const odx = (other.x + other.w / 2) - cx;
+          const ody = (other.y + other.h / 2) - cy;
+          if (Math.sqrt(odx * odx + ody * ody) <= aR) nearbyAlive++;
+        }
+        this.attackerInvulnerable = nearbyAlive > 0;
+        // Shoot fast piercing projectiles when invulnerable
+        if (this.attackerInvulnerable) {
+          this.shootTimer++;
+          const shootRate = this.phase === 2 ? 20 : 30;
+          if (this.shootTimer >= shootRate) {
+            this.shootTimer = 0;
+            const sd = Math.sqrt(dx * dx + dy * dy);
+            if (sd > 0 && sd < 600) {
+              const p = new Projectile(cx, cy, (dx / sd) * 7, (dy / sd) * 7, '#f44', this.contactDmg, 'boss');
+              p.piercing = true;
+              p.w = 6; p.h = 6;
+              p.life = 90;
+              game.projectiles.push(p);
+              game.effects.push(new Effect(cx, cy, '#f66', 6, 2, 8));
+            }
+          }
+        }
+      } else {
       switch (this.state) {
         case 'chase': {
           const tdx = dx, tdy = (py - (this.bossType === 'flyshooter' ? 90 : 30)) - cy;
@@ -983,10 +1047,97 @@ class Boss extends Enemy {
           }
           break;
       }
+      }
       if (this.y < -80) this.y = -80;
       if (this.y > 440) this.y = 440;
     } else {
-      // Ground boss AI
+      // Ground boss AI — type-specific behavior
+      const isDeflector = (this.bossType === 'deflector');
+      const isProtector = (this.bossType === 'protector');
+      const isShielded = (this.bossType === 'shielded');
+
+      if (isDeflector) {
+        // Ronin boss: faces player, deflects projectiles, jumps, throws shuriken spreads
+        if (Math.abs(dx) > 8) this.facing = dx > 0 ? 1 : -1;
+        const distToPlayer = Math.sqrt(dx * dx + dy * dy);
+        if (distToPlayer > 80) {
+          this.vx = this.facing * speed * 0.7;
+        } else {
+          this.vx *= 0.85;
+        }
+        // Deflect readiness (when grounded)
+        this.deflectReady = this.grounded;
+        // Jump toward player (skip in tower levels to avoid falling off)
+        this.jumpTimer++;
+        const jumpRate = this.phase === 2 ? 70 : 100;
+        if (this.jumpTimer >= jumpRate && this.grounded && distToPlayer < 300 && game.levelType !== 'tower') {
+          this.vy = -11;
+          this.vx = this.facing * speed * 3;
+          this.jumpTimer = 0;
+          this.deflectReady = false;
+        }
+        // Shuriken spread attack
+        this.shurikenTimer++;
+        const shurikenRate = this.phase === 2 ? 80 : 120;
+        if (this.shurikenTimer >= shurikenRate && distToPlayer < 500 && distToPlayer > 40) {
+          this.shurikenTimer = 0;
+          const sd = Math.sqrt(dx * dx + dy * dy);
+          if (sd > 0) {
+            const baseVx = (dx / sd) * 6, baseVy = (dy / sd) * 6;
+            const angles = this.phase === 2 ? [-0.3, -0.15, 0, 0.15, 0.3] : [-0.2, 0, 0.2];
+            for (const ang of angles) {
+              const cos = Math.cos(ang), sin = Math.sin(ang);
+              const svx = baseVx * cos - baseVy * sin;
+              const svy = baseVx * sin + baseVy * cos;
+              const sh = new Projectile(cx, cy, svx, svy, '#ccc', this.contactDmg, 'boss');
+              sh.w = 10; sh.h = 10;
+              sh.isShuriken = true;
+              sh.life = 120;
+              game.projectiles.push(sh);
+            }
+            game.effects.push(new Effect(cx, cy, '#eef', 10, 4, 12));
+          }
+        }
+      } else if (isProtector) {
+        // Aegis boss: slow, tanky, walks toward player, has protective aura
+        this.facing = dx > 0 ? 1 : -1;
+        this.vx = this.facing * speed * 0.5;
+        // Aura heals nearby enemies
+        if (this.actionTimer % 60 === 0) {
+          for (const e of game.enemies) {
+            if (e.dead || e === this) continue;
+            const edx = (e.x + e.w / 2) - cx;
+            const edy = (e.y + e.h / 2) - cy;
+            if (Math.sqrt(edx * edx + edy * edy) <= this.auraRadius) {
+              e.hp = Math.min(e.hp + 1, e.maxHp);
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4f4', 4, 1.5, 6));
+            }
+          }
+        }
+        // Periodic jump slam
+        if (this.actionTimer > (this.phase === 2 ? 100 : 150) && this.grounded) {
+          this.state = 'jump';
+          this.stateTimer = 0;
+          this.actionTimer = 0;
+        }
+        if (this.state === 'jump') {
+          if (this.stateTimer === 1) {
+            this.vy = -12;
+            this.vx = this.facing * 4;
+          }
+          if (this.stateTimer > 10 && this.grounded) {
+            game.effects.push(new Effect(cx, this.y + this.h, '#4a6', 18, 5, 18));
+            if (Math.abs(dx) < 100 && Math.abs(dy) < 70) {
+              const kbDir = Math.sign(game.player.x - cx) || 1;
+              game.player.vx = kbDir * 12;
+              game.player.vy = -6;
+              game.player.takeDamage(this.contactDmg, game);
+            }
+            this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+          }
+        }
+      } else {
+        // Default ground boss AI (walker, shooter, jumper, bouncer, shielded)
       switch (this.state) {
         case 'chase':
           this.vx = this.facing * speed;
@@ -1027,6 +1178,7 @@ class Boss extends Enemy {
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
           break;
+      }
       }
     }
 
@@ -1086,6 +1238,12 @@ class Boss extends Enemy {
   takeDamage(amount, game, fromX) {
     if (this.dead) return;
     if (this.damageIframes > 0) return;
+    // Attacker boss: invulnerable when enemies nearby
+    if (this.attackerInvulnerable) {
+      this.flashTimer = 4;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
+      return;
+    }
     // Shield check
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
@@ -1098,6 +1256,7 @@ class Boss extends Enemy {
       }
     }
     this.hp -= amount;
+    this.hp = Math.round(this.hp);
     this.flashTimer = 8;
     this.damageIframes = 12;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 6, 3, 10));
@@ -1123,13 +1282,196 @@ class Boss extends Enemy {
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
 
-    // Aura
+    // Aura glow
     ctx.fillStyle = this.phase === 2 ? 'rgba(255,50,50,0.25)' : 'rgba(200,50,50,0.12)';
     ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
 
-    // Body
-    ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color));
-    ctx.fillRect(sx, sy, this.w, this.h);
+    const bodyColor = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color));
+
+    // --- Type-specific body rendering ---
+    if (this.bossType === 'attacker') {
+      // Orb body (like regular attacker, but bigger)
+      const orbCx = sx + this.w / 2;
+      const orbCy = sy + this.h / 2;
+      const orbR = this.w / 2;
+      ctx.globalAlpha = this.attackerInvulnerable ? (0.4 + 0.15 * Math.sin((game ? game.tick : 0) * 0.08)) : 0.2;
+      ctx.fillStyle = '#f44';
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR + 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.attackerInvulnerable ? '#c22' : '#644'));
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner eye
+      ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Crown horns on orb
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx + 8, sy - 6, 6, 8);
+      ctx.fillRect(sx + this.w - 14, sy - 6, 6, 8);
+      ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
+    } else if (this.bossType === 'protector') {
+      // Armored knight body
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(sx, sy, this.w, this.h);
+      // Helmet with visor
+      ctx.fillStyle = '#5a7';
+      ctx.fillRect(sx - 3, sy - 8, this.w + 6, 14);
+      // Visor slit
+      ctx.fillStyle = '#1a3';
+      ctx.fillRect(sx + 6, sy - 4, this.w - 12, 5);
+      // Glowing eyes behind visor
+      const eyePulse = 0.7 + 0.3 * Math.sin((game ? game.tick : 0) * 0.1);
+      ctx.save();
+      ctx.shadowColor = '#4f8';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = `rgba(100,255,150,${eyePulse})`;
+      ctx.fillRect(sx + 12, sy - 4, 7, 4);
+      ctx.fillRect(sx + this.w - 19, sy - 4, 7, 4);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      // Helmet crest/plume
+      ctx.fillStyle = '#3d8';
+      ctx.fillRect(sx + this.w / 2 - 3, sy - 16, 6, 10);
+      ctx.fillRect(sx + this.w / 2 - 5, sy - 16, 10, 4);
+      // Shoulder pauldrons
+      ctx.fillStyle = '#4a7';
+      ctx.fillRect(sx - 8, sy + 6, 10, 14);
+      ctx.fillRect(sx + this.w - 2, sy + 6, 10, 14);
+      ctx.fillStyle = '#8d8';
+      ctx.fillRect(sx - 6, sy + 9, 3, 3);
+      ctx.fillRect(sx + this.w + 1, sy + 9, 3, 3);
+      // Chest plate
+      ctx.fillStyle = '#4a7';
+      ctx.fillRect(sx + 3, sy + 6, this.w - 6, this.h - 18);
+      ctx.fillStyle = '#6c9';
+      ctx.fillRect(sx + 4, sy + 7, this.w - 8, 4);
+      ctx.fillStyle = '#3a6';
+      ctx.fillRect(sx + this.w / 2 - 1, sy + 11, 2, this.h - 28);
+      // Belt
+      ctx.fillStyle = '#2a5';
+      ctx.fillRect(sx, sy + this.h - 16, this.w, 5);
+      ctx.fillStyle = '#8d8';
+      ctx.fillRect(sx + this.w / 2 - 4, sy + this.h - 16, 8, 5);
+      // Greaves
+      ctx.fillStyle = '#4a7';
+      ctx.fillRect(sx + 3, sy + this.h - 11, this.w / 2 - 5, 11);
+      ctx.fillRect(sx + this.w / 2 + 2, sy + this.h - 11, this.w / 2 - 5, 11);
+      // Tower shield
+      const shX = this.facing > 0 ? sx + this.w - 2 : sx - 9;
+      ctx.fillStyle = '#3b7';
+      ctx.fillRect(shX, sy - 8, 11, this.h + 16);
+      ctx.strokeStyle = '#2a5';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(shX + 0.5, sy - 7.5, 10, this.h + 15);
+      ctx.fillStyle = '#8d8';
+      ctx.fillRect(shX + 4, sy + 2, 3, this.h - 2);
+      ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 9, 3);
+    } else if (this.bossType === 'deflector') {
+      // Ronin samurai body
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(sx, sy, this.w, this.h);
+      // Kasa (farmer hat)
+      ctx.fillStyle = '#aac';
+      ctx.beginPath();
+      ctx.moveTo(sx - 14, sy + 4);
+      ctx.lineTo(sx + this.w / 2, sy - 26);
+      ctx.lineTo(sx + this.w + 14, sy + 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#889';
+      ctx.fillRect(sx - 14, sy + 1, this.w + 28, 5);
+      // Headband
+      ctx.fillStyle = '#aac';
+      ctx.fillRect(sx + 3, sy + 6, this.w - 6, 4);
+      // Belt / sash
+      ctx.fillStyle = '#aac';
+      ctx.fillRect(sx + 3, sy + this.h - 14, this.w - 6, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(sx + 3, sy + this.h - 13, this.w - 6, 1);
+      // Eyes
+      ctx.fillStyle = '#ff0';
+      const reyeX = this.facing > 0 ? sx + 28 : sx + 6;
+      ctx.fillRect(reyeX, sy + 14, 8, 8);
+      ctx.fillRect(reyeX + 14, sy + 14, 8, 8);
+      ctx.fillStyle = '#200';
+      ctx.fillRect(reyeX + 2, sy + 17, 4, 4);
+      ctx.fillRect(reyeX + 16, sy + 17, 4, 4);
+      // Katana held in front, angled upward
+      const bLen = 52;
+      ctx.save();
+      const gripX = this.facing > 0 ? sx + this.w - 2 : sx + 2;
+      const gripY = sy + this.h * 0.45;
+      ctx.translate(gripX, gripY);
+      ctx.rotate(this.facing > 0 ? -Math.PI * 0.35 : (-Math.PI + Math.PI * 0.35));
+      ctx.fillStyle = this.deflectReady ? '#dde' : '#889';
+      ctx.beginPath();
+      ctx.moveTo(6, -2.5);
+      ctx.lineTo(6 + bLen, -1);
+      ctx.lineTo(6 + bLen + 6, 0);
+      ctx.lineTo(6 + bLen, 1);
+      ctx.lineTo(6, 2.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(8, -2);
+      ctx.lineTo(6 + bLen + 4, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#aa8';
+      ctx.fillRect(3, -6, 5, 12);
+      ctx.fillStyle = '#aac';
+      ctx.fillRect(-7, -3, 11, 6);
+      ctx.fillStyle = '#222';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-5 + i * 3, -3, 1, 6);
+      ctx.restore();
+      // Deflect glow
+      if (this.deflectReady) {
+        ctx.globalAlpha = 0.3 + 0.15 * Math.sin(game ? game.tick * 0.1 : 0);
+        ctx.fillStyle = '#aaf';
+        ctx.beginPath();
+        ctx.arc(gripX, gripY - bLen * 0.25, bLen * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      // Default boss body (walker, shooter, jumper, bouncer, shielded, flyer, flyshooter)
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(sx, sy, this.w, this.h);
+
+      // Flying wings
+      if (this.flying) {
+        ctx.fillStyle = this.color;
+        ctx.fillRect(sx - 8, sy + 6, 8, this.h - 12);
+        ctx.fillRect(sx + this.w, sy + 6, 8, this.h - 12);
+      }
+
+      // Shield
+      if (this.shieldHp > 0) {
+        ctx.fillStyle = `rgba(100,220,255,${0.5 + 0.2 * (this.shieldHp / this.shieldMax)})`;
+        ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
+      }
+
+      // Eyes
+      ctx.fillStyle = '#ff0';
+      const eyeX = this.facing > 0 ? sx + 28 : sx + 6;
+      ctx.fillRect(eyeX, sy + 14, 8, 8);
+      ctx.fillRect(eyeX + 14, sy + 14, 8, 8);
+      ctx.fillStyle = '#200';
+      ctx.fillRect(eyeX + 2, sy + 17, 4, 4);
+      ctx.fillRect(eyeX + 16, sy + 17, 4, 4);
+
+      // Crown / horns
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx + 8, sy - 6, 6, 8);
+      ctx.fillRect(sx + this.w - 14, sy - 6, 6, 8);
+      ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
+    }
 
     // Freeze effect overlay
     if (this.freezeTimer > 0) {
@@ -1146,34 +1488,6 @@ class Boss extends Enemy {
       ctx.fillRect(sx, sy, this.w, this.h);
       ctx.globalAlpha = 1;
     }
-
-    // Flying wings
-    if (this.flying) {
-      ctx.fillStyle = this.color;
-      ctx.fillRect(sx - 8, sy + 6, 8, this.h - 12);
-      ctx.fillRect(sx + this.w, sy + 6, 8, this.h - 12);
-    }
-
-    // Shield
-    if (this.shieldHp > 0) {
-      ctx.fillStyle = `rgba(100,220,255,${0.5 + 0.2 * (this.shieldHp / this.shieldMax)})`;
-      ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
-    }
-
-    // Eyes
-    ctx.fillStyle = '#ff0';
-    const eyeX = this.facing > 0 ? sx + 28 : sx + 6;
-    ctx.fillRect(eyeX, sy + 14, 8, 8);
-    ctx.fillRect(eyeX + 14, sy + 14, 8, 8);
-    ctx.fillStyle = '#200';
-    ctx.fillRect(eyeX + 2, sy + 17, 4, 4);
-    ctx.fillRect(eyeX + 16, sy + 17, 4, 4);
-
-    // Crown / horns
-    ctx.fillStyle = '#ff0';
-    ctx.fillRect(sx + 8, sy - 6, 6, 8);
-    ctx.fillRect(sx + this.w - 14, sy - 6, 6, 8);
-    ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
 
     if (this.phase === 2) {
       ctx.fillStyle = '#f44';
@@ -1196,8 +1510,8 @@ class Boss extends Enemy {
       }
     }
 
-    // Boss melee sword
-    if (this.hitCooldown > 30) {
+    // Boss melee sword (not for deflector — has its own katana)
+    if (this.hitCooldown > 30 && this.bossType !== 'deflector' && this.bossType !== 'attacker') {
       const sl = 24;
       const sw = 5;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;
@@ -1206,6 +1520,43 @@ class Boss extends Enemy {
       ctx.fillRect(swordX, swordY, sl, sw);
       ctx.fillStyle = this.color;
       ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, swordY - 3, 4, sw + 6);
+    }
+
+    // Protector boss: healing aura ring
+    if (this.bossType === 'protector' && this.auraRadius > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.15 + 0.05 * Math.sin((game ? game.tick : 0) * 0.05);
+      ctx.strokeStyle = '#4f4';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.auraRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(80,200,80,0.06)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Attacker boss: invulnerability aura
+    if (this.bossType === 'attacker') {
+      ctx.save();
+      const aR = this.attackerAuraRadius;
+      if (this.attackerInvulnerable) {
+        ctx.globalAlpha = 0.2 + 0.1 * Math.sin((game ? game.tick : 0) * 0.08);
+        ctx.strokeStyle = '#f44';
+        ctx.lineWidth = 3;
+      } else {
+        ctx.globalAlpha = 0.08;
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
+      }
+      ctx.beginPath();
+      ctx.arc(sx + this.w / 2, sy + this.h / 2, aR, 0, Math.PI * 2);
+      ctx.stroke();
+      if (this.attackerInvulnerable) {
+        ctx.fillStyle = 'rgba(255,80,80,0.06)';
+        ctx.fill();
+      }
+      ctx.restore();
     }
   }
 }

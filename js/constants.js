@@ -99,7 +99,7 @@ function getTierName(tierIdx) {
 }
 
 // ── Wave definitions ─────────────────────────────────────────
-const TOTAL_WAVES = 7;
+const TOTAL_WAVES = 10;
 const WAVE_DEFS = [
   { boss: 'walker', killsForBoss: 20,
     pool: [
@@ -108,7 +108,7 @@ const WAVE_DEFS = [
       { type: 'walker', weight: 2, big: true },
     ]
   },
-  { boss: 'shooter', killsForBoss: 30,
+  { boss: 'shooter', killsForBoss: 25,
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
@@ -117,7 +117,7 @@ const WAVE_DEFS = [
       { type: 'shooter', weight: 1, big: true },
     ]
   },
-  { boss: 'jumper', killsForBoss: 40,
+  { boss: 'jumper', killsForBoss: 30,
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -126,7 +126,7 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 1, big: true },
     ]
   },
-  { boss: 'flyer', killsForBoss: 45,
+  { boss: 'flyer', killsForBoss: 35,
     pool: [
       { type: 'shooter', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -135,7 +135,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'bouncer', killsForBoss: 50,
+  { boss: 'bouncer', killsForBoss: 40,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
@@ -145,7 +145,7 @@ const WAVE_DEFS = [
       { type: 'walker', weight: 1, big: true },
     ]
   },
-  { boss: 'shielded', killsForBoss: 56,
+  { boss: 'shielded', killsForBoss: 45,
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -155,39 +155,37 @@ const WAVE_DEFS = [
       { type: 'bouncer', weight: 1, big: true },
     ]
   },
-  { boss: 'deflector', killsForBoss: 64,
+  { boss: 'deflector', killsForBoss: 50,
     pool: [
-      { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
-      { type: 'shielded', weight: 4 },
+      { type: 'shielded', weight: 3 },
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
-      { type: 'bouncer', weight: 1, big: true },
     ]
   },
-  { boss: 'protector', killsForBoss: 70,
+  { boss: 'protector', killsForBoss: 56,
     pool: [
-      { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
-      { type: 'shielded', weight: 4 },
-      { type: 'flyer', weight: 2 },
+      { type: 'shielded', weight: 2 },
       { type: 'deflector', weight: 2 },
-      { type: 'shielded', weight: 1, big: true },
-      { type: 'bouncer', weight: 1, big: true },
-    ]
-  },
-  { boss: 'attacker', killsForBoss: 76,
-    pool: [
-      { type: 'jumper', weight: 2 },
-      { type: 'bouncer', weight: 2 },
-      { type: 'shielded', weight: 4 },
       { type: 'flyer', weight: 2 },
-      { type: 'deflector', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
-      { type: 'bouncer', weight: 1, big: true },
+      { type: 'deflector', weight: 1, big: true },
     ]
   },
-  { boss: 'flyshooter', killsForBoss: 80,
+  { boss: 'attacker', killsForBoss: 64,
+    pool: [
+      { type: 'bouncer', weight: 2 },
+      { type: 'shielded', weight: 2 },
+      { type: 'deflector', weight: 2 },
+      { type: 'protector', weight: 2 },
+      { type: 'flyer', weight: 2 },
+      { type: 'flyshooter', weight: 2 },
+      { type: 'deflector', weight: 1, big: true },
+      { type: 'shielded', weight: 1, big: true },
+    ]
+  },
+  { boss: 'flyshooter', killsForBoss: 70,
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
