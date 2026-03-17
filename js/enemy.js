@@ -35,6 +35,7 @@ class Enemy {
     this.deflectReady = (type === 'deflector');
     this.deflectTimer = 0;
     this.swordDrawn = (type === 'deflector');
+    this.shurikenTimer = 0;
     // Deflector: miniboss size
     if (type === 'deflector') {
       this.w = big ? 52 : 40;
@@ -201,6 +202,28 @@ class Enemy {
         }
         // Always deflect when grounded (not mid-jump)
         this.deflectReady = (this.vy >= -1 && this.vy <= 1);
+        // Shuriken throw
+        this.shurikenTimer++;
+        const shurikenRate = this.big ? 150 : 200;
+        if (this.shurikenTimer >= shurikenRate && distToPlayer < 400 && distToPlayer > 40) {
+          this.shurikenTimer = 0;
+          const sdx = px - cx, sdy = py - cy;
+          const sd = Math.sqrt(sdx * sdx + sdy * sdy);
+          if (sd > 0) {
+            const baseVx = (sdx / sd) * 5, baseVy = (sdy / sd) * 5;
+            const spreadAngles = [-0.2, 0, 0.2];
+            for (const ang of spreadAngles) {
+              const cos = Math.cos(ang), sin = Math.sin(ang);
+              const svx = baseVx * cos - baseVy * sin;
+              const svy = baseVx * sin + baseVy * cos;
+              const sh = new Projectile(cx, cy, svx, svy, '#ccc', this.contactDmg, 'enemy');
+              sh.w = 8; sh.h = 8;
+              sh.isShuriken = true;
+              sh.life = 120;
+              game.projectiles.push(sh);
+            }
+          }
+        }
         break;
       }
       case 'protector': {
@@ -332,10 +355,19 @@ class Enemy {
 
     // Keep in level bounds
     if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
-    if (this.x + this.w > 3200) { this.x = 3200 - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
+    if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
 
-    // Respawn if fell off bottom
-    if (this.y > 700) { this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(3140, this.x)); return; }
+    // Fell off bottom
+    if (this.y > 700) {
+      if (game.levelType === 'tower') {
+        // Tower: falling into spikes kills enemy
+        this.hp = 0;
+        this.dead = true;
+        game.effects.push(new Effect(this.x + this.w / 2, 500, '#f44', 10, 4, 12));
+        return;
+      }
+      this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(game.levelW - 60, this.x)); return;
+    }
 
     // Contact damage
     if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player) && !this.slamming) {
@@ -400,6 +432,8 @@ class Enemy {
   onDeath(game) {
     game.waveKills++;
     game.totalKills++;
+    // Track deflector kill for earth construct unlock
+    if (this.type === 'deflector') game.player.defeatedDeflector = true;
     SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, this.color, this.big ? 18 : 12, 4, 18));
@@ -545,38 +579,71 @@ class Enemy {
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
         break;
       case 'deflector': {
-        // Huge sword held from front to above head
-        const sLen = this.big ? 44 : 34;
-        const sWid = this.big ? 5 : 4;
+        // Kasa (farmer hat) — bigger than player's
+        ctx.fillStyle = '#aac';
+        ctx.beginPath();
+        ctx.moveTo(sx - 10, sy + 3);
+        ctx.lineTo(sx + this.w / 2, sy - 20);
+        ctx.lineTo(sx + this.w + 10, sy + 3);
+        ctx.closePath();
+        ctx.fill();
+        // Brim
+        ctx.fillStyle = '#889';
+        ctx.fillRect(sx - 10, sy, this.w + 20, 4);
+
+        // Headband
+        ctx.fillStyle = '#aac';
+        ctx.fillRect(sx + 2, sy + 4, this.w - 4, 3);
+
+        // Belt / sash
+        ctx.fillStyle = '#aac';
+        ctx.fillRect(sx + 2, sy + this.h - 12, this.w - 4, 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(sx + 2, sy + this.h - 11, this.w - 4, 1);
+
+        // Katana held in front, angled upward
+        const bLen = this.big ? 48 : 38;
         ctx.save();
-        // Grip point at front of body, mid-height
         const gripX = this.facing > 0 ? sx + this.w - 2 : sx + 2;
-        const gripY = sy + this.h * 0.5;
+        const gripY = sy + this.h * 0.45;
         ctx.translate(gripX, gripY);
-        // Sword angles from hand upward toward head (~70° from horizontal)
-        ctx.rotate(this.facing > 0 ? -Math.PI * 0.4 : (-Math.PI + Math.PI * 0.4));
-        // Sword blade
-        ctx.fillStyle = this.deflectReady ? '#eef' : '#889';
-        ctx.fillRect(0, -sWid / 2, sLen, sWid);
-        // Sword tip
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(sLen - 4, -sWid / 2, 4, sWid);
-        // Guard
+        ctx.rotate(this.facing > 0 ? -Math.PI * 0.35 : (-Math.PI + Math.PI * 0.35));
+        // Blade
+        ctx.fillStyle = this.deflectReady ? '#dde' : '#889';
+        ctx.beginPath();
+        ctx.moveTo(6, -2);
+        ctx.lineTo(6 + bLen, -0.8);
+        ctx.lineTo(6 + bLen + 5, 0);
+        ctx.lineTo(6 + bLen, 0.8);
+        ctx.lineTo(6, 2);
+        ctx.closePath();
+        ctx.fill();
+        // Edge highlight
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(8, -1.5);
+        ctx.lineTo(6 + bLen + 3, 0);
+        ctx.stroke();
+        // Tsuba (guard)
         ctx.fillStyle = '#aa8';
-        ctx.fillRect(-2, -sWid / 2 - 3, 4, sWid + 6);
+        ctx.fillRect(3, -5, 4, 10);
+        // Handle
+        ctx.fillStyle = '#aac';
+        ctx.fillRect(-6, -2.5, 10, 5);
+        ctx.fillStyle = '#222';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-5 + i * 3, -2.5, 1, 5);
         ctx.restore();
+
         // Ready indicator — glow when can deflect
         if (this.deflectReady) {
           ctx.globalAlpha = 0.3 + 0.15 * Math.sin(game ? game.tick * 0.1 : 0);
           ctx.fillStyle = '#aaf';
           ctx.beginPath();
-          ctx.arc(gripX, gripY - sLen * 0.3, sLen * 0.5, 0, Math.PI * 2);
+          ctx.arc(gripX, gripY - bLen * 0.25, bLen * 0.4, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
-        // Headband
-        ctx.fillStyle = '#aac';
-        ctx.fillRect(sx + 2, sy, this.w - 4, 3);
         break;
       }
       case 'flyer':
@@ -592,15 +659,86 @@ class Enemy {
         ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h / 2 - 2, 6, 4);
         break;
       case 'protector': {
-        // Large shield in facing direction
-        const shX = this.facing > 0 ? sx + this.w - 4 : sx - 3;
-        ctx.fillStyle = '#4f8';
-        ctx.fillRect(shX, sy - 4, 7, this.h + 8);
+        // --- Armored Knight ---
+        // Helmet with visor
+        ctx.fillStyle = '#5a7';
+        ctx.fillRect(sx - 2, sy - 6, this.w + 4, 10);
+        // Visor slit
+        ctx.fillStyle = '#1a3';
+        ctx.fillRect(sx + 4, sy - 3, this.w - 8, 3);
+        // Glowing eyes behind visor
+        const eyePulse = 0.7 + 0.3 * Math.sin((game ? game.tick : 0) * 0.1);
+        ctx.save();
+        ctx.shadowColor = '#4f8';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = `rgba(100,255,150,${eyePulse})`;
+        ctx.fillRect(sx + 8, sy - 3, 5, 3);
+        ctx.fillRect(sx + this.w - 13, sy - 3, 5, 3);
+        // Bright pupil centers
+        ctx.fillStyle = `rgba(200,255,220,${eyePulse})`;
+        ctx.fillRect(sx + 9, sy - 2, 3, 1);
+        ctx.fillRect(sx + this.w - 12, sy - 2, 3, 1);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Helmet crest/plume
+        ctx.fillStyle = '#3d8';
+        ctx.fillRect(sx + this.w / 2 - 2, sy - 12, 4, 8);
+        ctx.fillRect(sx + this.w / 2 - 4, sy - 12, 8, 3);
+
+        // Shoulder pauldrons
+        ctx.fillStyle = '#4a7';
+        ctx.fillRect(sx - 6, sy + 4, 8, 10);
+        ctx.fillRect(sx + this.w - 2, sy + 4, 8, 10);
+        // Pauldron rivets
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(sx - 4, sy + 6, 2, 2);
+        ctx.fillRect(sx + this.w, sy + 6, 2, 2);
+
+        // Chest plate (over body)
+        ctx.fillStyle = '#4a7';
+        ctx.fillRect(sx + 2, sy + 4, this.w - 4, this.h - 14);
+        // Chest plate highlight
+        ctx.fillStyle = '#6c9';
+        ctx.fillRect(sx + 3, sy + 5, this.w - 6, 3);
+        // Center line
+        ctx.fillStyle = '#3a6';
+        ctx.fillRect(sx + this.w / 2 - 1, sy + 8, 2, this.h - 22);
+
+        // Belt / waist
         ctx.fillStyle = '#2a5';
-        ctx.fillRect(shX + 1, sy - 2, 5, this.h + 4);
-        // Headband
-        ctx.fillStyle = '#3b6';
-        ctx.fillRect(sx + 2, sy, this.w - 4, 4);
+        ctx.fillRect(sx, sy + this.h - 14, this.w, 4);
+        // Belt buckle
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(sx + this.w / 2 - 3, sy + this.h - 14, 6, 4);
+
+        // Greaves (leg armor)
+        ctx.fillStyle = '#4a7';
+        ctx.fillRect(sx + 2, sy + this.h - 10, this.w / 2 - 3, 10);
+        ctx.fillRect(sx + this.w / 2 + 1, sy + this.h - 10, this.w / 2 - 3, 10);
+        // Knee guards
+        ctx.fillStyle = '#6c9';
+        ctx.fillRect(sx + 3, sy + this.h - 10, this.w / 2 - 5, 2);
+        ctx.fillRect(sx + this.w / 2 + 2, sy + this.h - 10, this.w / 2 - 5, 2);
+
+        // Large tower shield in facing direction
+        const shX = this.facing > 0 ? sx + this.w - 2 : sx - 7;
+        ctx.fillStyle = '#3b7';
+        ctx.fillRect(shX, sy - 6, 9, this.h + 12);
+        // Shield border
+        ctx.strokeStyle = '#2a5';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(shX + 0.5, sy - 5.5, 8, this.h + 11);
+        // Shield emblem (cross)
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(shX + 3, sy + 2, 3, this.h - 2);
+        ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 7, 3);
+        // Shield rivets
+        ctx.fillStyle = '#5a7';
+        ctx.fillRect(shX + 1, sy - 2, 2, 2);
+        ctx.fillRect(shX + 6, sy - 2, 2, 2);
+        ctx.fillRect(shX + 1, sy + this.h + 2, 2, 2);
+        ctx.fillRect(shX + 6, sy + this.h + 2, 2, 2);
+
         // Aura circle
         if (this.auraRadius > 0) {
           ctx.save();
@@ -913,7 +1051,7 @@ class Boss extends Enemy {
 
     // Keep boss in level bounds
     if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
-    if (this.x + this.w > 3200) { this.x = 3200 - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
+    if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
     if (this.y > 700) { this.y = -40; this.vy = 0; }
 
     // Contact damage

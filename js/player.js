@@ -13,6 +13,7 @@ class Player {
     this.ninjaType = 'fire';
     this.invincibleTimer = 0;
     this.bonusDamage = 0;
+    this.godMode = false;
 
     // Ultimate system
     this.ultimateCharge = 0;
@@ -116,6 +117,10 @@ class Player {
     // Stop midair
     this.stopMidair = false;
     this.stopMidairTimer = 0;
+
+    // Defeated boss/enemy tracking (for earth construct unlocks)
+    this.defeatedBossTypes = new Set();
+    this.defeatedDeflector = false;
   }
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
@@ -147,20 +152,25 @@ class Player {
         this.fireMeteorTimer = 0;
         for (let i = 0; i < 12; i++) {
           const delay = i * 15;
-          // Scatter across the visible area near camera
-          const targetX = game.camera.x + randInt(40, CANVAS_W - 40);
-          const targetY = 480; // ground level
+          // Scatter across the visible area — meteors fall diagonally from above
+          const fromLeft = Math.random() < 0.5;
+          const targetX = game.camera.x + randInt(100, CANVAS_W - 100);
+          const targetY = randInt(350, 480);
+          const offsetX = randInt(150, 300) * (fromLeft ? -1 : 1);
+          const startX = targetX + offsetX;
+          const startY = game.camera.y - randInt(40, 120);
           this.fireMeteors.push({
             delay,
-            x: targetX + randInt(-80, 80),
-            y: -40 - randInt(0, 60),
+            x: startX,
+            y: startY,
             targetX,
             targetY,
             active: false,
             done: false,
             trail: [],
             speed: 6 + Math.random() * 3,
-            size: 10 + randInt(0, 8)
+            size: 10 + randInt(0, 8),
+            fromLeft
           });
         }
         SFX.bossSpawn();
@@ -351,9 +361,10 @@ class Player {
           if (this.fireMeteorTimer < m.delay) continue;
           if (!m.active) {
             m.active = true;
-            // Start from top of screen
-            m.x = m.targetX + randInt(-40, 40);
-            m.y = game.camera.y - 40;
+            // Start from above at diagonal
+            const offsetX = randInt(150, 300) * (m.fromLeft ? -1 : 1);
+            m.x = m.targetX + offsetX;
+            m.y = game.camera.y - randInt(40, 80);
           }
           // Move toward ground at angle
           const dx = m.targetX - m.x;
@@ -397,7 +408,7 @@ class Player {
         g.x += moveX * 2.5;
         g.y += moveY * 2.5 + Math.sin(game.tick * 0.05) * 0.5;
         // Keep golem within bounds
-        g.x = Math.max(0, Math.min(3200 - g.w, g.x));
+        g.x = Math.max(0, Math.min(game.levelW - g.w, g.x));
         g.y = Math.max(-50, Math.min(480 - g.h, g.y));
         // Player position follows golem center
         this.x = g.x + g.w / 2 - this.w / 2;
@@ -511,16 +522,21 @@ class Player {
 
       // Ultimate expires
       if (this.ultimateTimer <= 0) {
-        this.ultimateActive = false;
-        this.ultimateCharge = 0;
-        this.ultimateReady = false;
-        this.ultimateMax = Math.round(this.ultimateMax * 1.2);
-        // Clean up type-specific state
-        this.earthGolem = null;
-        this.fireMeteors = [];
-        this.shadowUltBuff = false;
-        this.shadowDarkness = 0;
-        this.shadowEyesTimer = 0;
+        // Don't end fire ult while meteors are still in flight
+        if (this.ninjaType === 'fire' && this.fireMeteors.some(m => !m.done)) {
+          // keep running until all meteors land
+        } else {
+          this.ultimateActive = false;
+          this.ultimateCharge = 0;
+          this.ultimateReady = false;
+          this.ultimateMax = Math.round(this.ultimateMax * 1.2);
+          // Clean up type-specific state
+          this.earthGolem = null;
+          this.fireMeteors = [];
+          this.shadowUltBuff = false;
+          this.shadowDarkness = 0;
+          this.shadowEyesTimer = 0;
+        }
       }
     }
 
@@ -1007,7 +1023,7 @@ class Player {
           this.y = nearest.y + nearest.h / 2 - this.h / 2;
           this.facing = -behind;
           this.vx = 0; this.vy = 0;
-          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
+          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, chain: true });
           let dmg = this.type.attackDamage + this.bonusDamage;
           if (this.backstabReady || (nearest.hp !== undefined && nearest.hp <= this.shadowKillThreshold)) {
             dmg = 9999;
@@ -1021,6 +1037,8 @@ class Player {
           this.chainTimer = 6;
         } else {
           this.chainStriking = false;
+          // Start fading chain afterimages now
+          for (const a of this.afterimages) { if (a.chain) a.life = 20; }
           this.backstabReady = false;
           this.shadowStealth = 0;
         }
@@ -1053,7 +1071,11 @@ class Player {
       if (this.shadowStealth < 180 && (Math.abs(this.vx) > 0.5 || Math.abs(this.vy) > 1)) {
         this.afterimages.push({ x: this.x, y: this.y, life: 8 });
       }
-      this.afterimages = this.afterimages.filter(a => { a.life--; return a.life > 0; });
+      this.afterimages = this.afterimages.filter(a => {
+        if (a.chain && this.chainStriking) return true; // persist during chain
+        a.life--;
+        return a.life > 0;
+      });
       if (this.shadowLandTimer > 0) this.shadowLandTimer--;
       if (!this.grounded) {
         this.wasInAir = true;
@@ -1326,16 +1348,27 @@ class Player {
           }
         }
         if (supportY === null) supportY = baseY;
-        let constructType = Math.floor(Math.random() * 3);
+        // Build pool of available construct types
+        const earthPool = ['pillar', 'spike', 'golem'];
+        if (this.defeatedBossTypes.has('shooter')) earthPool.push('shooter');
+        if (this.defeatedBossTypes.has('flyer')) earthPool.push('flyer');
+        if (this.defeatedDeflector && Math.random() < 0.15) earthPool.push('deflector');
+        const pick = earthPool[Math.floor(Math.random() * earthPool.length)];
         let construct;
-        if (constructType === 0) {
+        if (pick === 'pillar') {
           let pillarY = supportY - TILE * 3;
           construct = new StonePillar(spawnX, pillarY + TILE);
           game.stonePillars.push(construct);
-        } else if (constructType === 1) {
+        } else if (pick === 'spike') {
           construct = new StoneSpike(spawnX, supportY - TILE + 4);
-        } else {
+        } else if (pick === 'golem') {
           construct = new StoneGolem(spawnX, supportY - TILE, this.facing);
+        } else if (pick === 'shooter') {
+          construct = new StoneShooter(spawnX, supportY - TILE, this.facing);
+        } else if (pick === 'flyer') {
+          construct = new StoneFlyer(spawnX, supportY - TILE * 2);
+        } else if (pick === 'deflector') {
+          construct = new StoneDeflector(spawnX, supportY - TILE, this.facing);
         }
         game.stoneBlocks.push(construct);
         game.effects.push(new Effect(spawnX + TILE / 2, supportY, '#a87', 8, 2, 12));
@@ -1387,6 +1420,8 @@ class Player {
   }
 
   takeDamage(amount, game) {
+    if (this.godMode) return;
+    if (this.earthGolem) return;
     if (this.invincibleTimer > 0) return;
     if (this.ninjaType === 'wind' && this.windPower >= 10 && Math.random() < 0.5) {
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'EVADE', '#8cf'));
@@ -1488,9 +1523,22 @@ class Player {
     if (this.ninjaType === 'shadow') {
       const stealthFade = Math.max(0, 1 - this.shadowStealth / 200);
       for (const a of this.afterimages) {
-        ctx.globalAlpha = (a.life / 20) * 0.2 * stealthFade;
-        ctx.fillStyle = '#527';
-        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+        if (a.chain) {
+          // Chain afterimages: bright and persistent, fade only after chain ends
+          const alpha = (a.chain && this.chainStriking) ? 0.5 : (a.life / 20) * 0.5;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = '#a4e';
+          ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+          // Eyes on chain afterimage
+          ctx.fillStyle = '#f0f';
+          ctx.globalAlpha = alpha * 0.8;
+          const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
+          ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+        } else {
+          ctx.globalAlpha = (a.life / 20) * 0.2 * stealthFade;
+          ctx.fillStyle = '#527';
+          ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+        }
       }
       ctx.globalAlpha = 1;
     }
@@ -1552,6 +1600,57 @@ class Player {
     ctx.fillStyle = t.accentColor;
     ctx.fillRect(sx, sy + 5, this.w, 3);
 
+    // Pointy farmer hat (kasa)
+    ctx.fillStyle = t.accentColor;
+    ctx.beginPath();
+    ctx.moveTo(sx - 6, sy + 2);
+    ctx.lineTo(sx + this.w / 2, sy - 14);
+    ctx.lineTo(sx + this.w + 6, sy + 2);
+    ctx.closePath();
+    ctx.fill();
+    // Brim
+    ctx.fillStyle = t.color;
+    ctx.fillRect(sx - 6, sy, this.w + 12, 3);
+
+    // Belt / sash
+    ctx.fillStyle = t.accentColor;
+    ctx.fillRect(sx, sy + this.h - 10, this.w, 3);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(sx, sy + this.h - 9, this.w, 1);
+
+    // Katana sheathed on back (when not attacking)
+    if (!this.attacking) {
+      ctx.save();
+      // Position on the back (opposite side of facing), tucked into belt
+      const backX = this.facing > 0 ? sx + 3 : sx + this.w - 3;
+      const beltY = sy + this.h - 10;
+      ctx.translate(backX, beltY);
+      // Angled diagonally across back, handle over shoulder
+      ctx.rotate(this.facing > 0 ? -0.45 : 0.45);
+      // Scabbard (dark, extends down from belt and up past shoulder)
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fillRect(-2, -28, 4, 32);
+      // Scabbard tip
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-2, 2, 4, 3);
+      // Scabbard mouth band
+      ctx.fillStyle = '#555';
+      ctx.fillRect(-3, -6, 6, 2);
+      // Handle wrap (extends above scabbard)
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(-2, -36, 4, 9);
+      // Handle wrap diamonds
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-1, -35 + i * 3, 2, 1);
+      // Tsuba (guard)
+      ctx.fillStyle = '#aa8';
+      ctx.fillRect(-3, -28, 6, 2);
+      // Pommel
+      ctx.fillStyle = '#888';
+      ctx.fillRect(-1, -38, 2, 3);
+      ctx.restore();
+    }
+
     // Backstab indicator
     if (this.ninjaType === 'shadow' && this.backstabReady) {
       ctx.fillStyle = '#f0f';
@@ -1597,60 +1696,73 @@ class Player {
 
     ctx.globalAlpha = 1;
 
-    // Attack slash
+    // Attack — katana moon slash
     if (this.attacking && this.attackBox) {
+      const slashProgress = 1 - this.attackTimer / 12;
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
+      const dir = this.facing;
+
+      // Katana blade swinging
       ctx.save();
-      ctx.globalAlpha = 0.45;
-      const arcCx = this.attackBox.x - cam.x + this.attackBox.w / 2;
-      const arcCy = this.attackBox.y - cam.y + this.attackBox.h / 2;
-      ctx.translate(arcCx, arcCy);
-      if (!this._arcRandomized || !this.attacking) {
-        this._lastArcAngle = (Math.random() - 0.5) * 1.2;
-        this._arcRandomized = true;
-      }
-      if (!this.attacking) this._arcRandomized = false;
-      ctx.rotate((this.facing > 0 ? -0.25 : Math.PI + 0.25) + this._lastArcAngle);
-      const arcStart = Math.PI * 0.15;
-      const arcEnd = Math.PI * 0.85;
-      const arcR = this.attackBox.w * 0.8;
+      ctx.translate(cx, cy);
+      if (dir < 0) ctx.scale(-1, 1);
+      const startA = -Math.PI * 0.65;
+      const sweep = Math.PI * 1.0;
+      const curA = startA + sweep * slashProgress;
+      ctx.rotate(curA);
+
+      // Blade
+      ctx.fillStyle = '#dde';
       ctx.beginPath();
-      ctx.arc(0, 0, arcR, arcStart, arcEnd, false);
-      ctx.arc(0, 0, this.attackBox.w * 0.45, arcEnd, arcStart, true);
+      ctx.moveTo(6, -1.5);
+      ctx.lineTo(32, -0.8);
+      ctx.lineTo(36, 0);
+      ctx.lineTo(32, 0.8);
+      ctx.lineTo(6, 1.5);
       ctx.closePath();
-      ctx.fillStyle = t.accentColor;
-      ctx.shadowColor = t.accentColor;
-      ctx.shadowBlur = 12;
       ctx.fill();
-      ctx.shadowBlur = 0;
-      // Katana blade
-      ctx.save();
-      ctx.globalAlpha = 1;
-      ctx.rotate(0);
-      ctx.beginPath();
-      ctx.moveTo(-8, -2.5);
-      ctx.quadraticCurveTo(2, -7, 18, 0);
-      ctx.lineTo(18, 0.8);
-      ctx.quadraticCurveTo(2, 6, -8, 2.5);
-      ctx.closePath();
-      ctx.fillStyle = '#e0e0e0';
-      ctx.strokeStyle = '#b0b0b0';
-      ctx.lineWidth = 1.2;
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-7, -1.2);
-      ctx.quadraticCurveTo(2, -5, 17, 0.2);
       ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(8, -1);
+      ctx.lineTo(34, 0);
       ctx.stroke();
-      ctx.restore();
-      // Hilt
-      ctx.save();
-      ctx.globalAlpha = 0.9;
-      ctx.rotate(0);
+      // Tsuba
+      ctx.fillStyle = '#aa8';
+      ctx.fillRect(4, -3.5, 3, 7);
+      // Handle
       ctx.fillStyle = t.accentColor;
-      ctx.fillRect(-12, -7, 6, 14);
+      ctx.fillRect(-5, -2, 10, 4);
+      ctx.fillStyle = '#222';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 3, -2, 1, 4);
       ctx.restore();
+
+      // Moon / crescent slash trail
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (dir < 0) ctx.scale(-1, 1);
+      const moonAlpha = 0.5 * (1 - slashProgress * 0.7);
+      ctx.globalAlpha = moonAlpha;
+      const outerR = 34;
+      const innerR = 22;
+      const offsetX = -8;
+      const offsetY = -4;
+      const aStart = startA + sweep * Math.max(0, slashProgress - 0.45);
+      const aEnd = startA + sweep * slashProgress;
+      ctx.beginPath();
+      ctx.arc(0, 0, outerR, aStart, aEnd, false);
+      // Inner arc carved out with offset to form crescent
+      ctx.arc(offsetX, offsetY, innerR, aEnd, aStart, true);
+      ctx.closePath();
+      ctx.fillStyle = t.accentColor;
+      ctx.fill();
+      // Bright edge on the outer rim
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, outerR, aStart, aEnd, false);
+      ctx.stroke();
       ctx.restore();
     }
   }

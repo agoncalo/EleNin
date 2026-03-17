@@ -19,6 +19,9 @@ class Game {
     this.deaths = 0;
     this.lives = 3;
     this.gameOver = false;
+    this.levelType = 'open';
+    this.levelW = 3200;
+    this.levelH = 540;
 
     // Wave / spawn system
     this.wave = 1;
@@ -44,6 +47,28 @@ class Game {
   }
 
   buildLevel() {
+    this.platforms = [];
+    this.spikes = [];
+    const waveDef = WAVE_DEFS[this.wave - 1];
+    const bossType = waveDef ? waveDef.boss : 'walker';
+    // Flying bosses → TOWER, miniboss types → ARENA, else OPEN
+    if (bossType === 'flyer' || bossType === 'flyshooter') {
+      this.levelType = 'tower';
+    } else if (bossType === 'deflector' || bossType === 'protector' || bossType === 'attacker') {
+      this.levelType = 'arena';
+    } else {
+      this.levelType = 'open';
+    }
+    switch (this.levelType) {
+      case 'arena': this.buildArena(); break;
+      case 'tower': this.buildTower(); break;
+      default: this.buildOpen(); break;
+    }
+  }
+
+  buildOpen() {
+    this.levelW = 3200;
+    this.levelH = 540;
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
     const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
@@ -119,6 +144,122 @@ class Game {
     P(3200, 0, 32, 540, '#444');
   }
 
+  buildArena() {
+    this.levelW = 1200;
+    this.levelH = 540;
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
+    const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
+
+    // Ground
+    P(0, 480, 1200, 60, '#555');
+
+    // Side walls
+    P(-32, 0, 32, 540, '#444');
+    P(1200, 0, 32, 540, '#444');
+
+    // Layer 1 — lower platforms
+    P(80, 400, 200, 16, '#666');
+    P(500, 400, 200, 16, '#666');
+    P(920, 400, 200, 16, '#666');
+
+    // Layer 2 — mid platforms
+    P(200, 310, 180, 16, '#777');
+    P(510, 310, 180, 16, '#777');
+    P(820, 310, 180, 16, '#777');
+
+    // Layer 3 — top platforms
+    P(350, 220, 160, 16, '#888');
+    P(690, 220, 160, 16, '#888');
+
+    // Thin platforms scattered
+    TP(50, 340, 100);
+    TP(350, 360, 80);
+    TP(770, 360, 80);
+    TP(1050, 340, 100);
+    TP(150, 260, 90);
+    TP(560, 260, 80);
+    TP(950, 260, 90);
+    TP(450, 170, 80);
+    TP(670, 170, 80);
+
+    // Spikes
+    S(300, 468, 48);
+    S(550, 468, 48);
+    S(850, 468, 48);
+    S(400, 304, 36);
+    S(720, 304, 36);
+  }
+
+  buildTower() {
+    this.levelW = 960;
+    this.levelH = 1200;
+    const ox = 80; // center offset — tower is 800px wide in 960px canvas
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(x + ox, y, w, h, c));
+    const TP = (x, y, w) => { const p = new Platform(x + ox, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
+    const S = (x, y, w) => this.spikes.push(new Spike(x + ox, y, w));
+
+    // Side walls (full height)
+    P(-32, -660, 32, 1900, '#444');
+    P(800, -660, 32, 1900, '#444');
+
+    // Bottom: spikes instead of ground
+    S(0, 488, 800);
+
+    // Starting platform at bottom
+    P(200, 440, 250, 16, '#666');
+
+    // Ascending — sparse platforms with gaps to fall through
+    // Floor 1 — left only
+    P(50, 370, 130, 16, '#666');
+    TP(550, 390, 90);
+
+    // Floor 2 — right only with wall ledge
+    P(550, 310, 140, 16, '#777');
+    P(704, 300, 16, 50, '#686');
+
+    // Floor 3 — center narrow
+    P(300, 250, 120, 16, '#777');
+
+    // Floor 4 — left with L
+    P(50, 190, 130, 16, '#888');
+    P(50, 170, 16, 40, '#686');
+    TP(450, 200, 80);
+
+    // Floor 5 — right only
+    P(580, 130, 130, 16, '#777');
+
+    // Floor 6 — center narrow + gap
+    P(200, 60, 110, 16, '#888');
+    TP(550, 70, 80);
+
+    // Floor 7 — left with wall climb
+    P(80, -10, 120, 16, '#777');
+    P(650, -20, 70, 16, '#686');
+    P(704, -20, 16, 40, '#686');
+
+    // Floor 8 — center
+    P(320, -80, 130, 16, '#888');
+
+    // Floor 9 — right only
+    P(550, -150, 120, 16, '#777');
+    TP(150, -140, 80);
+
+    // Floor 10 — left
+    P(80, -220, 130, 16, '#888');
+
+    // Top platform
+    P(250, -280, 300, 16, '#999');
+
+    // Wall-climbing ledges (sparse, alternating)
+    P(0, 330, 25, 10, '#555');
+    P(775, 240, 25, 10, '#555');
+    P(0, 120, 25, 10, '#555');
+    P(775, 30, 25, 10, '#555');
+    P(0, -80, 25, 10, '#555');
+    P(775, -170, 25, 10, '#555');
+  }
+
   spawnEnemy() {
     const waveDef = WAVE_DEFS[this.wave - 1];
     let totalW = 0;
@@ -137,9 +278,13 @@ class Game {
     }
     const isFlying = (pick.type === 'flyer' || pick.type === 'flyshooter');
     const side = Math.random() < 0.5 ? -1 : 1;
-    let x = this.player.x + side * randInt(350, 550);
+    const spawnDist = this.levelW < 1000 ? randInt(150, 300) : randInt(350, 550);
+    let x = this.player.x + side * spawnDist;
     let y = isFlying ? randInt(50, 250) : -40;
-    x = Math.max(40, Math.min(3140, x));
+    if (this.levelType === 'tower') y = Math.min(this.player.y - 100, 200);
+    const xMin = this.levelType === 'tower' ? 120 : 40;
+    const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
+    x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
     this.enemies.push(e);
     this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#fff', 6, 3, 10));
@@ -147,7 +292,9 @@ class Game {
 
   spawnBoss() {
     const waveDef = WAVE_DEFS[this.wave - 1];
-    this.boss = new Boss(this.player.x + 300, 300, waveDef.boss, this.wave);
+    let bx = Math.min(this.player.x + 300, this.levelW - 100);
+    let by = this.levelType === 'tower' ? 100 : 300;
+    this.boss = new Boss(bx, by, waveDef.boss, this.wave);
     this.bossActive = true;
     this.bossMessage = 180;
     this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, '#f44', 25, 6, 25));
@@ -164,11 +311,24 @@ class Game {
       SFX.victory();
       return;
     }
+    // Track defeated boss type for earth construct unlocks
+    const waveDef = WAVE_DEFS[this.wave - 1];
+    if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     this.wave++;
     this.waveKills = 0;
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
+    this.enemies = [];
+    const oldLevelType = this.levelType;
+    this.buildLevel();
+    // Only reposition player if level type changed
+    if (this.levelType !== oldLevelType) {
+      this.player.x = this.levelType === 'tower' ? 380 : 100;
+      this.player.y = this.levelType === 'tower' ? 400 : 300;
+      this.player.vx = 0;
+      this.player.vy = 0;
+    }
     this.spawnTimer = -120;
     SFX.wave();
     this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
@@ -209,6 +369,11 @@ class Game {
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
       this.advanceWave();
     }
+    // Cheat: 0 to toggle god mode
+    if (consumePress('Digit0') || consumePress('Numpad0')) {
+      this.player.godMode = !this.player.godMode;
+      this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
+    }
     // Cheat: - to spawn boss / fill ultimate
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
       if (!this.bossActive) {
@@ -230,8 +395,8 @@ class Game {
       const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
       this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
       this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-      this.camera.x = Math.max(0, Math.min(this.camera.x, 3200 - CANVAS_W));
-      this.camera.y = Math.max(-100, Math.min(this.camera.y, 540 - CANVAS_H));
+      this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
+      this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
       return; // Skip all other updates during cutscene
     }
 
@@ -315,24 +480,34 @@ class Game {
     const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
     this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
     this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-    this.camera.x = Math.max(0, Math.min(this.camera.x, 3200 - CANVAS_W));
-    this.camera.y = Math.max(-100, Math.min(this.camera.y, 540 - CANVAS_H));
+    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
+    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
   }
 
   render() {
     const cam = this.camera;
 
     // Sky gradient
+    const fireUltSky = this.player.ultimateActive && this.player.ninjaType === 'fire';
+    const shadowUltSky = this.player.ultimateActive && this.player.ninjaType === 'shadow';
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    grad.addColorStop(0, '#0a0a2e');
-    grad.addColorStop(1, '#1a1a3e');
+    if (fireUltSky) {
+      grad.addColorStop(0, '#4a0a0a');
+      grad.addColorStop(1, '#2a0808');
+    } else if (shadowUltSky) {
+      grad.addColorStop(0, '#050510');
+      grad.addColorStop(1, '#080818');
+    } else {
+      grad.addColorStop(0, '#0a0a2e');
+      grad.addColorStop(1, '#1a1a3e');
+    }
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     // Background stars
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     for (let i = 0; i < 50; i++) {
-      const sx = ((i * 137 + 50) % 3200) - cam.x * 0.3;
+      const sx = ((i * 137 + 50) % this.levelW) - cam.x * 0.3;
       const sy = ((i * 97 + 30) % 400);
       if (sx > -5 && sx < CANVAS_W + 5) {
         ctx.fillRect(sx, sy, 2, 2);
@@ -340,8 +515,8 @@ class Game {
     }
 
     // Background mountains
-    ctx.fillStyle = '#1a1a3a';
-    for (let i = 0; i < 3200; i += 200) {
+    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : '#1a1a3a');
+    for (let i = 0; i < this.levelW; i += 200) {
       const bx = i - cam.x * 0.2;
       if (bx > -200 && bx < CANVAS_W + 200) {
         ctx.beginPath();
@@ -370,9 +545,19 @@ class Game {
     for (const b of this.stoneBlocks) b.render(ctx, cam);
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
+    this.player.render(ctx, cam);
+
+    // Shadow ultimate: darken everything except enemies
+    if (this.player.ninjaType === 'shadow' && this.player.shadowDarkness > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.player.shadowDarkness;
+      ctx.fillStyle = '#1a0a2e';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
-    this.player.render(ctx, cam);
 
     // ── Ultimate cutscene / active rendering ──
 
@@ -480,14 +665,7 @@ class Game {
       ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
     }
 
-    // Shadow ultimate: darkness overlay + glowing eyes
-    if (this.player.ninjaType === 'shadow' && this.player.shadowDarkness > 0) {
-      ctx.save();
-      ctx.globalAlpha = this.player.shadowDarkness;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-      ctx.restore();
-    }
+    // Shadow ultimate: glowing eyes (darkness now renders before platforms)
     if (this.player.ninjaType === 'shadow' && this.player.shadowEyesTimer > 0) {
       ctx.save();
       const eyeAlpha = Math.min(1, this.player.shadowEyesTimer / 20);

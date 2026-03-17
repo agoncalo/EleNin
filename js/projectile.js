@@ -18,6 +18,7 @@ class Trimerang {
     this.orbitAngle = Math.random() * Math.PI * 2;
     this.orbitRadius = 60 + Math.random() * 30;
     this.burstAngle = 0;
+    this.burstPhase = 0;
   }
   update(game) {
     const pl = game.player;
@@ -41,9 +42,24 @@ class Trimerang {
         const burstSpeed = 12;
         this.vx = Math.cos(this.burstAngle) * burstSpeed;
         this.vy = Math.sin(this.burstAngle) * burstSpeed;
-        this.life = 120; // travel for 2 seconds then expire
+        this.life = 180;
+        this.burstPhase = 60; // fly straight before homing
         game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
       }
+      return;
+    }
+
+    // Burst phase: fly straight, no homing, no player catch
+    if (this.burstPhase > 0) {
+      this.burstPhase--;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= 0.97;
+      this.vy *= 0.97;
+      this.angle += this.spin;
+      this.life--;
+      if (this.life <= 0) { this.done = true; return; }
+      this._damageEnemies(game);
       return;
     }
 
@@ -490,6 +506,23 @@ class Projectile {
       ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.9, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
+    }
+    if (this.isShuriken) {
+      ctx.save();
+      const scx = sx + this.w / 2, scy = sy + this.h / 2;
+      ctx.translate(scx, scy);
+      ctx.rotate(this.life * 0.4);
+      ctx.fillStyle = '#ccc';
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(-1, -5, 2, 5);
+        ctx.rotate(Math.PI / 2);
+      }
+      ctx.fillStyle = '#888';
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
     }
     ctx.fillStyle = this.color;
     ctx.fillRect(sx, sy, this.w, this.h);
