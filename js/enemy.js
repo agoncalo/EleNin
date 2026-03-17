@@ -939,6 +939,8 @@ class Boss extends Enemy {
     this.shieldMax = this.shieldHp;
     this.stuckTimer = 0;
     this.phaseThrough = 0;
+    this.dropThrough = 0;
+    this.dropCooldown = 0;
     this.lastX = x;
     this.lastY = y;
     const colors = {
@@ -1260,6 +1262,27 @@ class Boss extends Enemy {
       }
     }
 
+    // Descend platforms if player is below
+    if (this.dropThrough > 0) this.dropThrough--;
+    if (this.dropCooldown > 0) this.dropCooldown--;
+    if (!this.flying && this.grounded && this.dropCooldown <= 0 && dy > 60) {
+      // Check if standing on a platform (not ground floor)
+      let onPlatform = false;
+      for (const p of game.platforms) {
+        if (Math.abs(this.y + this.h - p.y) < 4 && this.x + this.w > p.x && this.x < p.x + p.w) {
+          // Only drop through platforms that aren't the ground floor
+          if (p.y < 480) { onPlatform = true; break; }
+        }
+      }
+      if (onPlatform) {
+        this.dropThrough = 12;
+        this.dropCooldown = 90;
+        this.y += 4;
+        this.vy = 2;
+        this.grounded = false;
+      }
+    }
+
     // Apply velocity
     this.x += this.vx;
     this.y += this.vy;
@@ -1287,7 +1310,9 @@ class Boss extends Enemy {
       this.grounded = false;
       for (const p of game.platforms) {
         if (rectOverlap(this, p)) {
-          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          if (this.dropThrough > 0) {
+            // Falling through platform intentionally
+          } else if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
             this.y = p.y - this.h;
             this.vy = 0;
             this.grounded = true;
