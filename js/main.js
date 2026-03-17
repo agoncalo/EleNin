@@ -29,12 +29,29 @@ function gameLoop(timestamp) {
       accumulator -= FIXED_DT;
       continue;
     }
+    // Pause toggle (Escape)
+    if (consumePress('Escape') || gpJust[9]) {
+      if (!game.gameOver && !game.gameWon) {
+        togglePause();
+        clearFrameInput();
+        accumulator -= FIXED_DT;
+        continue;
+      }
+    }
+    if (pauseMenu.active) {
+      pauseUpdate();
+      clearFrameInput();
+      accumulator -= FIXED_DT;
+      continue;
+    }
     game.update();
     accumulator -= FIXED_DT;
     clearFrameInput();
   }
 
   game.render();
+  renderPauseMenu(ctx);
+  renderToast(ctx);
   requestAnimationFrame(gameLoop);
 }
 

@@ -148,6 +148,7 @@ class Player {
     this.invincibleTimer = 999; // invincible during cutscene
     SFX.victory();
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 30));
+    recordUltimate(this.ninjaType);
   }
 
   // Called when float phase ends — triggers the actual ultimate effect
@@ -1685,6 +1686,7 @@ class Player {
       game.lives--;
       if (game.lives <= 0) {
         game.gameOver = true;
+        recordGameOver(game.totalKills);
       }
     }
   }

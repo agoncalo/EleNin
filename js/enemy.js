@@ -435,6 +435,9 @@ class Enemy {
   onDeath(game) {
     game.waveKills++;
     game.totalKills++;
+    // Track kill for achievements & bestiary
+    recordKill(game.player.ninjaType);
+    recordBestiaryKill(this.type, this.big, false);
     // Track deflector kill for earth construct unlock
     if (this.type === 'deflector') game.player.defeatedDeflector = true;
     SFX.enemyDie();
@@ -1276,6 +1279,8 @@ class Boss extends Enemy {
     triggerHitstop(10);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 30, 6, 30));
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 20, 5, 25));
+    // Track boss kill for bestiary
+    recordBestiaryKill(this.bossType, false, true);
     // Boss death does NOT count as a waveKill or drop orbs
   }
 

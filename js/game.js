@@ -318,6 +318,7 @@ class Game {
         this.boss = null;
         this.bossActive = false;
         this.showWaveMessage('GAME OVER, CHEATER!');
+        recordCheaterEnding();
         return;
       }
       this.gameWon = true;
@@ -325,11 +326,13 @@ class Game {
       this.bossActive = false;
       this.showWaveMessage('VICTORY!');
       SFX.victory();
+      recordGoodEnding();
       return;
     }
     // Track defeated boss type for earth construct unlocks
     const waveDef = WAVE_DEFS[this.wave - 1];
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
+    recordWaveClear(this.wave, this.player.ninjaType);
     this.wave++;
     this.waveKills = 0;
     this.spawnedMiniboss = new Set();
@@ -355,7 +358,7 @@ class Game {
     this.tick++;
     pollGamepad();
 
-    if ((this.gameWon || this.gameOver) && (consumePress('KeyR') || gpJust[9])) {
+    if ((this.gameWon || this.gameOver) && (consumePress('KeyR'))) {
       Object.assign(this, new Game());
       return;
     }
@@ -385,6 +388,7 @@ class Game {
     // Cheat: + to skip wave
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       this.cheated = true;
+      recordCheatUsed();
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
       // Grant average stats for the wave being skipped
       const waveDef = WAVE_DEFS[this.wave - 1];
@@ -409,12 +413,14 @@ class Game {
     // Cheat: 0 to toggle god mode
     if (consumePress('Digit0') || consumePress('Numpad0')) {
       this.cheated = true;
+      recordCheatUsed();
       this.player.godMode = !this.player.godMode;
       this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
     }
     // Cheat: - to spawn boss / fill ultimate
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
       this.cheated = true;
+      recordCheatUsed();
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
