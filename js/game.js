@@ -707,24 +707,24 @@ class Game {
       // Hover glow
       ctx.save();
       ctx.globalAlpha = 0.2;
-      ctx.fillStyle = '#8d8';
+      ctx.fillStyle = '#a87040';
       ctx.fillRect(gx - 4, gy + g.h - 6, g.w + 8, 8);
       ctx.restore();
       // Body
-      ctx.fillStyle = '#3a6a3a';
+      ctx.fillStyle = '#6b4226';
       ctx.fillRect(gx + 8, gy + 20, g.w - 16, g.h - 24);
       // Shoulders
-      ctx.fillStyle = '#4a8a4a';
+      ctx.fillStyle = '#8b5e3c';
       ctx.fillRect(gx, gy + 16, g.w, 20);
       // Head
-      ctx.fillStyle = '#5a9a5a';
+      ctx.fillStyle = '#9a6e4c';
       ctx.fillRect(gx + 18, gy, 28, 20);
       // Eyes
       ctx.fillStyle = '#ff0';
       ctx.fillRect(gx + 22 + (g.facing > 0 ? 8 : 0), gy + 6, 6, 6);
       ctx.fillRect(gx + 32 + (g.facing > 0 ? 4 : -4), gy + 6, 6, 6);
       // Arms
-      ctx.fillStyle = '#4a8a4a';
+      ctx.fillStyle = '#8b5e3c';
       const armOffsetX = g.punchTimer > 0 ? g.facing * 20 : 0;
       const armLx = gx - 12 + (g.facing < 0 ? armOffsetX : 0);
       const armRx = gx + g.w + (g.facing > 0 ? armOffsetX : 0);
@@ -739,21 +739,70 @@ class Game {
         ctx.fill();
       }
       // Legs
-      ctx.fillStyle = '#2a5a2a';
+      ctx.fillStyle = '#5a3a1a';
       ctx.fillRect(gx + 14, gy + g.h - 8, 12, 8);
       ctx.fillRect(gx + g.w - 26, gy + g.h - 8, 12, 8);
       // HP bar
       if (g.hp < g.maxHp) {
         ctx.fillStyle = '#400';
         ctx.fillRect(gx, gy - 8, g.w, 4);
-        ctx.fillStyle = '#4d4';
+        ctx.fillStyle = '#4a7a3a';
         ctx.fillRect(gx, gy - 8, g.w * (g.hp / g.maxHp), 4);
       }
       // Timer bar
       ctx.fillStyle = '#222';
       ctx.fillRect(gx, gy - 4, g.w, 2);
-      ctx.fillStyle = '#8d8';
+      ctx.fillStyle = '#a87040';
       ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
+    }
+
+    // Bubble ultimate: render ride bubble
+    if (this.player.bubbleRide) {
+      const b = this.player.bubbleRide;
+      const bx = b.x - cam.x;
+      const by = b.y - cam.y;
+      const cx = bx + b.w / 2;
+      const cy = by + b.h / 2;
+      const r = b.w / 2;
+      // Outer glow
+      ctx.save();
+      ctx.globalAlpha = 0.15 + Math.sin(this.tick * 0.08) * 0.05;
+      ctx.fillStyle = '#4af';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Main bubble
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#4af';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Outline
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = '#8cf';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      // Shine highlight
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // HP bar
+      if (b.hp < b.maxHp) {
+        ctx.fillStyle = '#234';
+        ctx.fillRect(bx, by - 8, b.w, 4);
+        ctx.fillStyle = '#4af';
+        ctx.fillRect(bx, by - 8, b.w * (b.hp / b.maxHp), 4);
+      }
+      // Timer bar
+      ctx.fillStyle = '#222';
+      ctx.fillRect(bx, by - 4, b.w, 2);
+      ctx.fillStyle = '#8cf';
+      ctx.fillRect(bx, by - 4, b.w * (b.timer / 420), 2);
     }
 
     // Storm ultimate: rain rendering
@@ -956,7 +1005,7 @@ class Game {
     } else if (pl.ninjaType === 'wind') {
       elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
     } else if (pl.ninjaType === 'earth') {
-      elemBarVal = this.stoneBlocks.length; elemBarMax = 10; elemBarColor = '#a87'; elemBarGlow = this.stoneBlocks.length >= 10; elemBarLabel = 'Blocks';
+      elemBarVal = this.stoneBlocks.length; elemBarMax = 10; elemBarColor = '#8b5e3c'; elemBarGlow = this.stoneBlocks.length >= 10; elemBarLabel = 'Blocks';
     } else if (pl.ninjaType === 'storm') {
       // Count soaked enemies
       let soakedCount = 0;

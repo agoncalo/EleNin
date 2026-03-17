@@ -148,19 +148,24 @@ class DiamondShard {
     this.speed = 0; // starts frozen, builds momentum
     let target = null;
     let minDist = Infinity;
+    const pFacing = game && game.player ? game.player.facing : 1;
     if (game) {
       for (const e of game.enemies) {
         if (e.dead) continue;
         const dx = (e.x + e.w / 2) - x;
         const dy = (e.y + e.h / 2) - y;
+        // Skip enemies directly behind the ninja (within ~90° cone behind)
+        if (dx * pFacing < 0 && Math.abs(dy) < Math.abs(dx)) continue;
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d < minDist) { minDist = d; target = e; }
       }
       if (game.boss && !game.boss.dead) {
         const dx = (game.boss.x + game.boss.w / 2) - x;
         const dy = (game.boss.y + game.boss.h / 2) - y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < minDist) { minDist = d; target = game.boss; }
+        if (!(dx * pFacing < 0 && Math.abs(dy) < Math.abs(dx))) {
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < minDist) { minDist = d; target = game.boss; }
+        }
       }
     }
     if (target) {
@@ -385,15 +390,14 @@ class Projectile {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
 
-          // Shielded: block projectiles from the front (shield is indestructible)
+          // Shielded: block projectiles from the front (shield is indestructible, stops even piercing)
           if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
             e.flashTimer = 4;
             game.effects.push(new Effect(
               e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
             ));
-            if (!this.piercing) { this.done = true; return; }
-            this.hitSet.add(e);
-            continue;
+            this.done = true;
+            return;
           }
 
           // Deflector: deflect projectiles back (always deflects when ready, any direction)

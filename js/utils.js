@@ -52,20 +52,24 @@ function damageInRadius(game, cx, cy, radius, damage, fromX) {
 }
 
 // Find nearest enemy or boss with line of sight from a point
-function findNearestTarget(x, y, game) {
+function findNearestTarget(x, y, game, facing) {
   let nearest = null, bestDist = Infinity;
   for (const e of game.enemies) {
     if (e.dead) continue;
     if (!hasLineOfSight(x, y, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
     const dx = (e.x + e.w / 2) - x, dy = (e.y + e.h / 2) - y;
+    // Skip enemies directly behind the ninja (~90° cone behind)
+    if (facing && dx * facing < 0 && Math.abs(dy) < Math.abs(dx)) continue;
     const d = dx * dx + dy * dy;
     if (d < bestDist) { bestDist = d; nearest = e; }
   }
   if (game.boss && !game.boss.dead) {
     if (hasLineOfSight(x, y, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
       const dx = (game.boss.x + game.boss.w / 2) - x, dy = (game.boss.y + game.boss.h / 2) - y;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) { bestDist = d; nearest = game.boss; }
+      if (!(facing && dx * facing < 0 && Math.abs(dy) < Math.abs(dx))) {
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; nearest = game.boss; }
+      }
     }
   }
   return nearest;
@@ -73,10 +77,11 @@ function findNearestTarget(x, y, game) {
 
 // Fire a projectile at the nearest enemy or boss with line of sight
 function fireProjectileAtNearestEnemy({
-  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false
+  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false, facing = 0
 }) {
-  const nearest = findNearestTarget(x, y, game);
-  let vx = speed, vy = 0;
+  const nearest = findNearestTarget(x, y, game, facing);
+  const fallbackDir = facing || 1;
+  let vx = speed * fallbackDir, vy = 0;
   if (nearest) {
     const dx = (nearest.x + nearest.w / 2) - x;
     const dy = (nearest.y + nearest.h / 2) - y;

@@ -15,7 +15,7 @@ const ENEMY_ELEMENTS = ['fire', 'earth', 'water', 'crystal', 'wind', 'lightning'
 // Colors for each element
 const ELEMENT_COLORS = {
   fire:      { body: '#d44', accent: '#f93', glow: '#f60', particle: '#fa3' },
-  earth:     { body: '#8a5', accent: '#a87', glow: '#7a4', particle: '#a96' },
+  earth:     { body: '#96622d', accent: '#b8864e', glow: '#7a4a1a', particle: '#a67540' },
   water:     { body: '#46a', accent: '#6af', glow: '#38d', particle: '#4af' },
   crystal:   { body: '#2bb', accent: '#aff', glow: '#0dd', particle: '#8ff' },
   wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },
@@ -119,8 +119,8 @@ const NINJA_TYPES = {
   },
   earth: {
     name: 'Earth Ninja',
-    color: '#7a5',
-    accentColor: '#a87',
+    color: '#8b5e3c',
+    accentColor: '#4a7a3a',
     key: '2',
     attackDamage: 2,
     jumpPower: -10,

@@ -11,7 +11,7 @@ class Player {
     this.shield = 0;
     this.maxShield = 0;
     this.ninjaType = 'fire';
-    this.invincibleTimer = 0;
+    this.invincibleTimer = 90;
     this.bonusDamage = 0;
     this.godMode = false;
 
@@ -34,8 +34,8 @@ class Player {
     // Earth ultimate: stone golem mecha
     this.earthGolem = null; // { timer, facing, punchTimer, shootTimer, x, y, w, h, hp }
 
-    // Bubble ultimate: replication cascade
-    this.bubbleReplicationTimer = 0;
+    // Bubble ultimate: ride inside a big bubble
+    this.bubbleRide = null; // { timer, hp, maxHp, x, y, w, h, facing, contactCd, trailTimer }
 
     // Shadow ultimate: darkness + eyes
     this.shadowDarkness = 0;    // 0-1 overlay alpha
@@ -269,16 +269,22 @@ class Player {
         break;
 
       case 'bubble':
-        // Bubble replication: existing bubbles replicate, plus a big initial wave
-        this.ultimateTimer = 300; // 5 seconds of ongoing replication
-        this.bubbleReplicationTimer = 0;
-        // Initial burst — 10 bubbles scattered across the level
-        for (let i = 0; i < 10; i++) {
-          const bx = game.camera.x + randInt(40, CANVAS_W - 40);
-          const by = randInt(80, 380);
-          game.bubbles.push(new Bubble(bx, by, this.type.attackDamage + this.bonusDamage));
-        }
+        // Ride inside a big bubble
+        this.ultimateTimer = 420; // 7 seconds
+        this.bubbleRide = {
+          timer: 420,
+          hp: 15,
+          maxHp: 15,
+          x: this.x - 26,
+          y: this.y - 26,
+          w: 76,
+          h: 76,
+          facing: this.facing,
+          contactCd: 0,
+          trailTimer: 0
+        };
         SFX.special();
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 25, 6, 20));
         break;
 
       case 'shadow':
@@ -386,7 +392,7 @@ class Player {
 
   switchNinja(type) {
     if (this.ninjaType === type) return;
-    if (this.ultCutscene || this.earthGolem) return; // Can't switch during ultimate cutscene or golem
+    if (this.ultCutscene || this.earthGolem || this.bubbleRide) return; // Can't switch during ultimate cutscene, golem, or bubble ride
     this.ninjaType = type;
     this.comboMeter = 0;
     this.comboTimer = 0;
@@ -575,9 +581,9 @@ class Player {
           const px = g.x + (g.facing > 0 ? g.w + 4 : -12);
           const py = g.y + g.h / 2;
           const golemDmg = this.type.attackDamage + this.bonusDamage;
-          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#8d8', golemDmg + 4, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#8d8', golemDmg + 2, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#8d8', golemDmg + 2, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#a87040', golemDmg + 4, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#a87040', golemDmg + 2, 'player'));
+          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#a87040', golemDmg + 2, 'player'));
           SFX.shuriken();
         }
 
@@ -589,24 +595,75 @@ class Player {
         }
       }
 
-      // Bubble: ongoing replication
-      if (this.ninjaType === 'bubble') {
-        this.bubbleReplicationTimer++;
-        // Every 40 frames, each existing bubble spawns a child nearby
-        if (this.bubbleReplicationTimer % 40 === 0) {
-          const existing = game.bubbles.filter(b => !b.done);
-          const maxNew = Math.min(existing.length, 6); // cap spawns per wave
-          for (let i = 0; i < maxNew; i++) {
-            const parent = existing[i];
-            const bx = parent.x + randInt(-60, 60);
-            const by = parent.y + randInt(-40, 40);
+      // Bubble: ride inside big bubble
+      if (this.ninjaType === 'bubble' && this.bubbleRide) {
+        const b = this.bubbleRide;
+        b.timer--;
+        // Movement — hover like golem but faster
+        let moveX = 0, moveY = 0;
+        if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
+        if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
+        if (keys['ArrowUp'] || keys['KeyW'] || touchState.up || gpState.axes[1] < -0.3) moveY = -1;
+        if (keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.axes[1] > 0.3) moveY = 1;
+        if (moveX !== 0) { b.facing = moveX; this.facing = moveX; }
+        b.x += moveX * 4.5;
+        b.y += moveY * 4.5 + Math.sin(game.tick * 0.06) * 0.6;
+        b.x = Math.max(0, Math.min(game.levelW - b.w, b.x));
+        b.y = Math.max(-50, Math.min(480 - b.h, b.y));
+        // Player follows bubble center
+        this.x = b.x + b.w / 2 - this.w / 2;
+        this.y = b.y + b.h / 2 - this.h / 2;
+        this.vy = 0;
+        this.grounded = false;
+
+        // Contact damage
+        if (b.contactCd > 0) b.contactCd--;
+        if (b.contactCd <= 0) {
+          const bBox = { x: b.x, y: b.y, w: b.w, h: b.h };
+          for (const e of game.enemies) {
+            if (!e.dead && rectOverlap(bBox, e)) {
+              e.takeDamage(this.type.attackDamage + this.bonusDamage + 2, game, b.x + b.w / 2);
+              const kd = Math.sign(e.x + e.w / 2 - (b.x + b.w / 2)) || 1;
+              e.vx = kd * 5;
+              e.vy = -3;
+              b.contactCd = 10;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4af', 8, 3, 10));
+              break;
+            }
+          }
+          if (b.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap({ x: b.x, y: b.y, w: b.w, h: b.h }, game.boss)) {
+            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 2, game, b.x + b.w / 2);
+            b.contactCd = 10;
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4af', 12, 4, 14));
+          }
+        }
+
+        // Trail bubbles
+        b.trailTimer++;
+        if (b.trailTimer % 12 === 0) {
+          game.bubbles.push(new Bubble(
+            b.x + b.w / 2 + randInt(-20, 20),
+            b.y + b.h / 2 + randInt(-10, 10),
+            this.type.attackDamage + this.bonusDamage
+          ));
+        }
+
+        // Bubble expires
+        if (b.timer <= 0 || b.hp <= 0) {
+          // Burst
+          SFX.slam();
+          damageInRadius(game, b.x + b.w / 2, b.y + b.h / 2, 120, (this.type.attackDamage + this.bonusDamage) * 2, b.x + b.w / 2);
+          game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#4af', 30, 8, 22));
+          game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#8cf', 20, 6, 18));
+          // Scatter trail bubbles on burst
+          for (let i = 0; i < 6; i++) {
             game.bubbles.push(new Bubble(
-              Math.max(40, Math.min(3160, bx)),
-              Math.max(40, Math.min(440, by)),
-              this.type.attackDamage
+              b.x + b.w / 2 + randInt(-80, 80),
+              b.y + b.h / 2 + randInt(-60, 40),
+              this.type.attackDamage + this.bonusDamage
             ));
           }
-          if (maxNew > 0) SFX.special();
+          this.bubbleRide = null;
         }
       }
 
@@ -662,6 +719,7 @@ class Player {
           this.ultimateMax = Math.round(this.ultimateMax * 1.2);
           // Clean up type-specific state
           this.earthGolem = null;
+          this.bubbleRide = null;
           this.fireMeteors = [];
           this.shadowUltBuff = false;
           this.shadowDarkness = 0;
@@ -769,6 +827,9 @@ class Player {
       }
       return;
     }
+
+    // Skip normal physics during bubble ride (attacks/shurikens still allowed below)
+    if (!this.bubbleRide) {
 
     // Movement
     let moveX = 0;
@@ -1014,6 +1075,8 @@ class Player {
       }
     }
 
+    } // end if (!this.bubbleRide)
+
     // Timers
     if (this.invincibleTimer > 0) this.invincibleTimer--;
     if (this.attackCooldown > 0) this.attackCooldown--;
@@ -1029,6 +1092,7 @@ class Player {
           this.hp = this.maxHp;
           this.x = 100; this.y = 200;
           this.vx = 0; this.vy = 0;
+          this.invincibleTimer = 90;
           this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
           game.deaths++;
           game.lives--;
@@ -1256,7 +1320,7 @@ class Player {
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       const color = (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
       const sProj = fireProjectileAtNearestEnemy({
-        x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6
+        x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
       });
       if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
       if (sProj && this.ninjaType === 'storm') sProj.soaking = true;
@@ -1276,7 +1340,7 @@ class Player {
           const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
           const dmg = t.attackDamage + this.bonusDamage + 2;
           const p = fireProjectileAtNearestEnemy({
-            x: cx, y: cy, game, speed: 8, color: '#f93', damage: dmg, owner: 'player', width: 14, height: 10, piercing: true
+            x: cx, y: cy, game, speed: 8, color: '#f93', damage: dmg, owner: 'player', width: 14, height: 10, piercing: true, facing: this.facing
           });
           if (p) p.life = 120;
           game.effects.push(new Effect(cx, cy, '#f80', 4, 2, 6));
@@ -1851,6 +1915,13 @@ class Player {
   takeDamage(amount, game, element) {
     if (this.godMode) return;
     if (this.earthGolem) return;
+    if (this.bubbleRide) {
+      this.bubbleRide.hp -= amount;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
+      SFX.playerHurt();
+      triggerHitstop(3);
+      return;
+    }
     if (this.invincibleTimer > 0) return;
     if (this.ninjaType === 'wind' && this.windPower >= 10 && (this.windFirstDodge || Math.random() < 0.5)) {
       this.windFirstDodge = false;
@@ -1912,6 +1983,7 @@ class Player {
       this.hp = this.maxHp;
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
+      this.invincibleTimer = 90;
       this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
       game.deaths++;
       game.lives--;

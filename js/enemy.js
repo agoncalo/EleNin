@@ -187,15 +187,27 @@ class Enemy {
         if (this.x <= this.patrolLeft) this.facing = 1;
         if (this.x >= this.patrolRight) this.facing = -1;
         this.shootTimer++;
-        if (this.shootTimer >= (this.big ? 80 : 100)) {
+        if (this.shootTimer >= (this.big ? 60 : 80)) {
           this.shootTimer = 0;
-          const dx = px - cx, dy = py - cy;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < 450 && d > 0) {
-            const p = new Projectile(cx, cy, (dx / d) * 3.5, (dy / d) * 3 - 2, this.element ? this.elementColors.accent : '#f6f', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
-            p.bouncy = true;
-            if (this.element) p.element = this.element;
-            game.projectiles.push(p);
+          const d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+          if (d < 500 && d > 0) {
+            // High-angle mortar aimed at player with spread
+            const dx = px - cx;
+            const dy = py - cy;
+            const spread = (Math.random() - 0.5) * 1.2;
+            const lobSpd = 5.5 + Math.random() * 1.5;
+            const aimAngle = Math.atan2(dy, Math.abs(dx));
+            // Bias upward: use an angle between aimed and -70°
+            const highAngle = Math.min(aimAngle, -Math.PI * 0.25) - Math.PI * 0.1;
+            const dir = dx > 0 ? 1 : -1;
+            const shots = this.big ? 2 : 1;
+            for (let si = 0; si < shots; si++) {
+              const sSpread = spread + si * dir * 0.8;
+              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5), this.element ? this.elementColors.accent : '#f6f', 3 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+              p.bouncy = true;
+              if (this.element) p.element = this.element;
+              game.projectiles.push(p);
+            }
           }
         }
         break;
@@ -668,11 +680,34 @@ class Enemy {
         ctx.fillRect(sx + 4, sy + this.h - 3, 6, 5);
         ctx.fillRect(sx + this.w - 10, sy + this.h - 3, 6, 5);
         break;
-      case 'bouncer':
-        ctx.fillStyle = '#f6f';
+      case 'bouncer': {
+        // Cannon barrel
+        const cannonColor = this.element ? this.elementColors.body : '#c5c';
+        const muzzleColor = this.element ? this.elementColors.accent : '#f6f';
+        const bDir = this.facing;
+        const cannonAngle = -(Math.PI * 0.35); // ~55° upward
+        const barrelLen = this.big ? 16 : 12;
+        const barrelW = this.big ? 5 : 3;
+        const bx = sx + (bDir > 0 ? this.w - 2 : 2);
+        const by = sy + this.h * 0.35;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(bDir > 0 ? cannonAngle : Math.PI - cannonAngle);
+        // Barrel
+        ctx.fillStyle = '#555';
+        ctx.fillRect(0, -barrelW, barrelLen, barrelW * 2);
+        // Muzzle ring
+        ctx.fillStyle = muzzleColor;
+        ctx.fillRect(barrelLen - 3, -barrelW - 1, 3, barrelW * 2 + 2);
+        ctx.restore();
+        // Base mount
+        ctx.fillStyle = '#666';
+        ctx.fillRect(bx - 3, by - 1, 6, 4);
+        // Headband
+        ctx.fillStyle = cannonColor;
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
-        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 8, sy + this.h / 2 - 3, 8, 6);
         break;
+      }
       case 'shielded':
         if (this.shieldHp > 0) {
           ctx.fillStyle = `rgba(100,220,255,${0.4 + 0.2 * (this.shieldHp / this.shieldMax)})`;

@@ -113,7 +113,7 @@ class StoneConstruct {
     triggerHitstop(4);
   }
   render(ctx, cam) {
-    ctx.fillStyle = this.powered ? '#7ec850' : '#3a7a3a';
+    ctx.fillStyle = this.powered ? '#c8a050' : '#7a5a3a';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
@@ -126,11 +126,11 @@ class StonePillar extends StoneConstruct {
     super(x, y - TILE, TILE, TILE * 3, 4, wave);
   }
   render(ctx, cam) {
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#8b5e3c';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    ctx.fillStyle = '#aee6a3';
+    ctx.fillStyle = '#c8a878';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 8);
-    ctx.fillStyle = '#225522';
+    ctx.fillStyle = '#5a3a1a';
     ctx.fillRect(this.x - cam.x, this.y - cam.y + this.h - 8, this.w, 8);
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
@@ -193,11 +193,11 @@ class StoneGolem extends StoneConstruct {
     game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#aaa', 10, 3, 12));
   }
   render(ctx, cam) {
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#8b5e3c';
     ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    ctx.fillStyle = '#225522';
+    ctx.fillStyle = '#5a3a1a';
     ctx.fillRect(this.x - cam.x + 8, this.y - cam.y + this.h - 12, this.w - 16, 10);
-    ctx.fillStyle = '#aee6a3';
+    ctx.fillStyle = '#c8a878';
     ctx.fillRect(this.x - cam.x + 10, this.y - cam.y + 10, 8, 8);
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
