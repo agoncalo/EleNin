@@ -538,32 +538,37 @@ class Projectile {
       ctx.save();
       const cx = sx + this.w / 2, cy = sy + this.h / 2;
       const r = this.w / 2 + 2;
+      // Trailing flame tail
+      const tailLen = 20;
+      const dir = this.vx > 0 ? 1 : -1;
+      const grad = ctx.createLinearGradient(
+        cx - dir * tailLen, cy, cx + dir * 8, cy
+      );
+      grad.addColorStop(0, 'rgba(255,80,0,0)');
+      grad.addColorStop(0.4, 'rgba(255,120,0,0.4)');
+      grad.addColorStop(1, 'rgba(255,200,50,0.6)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(cx - dir * tailLen * 0.3, cy, tailLen, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
       // Outer glow
-      ctx.globalAlpha = 0.25;
+      ctx.globalAlpha = 0.35;
       ctx.fillStyle = '#f50';
       ctx.beginPath();
-      ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+      ctx.arc(cx, cy, r + 6 + Math.sin(this.life * 1.2) * 3, 0, Math.PI * 2);
       ctx.fill();
       // Core
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#fa0';
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#f80';
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.arc(cx, cy, r + Math.sin(this.life * 1.2) * 3, 0, Math.PI * 2);
       ctx.fill();
       // Hot center
-      ctx.fillStyle = '#ffe';
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = '#fe4';
       ctx.beginPath();
-      ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2);
+      ctx.arc(cx + dir * 3, cy, r * 0.5, 0, Math.PI * 2);
       ctx.fill();
-      // Trailing flame wisps
-      for (let i = 1; i <= 3; i++) {
-        ctx.globalAlpha = 0.35 / i;
-        ctx.fillStyle = i === 1 ? '#f80' : '#f50';
-        ctx.beginPath();
-        const ty = Math.sin(this.life * 0.5 + i * 2) * 3;
-        ctx.arc(cx - this.vx * i * 1.5, cy + ty, r * (1 - i * 0.15), 0, Math.PI * 2);
-        ctx.fill();
-      }
       ctx.restore();
       return;
     }

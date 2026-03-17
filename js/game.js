@@ -916,6 +916,20 @@ class Game {
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }
+    if (pl.statusHeavy > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.05 + 0.03 * Math.sin(pl.statusHeavy * 0.12);
+      ctx.fillStyle = '#a64';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+    if (pl.statusSteel > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.08 + 0.04 * Math.sin(pl.statusSteel * 0.15);
+      ctx.fillStyle = '#999';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
 
     this.renderUI();
   }
@@ -981,7 +995,7 @@ class Game {
       ctx.fillRect(shieldBarX, shieldBarY, shieldBarW * shieldRatio, shieldBarH);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 9px monospace';
-      ctx.fillText(`SH ${pl.shield}/${pl.maxShield}`, shieldBarX + 3, shieldBarY + 7);
+      ctx.fillText(`SH ${Math.round(pl.shield)}/${Math.round(pl.maxShield)}`, shieldBarX + 3, shieldBarY + 7);
     }
 
     // HP bar
@@ -999,7 +1013,7 @@ class Game {
     ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 10px monospace';
-    ctx.fillText(`HP ${pl.hp}/${pl.maxHp}`, hpBarX + 3, hpBarY + 9);
+    ctx.fillText(`HP ${Math.round(pl.hp)}/${Math.round(pl.maxHp)}`, hpBarX + 3, hpBarY + 9);
 
     // Ultimate bar
     const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
@@ -1166,7 +1180,7 @@ class Game {
       ctx.fillRect(bx + labelW, 10, (bw - labelW) * (this.boss.hp / this.boss.maxHp), 14);
       ctx.fillStyle = '#fff';
       ctx.font = '10px monospace';
-      ctx.fillText(`${this.boss.hp}/${this.boss.maxHp}`, bx + bw - 55, 21);
+      ctx.fillText(`${Math.round(this.boss.hp)}/${Math.round(this.boss.maxHp)}`, bx + bw - 55, 21);
     }
 
     // Wave / boss message

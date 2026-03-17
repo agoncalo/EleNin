@@ -164,8 +164,8 @@ const NINJA_TYPES = {
   },
   storm: {
     name: 'Storm Ninja',
-    color: '#36c',
-    accentColor: '#8af',
+    color: '#24c',
+    accentColor: '#fd0',
     key: '7',
     attackDamage: 2,
     jumpPower: -10.5,

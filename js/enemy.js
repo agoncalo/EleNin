@@ -464,7 +464,7 @@ class Enemy {
           if (healAmt > 0) {
             this.hp += healAmt;
             game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 6, 2, 10));
-            game.effects.push(new TextEffect(this.x + this.w / 2 - 8, this.y - 10, '+' + healAmt, '#4f4'));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 8, this.y - 10, '+' + Math.round(healAmt), '#4f4'));
           } else {
             // Already full HP — small green flash
             game.effects.push(new Effect(this.x + this.w / 2, this.y, '#4f4', 3, 1, 6));

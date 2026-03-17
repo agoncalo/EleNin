@@ -125,6 +125,8 @@ class Player {
     this.statusFloat = 0;   // wind reduced gravity timer
     this.statusParalyse = 0; // lightning: steel tools cause stun
     this.statusStun = 0;    // brief full-stop stun (from paralyse)
+    this.statusHeavy = 0;   // earth: heavier gravity
+    this.statusSteel = 0;   // steel: invulnerable but can't move
     this.freezeNudge = 0;   // visual nudge from mashing out of freeze
     this.maxShurikens = 3;
     this.shurikenLevel = 1;
@@ -697,6 +699,37 @@ class Player {
       }
     }
 
+    // Steel: invulnerable but can't move
+    if (this.statusSteel > 0) {
+      this.vx = 0;
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.y += this.vy;
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p)) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+            this.y = p.y - this.h; this.vy = 0; this.grounded = true;
+          }
+        }
+      }
+      this.invincibleTimer = 2; // stay invulnerable while steel'd
+      this.statusSteel--;
+      if (this.statusBurn > 0) this.statusBurn--;
+      if (this.statusFreeze > 0) this.statusFreeze--;
+      if (this.statusFloat > 0) this.statusFloat--;
+      if (this.statusHeavy > 0) this.statusHeavy--;
+      if (this.statusParalyse > 0) this.statusParalyse--;
+      // Metal gleam particles
+      if (Math.random() < 0.3) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + Math.random() * this.h,
+          '#ccc', 2, 1, 8
+        ));
+      }
+      return;
+    }
+
     // Stun: can't move or act, only gravity applies
     if (this.statusStun > 0) {
       this.vx = 0;
@@ -724,6 +757,8 @@ class Player {
       }
       if (this.statusFreeze > 0) this.statusFreeze--;
       if (this.statusFloat > 0) this.statusFloat--;
+      if (this.statusHeavy > 0) this.statusHeavy--;
+      if (this.statusSteel > 0) this.statusSteel--;
       // Spark particles
       if (Math.random() < 0.4) {
         game.effects.push(new Effect(
@@ -783,6 +818,7 @@ class Player {
     // Gravity
     let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
     if (this.statusFloat > 0) grav *= 0.35;
+    if (this.statusHeavy > 0) grav *= 2.5;
     if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing) {
       this.vy += grav;
     }
@@ -993,7 +1029,7 @@ class Player {
           this.hp = this.maxHp;
           this.x = 100; this.y = 200;
           this.vx = 0; this.vy = 0;
-          this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0;
+          this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
           game.deaths++;
           game.lives--;
           if (game.lives <= 0) { game.gameOver = true; recordGameOver(game.totalKills); }
@@ -1666,17 +1702,17 @@ class Player {
     this.fireDashing = false;
     this.vx = 0;
     if (this._fireballPending) {
-      const fx = this.x + this.facing * (this.w + 8);
+      // Spawn from player center so it continues seamlessly from the dash fireball
+      const fx = this.x + this.w / 2;
       const fy = this.y + this.h / 2;
       const speed = 8 * this.facing;
-      const proj = new Projectile(fx, fy, speed, 0, '#f80', this.type.attackDamage + this.bonusDamage + 4, 'player');
+      const proj = new Projectile(fx - 9, fy - 9, speed, 0, '#f80', this.type.attackDamage + this.bonusDamage + 4, 'player');
       proj.w = 18;
       proj.h = 18;
       proj.piercing = true;
       proj.isFireball = true;
       proj.life = 80;
       game.projectiles.push(proj);
-      game.effects.push(new Effect(fx, fy, '#f50', 12, 4, 14));
       this._fireballPending = false;
     }
   }
@@ -1864,13 +1900,19 @@ class Player {
       } else if (element === 'lightning') {
         this.statusParalyse = 180;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
+      } else if (element === 'earth') {
+        this.statusHeavy = 150;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
+      } else if (element === 'steel') {
+        this.statusSteel = 120;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
       }
     }
     if (this.hp <= 0) {
       this.hp = this.maxHp;
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
-      this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0;
+      this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
@@ -1894,20 +1936,43 @@ class Player {
       sx += (this.statusStun % 4 < 2 ? 2 : -2);
     }
 
-    // Fire dash streak
+    // Fire dash: player inside fireball
     if (this.fireDashing) {
       ctx.save();
       const cx = sx + this.w / 2;
       const cy = sy + this.h / 2;
-      for (let i = 1; i <= 5; i++) {
-        ctx.globalAlpha = 0.35 / i;
-        ctx.fillStyle = i <= 2 ? '#fa0' : '#f50';
-        ctx.fillRect(
-          cx - this.w / 2 - this.facing * i * 8,
-          cy - this.h / 2 + 2,
-          this.w, this.h - 4
-        );
-      }
+      const progress = 1 - this.fireDashTimer / this.fireDashMax;
+      // Trailing flame tail (elongated behind)
+      const tailLen = 20 + progress * 16;
+      const grad = ctx.createLinearGradient(
+        cx - this.facing * tailLen, cy, cx + this.facing * 8, cy
+      );
+      grad.addColorStop(0, 'rgba(255,80,0,0)');
+      grad.addColorStop(0.4, 'rgba(255,120,0,0.4)');
+      grad.addColorStop(1, 'rgba(255,200,50,0.6)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(cx - this.facing * tailLen * 0.3, cy, tailLen, 14 + progress * 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Outer fireball glow
+      const r = 18 + Math.sin(this.fireDashTimer * 1.2) * 3;
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#f50';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+      ctx.fill();
+      // Main fireball
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#f80';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner bright core
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = '#fe4';
+      ctx.beginPath();
+      ctx.arc(cx + this.facing * 3, cy, r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 
@@ -2095,6 +2160,36 @@ class Player {
         const starY = sy - 6 + Math.sin(a) * 5;
         ctx.fillText('*', starX, starY);
       }
+      ctx.restore();
+    }
+    if (this.statusHeavy > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.1 * Math.sin(this.statusHeavy * 0.15);
+      ctx.fillStyle = '#a84';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      // Down arrows
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#862';
+      ctx.font = '10px monospace';
+      const hOff = this.statusHeavy % 20;
+      ctx.fillText('v', sx + 2, sy + this.h + 4 + hOff * 0.3);
+      ctx.fillText('v', sx + this.w - 6, sy + this.h + 4 + hOff * 0.3);
+      ctx.restore();
+    }
+    if (this.statusSteel > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.1 * Math.sin(this.statusSteel * 0.2);
+      ctx.fillStyle = '#bbb';
+      ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      // Metallic shine line
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      const shineY = sy + (this.statusSteel % 30) * (this.h / 30);
+      ctx.beginPath();
+      ctx.moveTo(sx - 2, shineY);
+      ctx.lineTo(sx + this.w + 2, shineY - 4);
+      ctx.stroke();
       ctx.restore();
     }
 

@@ -546,7 +546,7 @@ function renderGuidePopup(ctx) {
   let cy = tabY + 42;
   ctx.font = '12px monospace';
   ctx.fillStyle = '#ccc';
-  ctx.fillText(`ATK: ${nt.attackDamage}  SPD: ${nt.speed}  JUMP: ${Math.abs(nt.jumpPower)}  KEY: [${nt.key}]`, bx + 24, cy);
+  ctx.fillText(`ATK: ${Math.round(nt.attackDamage)}  SPD: ${Math.round(nt.speed * 10) / 10}  JUMP: ${Math.round(Math.abs(nt.jumpPower) * 10) / 10}  KEY: [${nt.key}]`, bx + 24, cy);
 
   cy += 24;
   ctx.fillStyle = '#ffd700';
@@ -903,9 +903,9 @@ function renderBestiaryDetail(ctx, bx, by, bw, bh, entry, data) {
     const baseHp = stats.hp * waveScale;
     const baseDmg = entry.boss ? Math.round(4) : (entry.big ? stats.dmg + 3 : stats.dmg);
     ctx.fillStyle = '#e44';
-    ctx.fillText(`Base HP: ${baseHp}`, bx + 40, sy);
+    ctx.fillText(`Base HP: ${Math.round(baseHp)}`, bx + 40, sy);
     ctx.fillStyle = '#fa0';
-    ctx.fillText(`Base DMG: ${baseDmg}`, bx + 200, sy);
+    ctx.fillText(`Base DMG: ${Math.round(baseDmg)}`, bx + 200, sy);
 
     sy += 20;
     ctx.fillStyle = '#4f4';
