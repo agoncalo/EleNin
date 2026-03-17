@@ -17,9 +17,15 @@ class Bubble {
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) e.takeDamage(this.dmg, game);
+      if (!e.dead && rectOverlap(this, e)) {
+        e.takeDamage(this.dmg, game);
+        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
+      }
     }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) game.boss.takeDamage(this.dmg, game);
+    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+      game.boss.takeDamage(this.dmg, game);
+      if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
+    }
   }
   pop(game) {
     this.done = true;

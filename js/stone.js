@@ -146,11 +146,13 @@ class StoneSpike extends StoneConstruct {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage((3 * this.wave), game);
         game.effects.push(new Effect(e.x + e.w/2, e.y + e.h, '#f33', 8, 2, 10));
+        game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0) {
       game.boss.takeDamage((3 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h, '#f33', 12, 3, 14));
+      game.player.addUltimateCharge(2);
     }
   }
   render(ctx, cam) {
@@ -192,11 +194,13 @@ class StoneGolem extends StoneConstruct {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage((4 * this.wave), game);
         game.effects.push(new Effect(e.x + e.w/2, e.y + e.h/2, '#f93', 10, 3, 12));
+        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage((4 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h/2, '#f93', 14, 4, 16));
+      if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
     }
   }
   explode(game) {
@@ -315,12 +319,14 @@ class StoneFlyer extends StoneConstruct {
         e.takeDamage((3 * this.wave), game, this.x + this.w / 2);
         this.takeDamage(1);
         game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8d8', 8, 2, 10));
+        game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage((1 * this.wave), game);
       this.takeDamage(1);
       game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8d8', 10, 3, 12));
+      game.player.addUltimateCharge(2);
     }
     if (this.y > CANVAS_H + 100 || this.y < -400) this.done = true;
     if (this.hp <= 0) this.explode(game);
@@ -389,11 +395,13 @@ class StoneDeflector extends StoneConstruct {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage((4 * this.wave), game, this.x + this.w / 2);
         game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8df', 10, 3, 12));
+        game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage((4 * this.wave), game);
       game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8df', 12, 3, 14));
+      game.player.addUltimateCharge(2);
     }
   }
   render(ctx, cam) {

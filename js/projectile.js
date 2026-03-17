@@ -101,12 +101,14 @@ class Trimerang {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
         e.takeDamage(game.player.type.attackDamage + game.player.bonusDamage + game.player.windPower, game, this.x);
         this.hitSet.add(e);
+        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
         game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
       }
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
       game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusDamage + game.player.windPower, game, this.x);
       this.hitSet.add(game.boss);
+      if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
       game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
     }
   }

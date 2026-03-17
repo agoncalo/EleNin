@@ -124,12 +124,12 @@ class SubstitutionLog {
 
 // ── Smoke Grenade (shadow ninja) ─────────────────────────────
 class SmokeGrenade {
-  constructor(x, y) {
+  constructor(x, y, platforms) {
     this.x = x; this.y = y;
-    this.vx = (Math.random() - 0.5) * 3;
-    this.vy = -3 - Math.random() * 2;
-    this.graceTimer = 20;
+    this.vx = (Math.random() - 0.5) * 4;
+    this.vy = -4 - Math.random() * 3;
     this.landed = false;
+    this.platforms = platforms;
     this.life = 300; // 5 seconds
     this.maxLife = 300;
     this.radius = 60;
@@ -138,14 +138,19 @@ class SmokeGrenade {
   }
   update() {
     if (!this.landed) {
-      this.vy += 0.18;
+      this.vy += 0.35;
       this.x += this.vx;
       this.y += this.vy;
-      this.graceTimer--;
-      if (this.graceTimer <= 0 && this.vy > 0) {
-        this.landed = true;
-        this.vy = 0;
-        this.vx = 0;
+      // Check platform collision when falling
+      if (this.vy > 0) {
+        for (const p of this.platforms) {
+          if (this.x > p.x && this.x < p.x + p.w &&
+              this.y >= p.y && this.y - this.vy < p.y + 4) {
+            this.y = p.y;
+            this.landed = true;
+            break;
+          }
+        }
       }
       return;
     }
@@ -170,15 +175,52 @@ class SmokeGrenade {
     }
   }
   render(ctx, cam) {
-    const fade = Math.min(1, this.life / 30);
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
+
+    // Draw the grenade body while airborne
+    if (!this.landed) {
+      const spin = this.graceTimer * 0.3;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(spin);
+      // Body
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      // Top cap
+      ctx.fillStyle = '#555';
+      ctx.fillRect(-2, -8, 4, 4);
+      // Fuse spark
+      ctx.fillStyle = '#fa0';
+      ctx.globalAlpha = 0.6 + Math.random() * 0.4;
+      ctx.beginPath();
+      ctx.arc(0, -9, 2 + Math.random(), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    const fade = Math.min(1, this.life / 30);
     // Ground haze
     ctx.globalAlpha = fade * 0.15;
     ctx.fillStyle = '#c8b8d8';
     ctx.beginPath();
     ctx.ellipse(sx, sy, this.radius, 12, 0, 0, Math.PI * 2);
     ctx.fill();
+    // Landed grenade body (fading)
+    if (this.life > this.maxLife - 30) {
+      const gFade = (this.life - (this.maxLife - 30)) / 30;
+      ctx.globalAlpha = gFade * 0.8;
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(sx, sy - 3, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#555';
+      ctx.fillRect(sx - 2, sy - 11, 4, 4);
+    }
     // Smoke puffs
     for (const p of this.puffs) {
       const a = Math.min(1, p.life / 8) * fade * 0.35;
@@ -301,7 +343,29 @@ class Orb {
     const dx = px - ox;
     const dy = py - oy;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 64) {
+
+    // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
+    let attracted = dist < 64;
+    if (!attracted) {
+      // Chain strikes auto-grab
+      if (pl.chainStriking || pl.stormChaining) {
+        if (dist < 200) {
+          this.done = true;
+          SFX.pickup();
+          if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(5);
+          switch (this.type) {
+            case 'heal': pl.hp = Math.min(pl.hp + 3, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
+            case 'maxhp': pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
+            case 'damage': pl.bonusDamage += 1; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
+            case 'shield': pl.maxShield += 3; pl.shield = pl.maxShield; game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
+            case 'shuriken': pl.maxShurikens += 1; pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
+          }
+          return;
+        }
+      }
+    }
+
+    if (attracted) {
       const attractStrength = 0.7;
       this.vx += (dx / dist) * attractStrength;
       this.vy += (dy / dist) * attractStrength * 0.5;
@@ -347,6 +411,66 @@ class Orb {
           pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ccc', 6, 2, 10));
           break;
+      }
+    }
+
+    // Collector pickups: golems, trimerangs, bubbles grab orbs for the player
+    if (!this.done) {
+      let collected = false;
+      let cx = ox, cy = oy;
+      // Golems (earth)
+      if (pl.ninjaType === 'earth') {
+        for (const s of game.stoneBlocks) {
+          if (s.done || !(s instanceof StoneGolem)) continue;
+          if (rectOverlap(this, s)) { collected = true; cx = s.x + s.w / 2; cy = s.y + s.h / 2; break; }
+        }
+      }
+      // Trimerangs (wind)
+      if (!collected && pl.ninjaType === 'wind' && game.trimerangs) {
+        for (const t of game.trimerangs) {
+          if (t.done) continue;
+          const td = Math.sqrt((t.x - ox) ** 2 + (t.y - oy) ** 2);
+          if (td < t.radius + 8) { collected = true; cx = t.x; cy = t.y; break; }
+        }
+      }
+      // Bubbles (bubble)
+      if (!collected && pl.ninjaType === 'bubble') {
+        for (const b of game.bubbles) {
+          if (b.done) continue;
+          if (rectOverlap(this, b)) { collected = true; cx = b.x + b.w / 2; cy = b.y + b.h / 2; break; }
+        }
+      }
+      if (collected) {
+        this.done = true;
+        SFX.pickup();
+        if (!pl.ultimateReady && !pl.ultimateActive) {
+          pl.addUltimateCharge(5);
+        }
+        switch (this.type) {
+          case 'heal':
+            pl.hp = Math.min(pl.hp + 3, pl.maxHp);
+            game.effects.push(new Effect(cx, cy, '#f44', 6, 2, 10));
+            break;
+          case 'maxhp':
+            pl.maxHp += 1;
+            pl.hp = Math.min(pl.hp + 1, pl.maxHp);
+            game.effects.push(new Effect(cx, cy, '#4f4', 8, 3, 12));
+            break;
+          case 'damage':
+            pl.bonusDamage += 1;
+            game.effects.push(new Effect(cx, cy, '#f80', 8, 3, 12));
+            break;
+          case 'shield':
+            pl.maxShield += 3;
+            pl.shield = pl.maxShield;
+            game.effects.push(new Effect(cx, cy, '#4af', 8, 3, 12));
+            break;
+          case 'shuriken':
+            pl.maxShurikens += 1;
+            pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
+            game.effects.push(new Effect(cx, cy, '#ccc', 6, 2, 10));
+            break;
+        }
       }
     }
   }

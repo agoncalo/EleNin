@@ -1154,7 +1154,7 @@ class Player {
       } else {
         // Check hits against enemies
         for (const e of game.enemies) {
-          if (!e.dead && this.attackBox && rectOverlap(this.attackBox, e)) {
+          if (!e.dead && e.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, e)) {
             let dmg = t.attackDamage + this.bonusDamage;
             if (this.ninjaType === 'shadow') {
               if (this.backstabReady || e.hp <= this.shadowKillThreshold) {
@@ -1261,7 +1261,7 @@ class Player {
           }
         }
         // Hit boss
-        if (game.boss && !game.boss.dead && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
+        if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
           let dmg = t.attackDamage + this.bonusDamage;
           if (this.ninjaType === 'shadow' && this.backstabReady) {
             dmg = 9999;
@@ -1310,6 +1310,7 @@ class Player {
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 8, 3, 12));
           }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
+          game.boss.hitCooldown = 15;
           triggerHitstop(5);
         }
       }
@@ -1423,6 +1424,7 @@ class Player {
               for (const a of this.afterimages) { if (a.chain) a.life = 20; }
               this.backstabReady = false;
               this.shadowStealth = 0;
+              this.invincibleTimer = Math.max(this.invincibleTimer, 30);
               nearest = null;
             }
           }
@@ -1457,6 +1459,7 @@ class Player {
           for (const a of this.afterimages) { if (a.chain) a.life = 20; }
           this.backstabReady = false;
           this.shadowStealth = 0;
+          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
         }
       }
     }
@@ -1489,6 +1492,7 @@ class Player {
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.stormChaining = false;
               for (const a of this.stormAfterimages) a.life = 15;
+              this.invincibleTimer = Math.max(this.invincibleTimer, 30);
               nearest = null;
             }
           }
@@ -1544,6 +1548,7 @@ class Player {
                 game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, loopTarget.elementColors.accent, 8, 3, 12));
                 this.stormChaining = false;
                 for (const a of this.stormAfterimages) a.life = 15;
+                this.invincibleTimer = Math.max(this.invincibleTimer, 30);
                 loopTarget = null;
               }
             }
@@ -1574,6 +1579,7 @@ class Player {
           } else {
             this.stormChaining = false;
             for (const a of this.stormAfterimages) a.life = 15;
+            this.invincibleTimer = Math.max(this.invincibleTimer, 30);
           }
         }
       }
@@ -2008,7 +2014,7 @@ class Player {
         for (let i = 0; i < 2; i++) {
           const gx = this.x + this.w / 2 + (Math.random() - 0.5) * 200;
           const gy = this.y + this.h;
-          game.effects.push(new SmokeGrenade(gx, gy));
+          game.effects.push(new SmokeGrenade(gx, gy, game.platforms));
         }
         break;
       }
