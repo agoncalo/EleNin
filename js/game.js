@@ -512,7 +512,6 @@ class Game {
     }
     if (this.gameWon || this.gameOver) {
       if (this.killPhraseTimer > 0) this.killPhraseTimer--;
-      if (this.ninjaKillResponseTimer > 0) this.ninjaKillResponseTimer--;
       return;
     }
 
@@ -677,45 +676,14 @@ class Game {
       this.ninjaResponseMaxTimer = 120;
       this.ninjaResponseActive = true;
     }
-    // Game over delay with kill phrase
+    // Game over delay
     if (this.gameOverDelay > 0) {
       this.gameOverDelay--;
-      if (this.gameOverDelay === 115 && this.killerInfo && !this.killPhraseText) {
-        const ki = this.killerInfo;
-        const kPhrase = getKillPhrase(ki.type, this.player.ninjaType, ki.element);
-        if (kPhrase) {
-          this.killPhraseText = kPhrase;
-          this.killPhraseTimer = 90;
-          this.killPhraseMaxTimer = 90;
-          this.killPhraseColor = ki.element && ELEMENT_COLORS[ki.element] ? ELEMENT_COLORS[ki.element].accent : '#f88';
-          // Store killer position for phrase tracking
-          if (ki.isBoss && this.boss) {
-            this.killPhrasePos = { x: this.boss.x + this.boss.w / 2, y: this.boss.y };
-          } else {
-            // Try to find the enemy that killed the player
-            let killerEnemy = null;
-            let minDist = Infinity;
-            for (const e of this.enemies) {
-              if (e.type === ki.type) {
-                const dx = e.x - this.player.x, dy = e.y - this.player.y;
-                const d = dx * dx + dy * dy;
-                if (d < minDist) { minDist = d; killerEnemy = e; }
-              }
-            }
-            if (killerEnemy) {
-              this.killPhrasePos = { x: killerEnemy.x + killerEnemy.w / 2, y: killerEnemy.y };
-            } else {
-              this.killPhrasePos = { x: this.player.x + this.player.w / 2, y: this.player.y - 20 };
-            }
-          }
-        }
-      }
       if (this.gameOverDelay === 0) {
         this.gameOver = true;
       }
     }
     if (this.killPhraseTimer > 0) this.killPhraseTimer--;
-    if (this.ninjaKillResponseTimer > 0) this.ninjaKillResponseTimer--;
 
     // Cleanup
     this.enemies = this.enemies.filter(e => !e.dead);
@@ -1521,33 +1489,6 @@ class Game {
       ctx.globalAlpha = 1;
     }
 
-    // Ninja response to kill phrase (follows player death position)
-    if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText && !this.gameOver) {
-      if (!this.killPhraseTimer || this.killPhraseTimer <= 0) {
-        const pos = this.ninjaKillResponsePos;
-        const elapsed = this.ninjaKillResponseMaxTimer - this.ninjaKillResponseTimer;
-        const floatY = elapsed * 0.2;
-        let px, py;
-        if (pos) {
-          px = pos.x - cam.x;
-          py = pos.y - 14 - cam.y - floatY;
-        } else {
-          px = CANVAS_W / 2;
-          py = CANVAS_H / 2 - 2 - floatY;
-        }
-        const txt = '\u201C' + this.ninjaKillResponseText + '\u201D';
-        ctx.globalAlpha = Math.min(1, this.ninjaKillResponseTimer / 15);
-        ctx.font = 'italic 14px monospace';
-        const nkrtw = ctx.measureText(txt).width;
-        const tx = Math.max(4, Math.min(px - nkrtw / 2, CANVAS_W - nkrtw - 4));
-        ctx.fillStyle = '#000';
-        ctx.fillText(txt, tx + 1, py + 1);
-        ctx.fillStyle = this.ninjaKillResponseColor;
-        ctx.fillText(txt, tx, py);
-        ctx.globalAlpha = 1;
-      }
-    }
-
     // Touch controls overlay
     if (isTouchDevice) {
       ctx.globalAlpha = 0.25;
@@ -1634,17 +1575,6 @@ class Game {
         ctx.fillText(kpt, CANVAS_W / 2 - kptw2 / 2, CANVAS_H / 2 + 30);
         ctx.globalAlpha = 1;
       }
-      // Ninja response to kill
-      if (this.ninjaKillResponseTimer > 0 && this.ninjaKillResponseText) {
-        ctx.globalAlpha = Math.min(1, this.ninjaKillResponseTimer / 15);
-        ctx.font = 'italic 13px monospace';
-        ctx.fillStyle = this.ninjaKillResponseColor;
-        const nkrt = '"' + this.ninjaKillResponseText + '"';
-        const nkrtw2 = ctx.measureText(nkrt).width;
-        ctx.fillText(nkrt, CANVAS_W / 2 - nkrtw2 / 2, CANVAS_H / 2 + 50);
-        ctx.globalAlpha = 1;
-      }
-
       ctx.fillStyle = '#aaa';
       ctx.font = '12px monospace';
       const gort = 'Press R to restart';
