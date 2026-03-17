@@ -1108,6 +1108,11 @@ class Player {
         if (this.hp <= 0) {
           this.deathTimer = 180;
           this.vx = 0; this.vy = 0;
+          const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+          game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
+          game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
+          game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
+          game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
           game.deaths++;
           game.lives--;
           if (game.lives <= 0) { game.gameOver = true; recordGameOver(game.totalKills); }
@@ -2011,6 +2016,11 @@ class Player {
     if (this.hp <= 0) {
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
+      const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+      game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
+      game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
+      game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
+      game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
