@@ -437,7 +437,7 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player) && !this.slamming) {
+    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const kbStr = this.big ? 9 : 5;
       game.player.vx = kbDir * kbStr;
@@ -1345,7 +1345,7 @@ class Boss extends Enemy {
               const kbDir = Math.sign(game.player.x - cx) || 1;
               game.player.vx = kbDir * 12;
               game.player.vy = -6;
-              game.player.takeDamage(this.contactDmg, game);
+              if (!game.player.slamming) game.player.takeDamage(this.contactDmg, game);
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -1373,7 +1373,7 @@ class Boss extends Enemy {
               const kbDir = Math.sign(game.player.x - cx) || 1;
               game.player.vx = kbDir * 10;
               game.player.vy = -5;
-              game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game);
+              if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game);
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -1464,7 +1464,7 @@ class Boss extends Enemy {
     if (this.y > 700) { this.y = -40; this.vy = 0; }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && rectOverlap(this, game.player)) {
+    if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player)) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       game.player.vx = kbDir * 10;
       game.player.vy = -5;

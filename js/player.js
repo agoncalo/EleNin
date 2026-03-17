@@ -1130,6 +1130,7 @@ class Player {
     }
     if (this.statusFloat > 0) this.statusFloat--;
     if (this.statusParalyse > 0) this.statusParalyse--;
+    if (this.statusHeavy > 0) this.statusHeavy--;
     if (this.statusStun > 0) this.statusStun--;
 
     // Attack
