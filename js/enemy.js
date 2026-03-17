@@ -32,6 +32,7 @@ class Enemy {
     this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
+    this.paralyseTimer = 0;
     // Deflector state
     this.deflectReady = (type === 'deflector');
     this.deflectTimer = 0;
@@ -85,6 +86,35 @@ class Enemy {
       }
       if (this.damageIframes > 0) this.damageIframes--;
       if (this.flashTimer > 0) this.flashTimer--;
+      if (this.paralyseTimer > 0) this.paralyseTimer--;
+      return;
+    }
+    if (this.paralyseTimer > 0) {
+      this.paralyseTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (!p.thin && rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      // Electric sparks
+      if (Math.random() < 0.5) {
+        const sx = this.x + Math.random() * this.w;
+        const sy = this.y + Math.random() * this.h;
+        game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
+      }
       return;
     }
     if (this.hitCooldown > 0) this.hitCooldown--;
@@ -602,6 +632,32 @@ class Enemy {
       ctx.globalAlpha = 1;
     }
 
+    // Paralyse effect overlay (electric)
+    if (this.paralyseTimer > 0) {
+      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.paralyseTimer * 0.4);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+      // Lightning bolt arcs
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        let bx = sx + Math.random() * this.w;
+        let by = sy;
+        ctx.moveTo(bx, by);
+        for (let j = 0; j < 3; j++) {
+          bx += (Math.random() - 0.5) * 10;
+          by += this.h / 3;
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+    }
+
     // Burn effect overlay
     if (this.burnTimer > 0) {
       ctx.globalAlpha = 0.3 + 0.15 * Math.sin(this.burnTimer * 0.3);
@@ -1043,6 +1099,34 @@ class Boss extends Enemy {
       }
       if (this.damageIframes > 0) this.damageIframes--;
       if (this.flashTimer > 0) this.flashTimer--;
+      if (this.paralyseTimer > 0) this.paralyseTimer--;
+      return;
+    }
+    if (this.paralyseTimer > 0) {
+      this.paralyseTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      if (Math.random() < 0.5) {
+        const sx = this.x + Math.random() * this.w;
+        const sy = this.y + Math.random() * this.h;
+        game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
+      }
       return;
     }
     this.phase = this.hp <= this.maxHp / 2 ? 2 : 1;
@@ -1635,6 +1719,31 @@ class Boss extends Enemy {
       ctx.fillStyle = '#aaf';
       ctx.fillRect(sx, sy, this.w, this.h);
       ctx.globalAlpha = 1;
+    }
+
+    // Paralyse effect overlay (electric)
+    if (this.paralyseTimer > 0) {
+      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.paralyseTimer * 0.4);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        let bx = sx + Math.random() * this.w;
+        let by = sy;
+        ctx.moveTo(bx, by);
+        for (let j = 0; j < 3; j++) {
+          bx += (Math.random() - 0.5) * 10;
+          by += this.h / 3;
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
     }
 
     // Soak effect overlay

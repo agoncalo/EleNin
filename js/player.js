@@ -80,7 +80,7 @@ class Player {
     this.chainStriking = false;
     this.chainTargets = [];
     this.chainTimer = 0;
-    this.chainHit = new Set();
+    this.chainLastHit = null;
     this.shadowAttackHit = false;
 
     // Crystal ninja state
@@ -1143,8 +1143,7 @@ class Player {
                 if (this.backstabReady && !this.chainStriking) {
                   this.chainStriking = true;
                   this.chainTimer = 6;
-                  this.chainHit = new Set();
-                  this.chainHit.add(e);
+                  this.chainLastHit = e;
                 }
                 this.backstabReady = false;
                 this.shadowStealth = 0;
@@ -1194,6 +1193,16 @@ class Player {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 15, 5, 15));
               SFX.backstab();
             }
+            // Storm sword: apply electric paralysis
+            if (this.ninjaType === 'storm') {
+              if (e.element === 'lightning') {
+                e.hp = Math.min(e.hp + 2, e.maxHp);
+                game.effects.push(new TextEffect(e.x + e.w / 2, e.y - 10, '+2', '#ff0'));
+              } else {
+                e.paralyseTimer = Math.max(e.paralyseTimer, 45);
+                game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 8, 3, 12));
+              }
+            }
 
             if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
             SFX.hit();
@@ -1239,8 +1248,7 @@ class Player {
             if (!this.chainStriking) {
               this.chainStriking = true;
               this.chainTimer = 6;
-              this.chainHit = new Set();
-              this.chainHit.add(game.boss);
+              this.chainLastHit = game.boss;
             }
             this.backstabReady = false;
             this.shadowStealth = 0;
@@ -1275,6 +1283,11 @@ class Player {
             this.stormChainHit.add(game.boss);
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 15, 5, 15));
             SFX.backstab();
+          }
+          // Storm sword: apply electric paralysis to boss
+          if (this.ninjaType === 'storm') {
+            game.boss.paralyseTimer = Math.max(game.boss.paralyseTimer, 30);
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 8, 3, 12));
           }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
           triggerHitstop(5);
@@ -1324,6 +1337,7 @@ class Player {
       });
       if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
       if (sProj && this.ninjaType === 'storm') sProj.soaking = true;
+      if (sProj && this.ninjaType === 'shadow') sProj.shadowParalyse = true;
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
       }
     }
@@ -1366,12 +1380,12 @@ class Player {
         let nearDist = this.shadowUltBuff ? 500 : 200; // Bigger radius during ult
         const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
         for (const e of game.enemies) {
-          if (e.dead || this.chainHit.has(e)) continue;
+          if (e.dead || e === this.chainLastHit) continue;
           const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < nearDist) { nearDist = d; nearest = e; }
         }
-        if (!nearest && game.boss && !game.boss.dead && !this.chainHit.has(game.boss)) {
+        if (!nearest && game.boss && !game.boss.dead && game.boss !== this.chainLastHit) {
           const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < nearDist) { nearest = game.boss; }
@@ -1391,7 +1405,7 @@ class Player {
           if (nearest === game.boss && nearest.dead) {
             game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', game.camera));
           }
-          this.chainHit.add(nearest);
+          this.chainLastHit = nearest;
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
           triggerHitstop(3);

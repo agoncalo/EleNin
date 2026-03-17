@@ -429,6 +429,18 @@ class Projectile {
             e.soakTimer = Math.max(e.soakTimer, 300);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#48f', 8, 3, 12));
           }
+          // Shadow paralyse: electric stun on hit
+          if (this.shadowParalyse) {
+            if (e.element === 'lightning') {
+              e.hp = Math.min(e.hp + 2, e.maxHp);
+              game.effects.push(new TextEffect(e.x + e.w / 2, e.y - 10, '+2', '#ff0'));
+            } else {
+              e.paralyseTimer = Math.max(e.paralyseTimer, 45);
+              e.vx = 0;
+              e.vy = 0;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 8, 3, 12));
+            }
+          }
           // Pushback effect (skip if frozen)
           if (!this.freezeDust) {
             const dx = e.x + e.w / 2 - (this.x + this.w / 2);
@@ -489,6 +501,13 @@ class Projectile {
         if (this.soaking) {
           game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 10, 4, 14));
+        }
+        // Shadow paralyse: electric stun boss on hit
+        if (this.shadowParalyse) {
+          game.boss.paralyseTimer = Math.max(game.boss.paralyseTimer, 30);
+          game.boss.vx = 0;
+          game.boss.vy = 0;
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 10, 4, 14));
         }
         this.hitSet.add(game.boss);
         if (game.player.ninjaType === 'fire') {
