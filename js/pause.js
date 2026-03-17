@@ -311,6 +311,7 @@ function updatePopup() {
 const NINJA_GUIDE = {
   fire: {
     element: 'Fire / Combo',
+    lore: 'The hot-headed brawler of the group. Fire and Earth once roamed the land together, toppling nations and leaving scorched thrones in their wake. Now he awaits one final duel — a rematch against his long-time rival, the Ronin Deflector, in the famed Capital Arena. He joined the cause not for ideals, but because the Overlord stands between him and that fight.',
     special: 'Fire Dash â€” Charge forward in flames, damaging enemies in your path.',
     ultimate: 'Meteors rain from the sky dealing massive AOE. Grants fire armor (immune to damage, auto-fires projectiles).',
     mechanic: 'Hitting enemies builds Combo (0-10). At 8+ combo: Fire Armor activates. Attacks apply Burn (DOT). Fire trails left while running deal burn to enemies.',
@@ -318,6 +319,7 @@ const NINJA_GUIDE = {
   },
   earth: {
     element: 'Stone / Constructs',
+    lore: 'Fire\'s steadfast companion through years of rebellion. Earth knows the weight of every kingdom they toppled — and every one they failed to save. Through old ties to the Aegis Protectors\' Guild, he learned that the Guild\'s guardians have been conscripted by the Overlord. He fights to free them and reclaim their ancient craft of shielding the innocent.',
     special: 'Place Stone Construct â€” Spawns pillars, spikes, golems, shooters, flyers, or deflectors based on unlocks.',
     ultimate: 'Summon a Golem Mecha to ride â€” heavy punches, invulnerable, timed duration.',
     mechanic: 'Constructs fight independently. Unlock new types by defeating matching bosses. Pillar, Spike, and Golem are always available.',
@@ -325,13 +327,15 @@ const NINJA_GUIDE = {
   },
   bubble: {
     element: 'Water / Float',
+    lore: 'The carefree drifter who heard there was a war and thought it sounded fun. Bubble has no grudge against the Overlord, no tragic past, no score to settle. She just likes popping things. Wind found her floating along a river on a giant bubble, humming to herself, and somehow convinced her that overthrowing a tyrant would be a good time. She was right.',
     special: 'Bubble Burst â€” Sends bubbles upward that float and pop on enemies.',
-    ultimate: 'Replication Cascade â€” Spawns bubble clones that seek and damage all enemies.',
+    ultimate: 'Bubble Ride â€” Ride inside a giant bubble, hovering freely and damaging enemies on contact.',
     mechanic: 'Float Buff (4 sec) grants extra jump and 1.35x speed. Bubbles bob in the air and pop on contact.',
     tips: 'Use float buff for mobility. Great for tower levels!'
   },
   shadow: {
     element: 'Darkness / Stealth',
+    lore: 'Storm\'s rival brother, cold where Storm is reckless. Shadow walks his own path — he joined the rebellion not for justice, but because the Overlord\'s Reign has been summoning the ancient Attacker orbs from a forbidden ritual at the Tower. Shadow has seen what those orbs truly are: fragments of a sealed darkness older than any nation. If the Reign completes the ritual, no stealth will hide anyone from what awakens.',
     special: 'Vanish â€” Enter stealth. Builds to backstab at max stealth (massive damage).',
     ultimate: 'Eternal Darkness â€” Screen darkens, glowing eyes appear, chain strike teleports between enemies.',
     mechanic: 'Stealth builds when not touching enemies (0-300). Backstab at max stealth deals 9999 damage. Chain strike combos between nearby targets.',
@@ -339,6 +343,7 @@ const NINJA_GUIDE = {
   },
   crystal: {
     element: 'Ice / Diamonds',
+    lore: 'Delicate in appearance, unbreakable in spirit. Crystal is a master artisan from the northern reaches where ice never melts. She speaks little but strikes with surgical precision. Wind sought her out personally, knowing that Crystal\'s freezing arts could neutralize the Overlord\'s elemental lieutenants. Beneath her composure lies a quiet fury — the Overlord\'s forces shattered her homeland\'s sacred ice spires, and she intends to return the favor.',
     special: 'Diamond Shard â€” Launch a homing crystal that freezes enemies (60 frames). Also deflects enemy projectiles.',
     ultimate: 'Crystal Shatter â€” Freezes all enemies, spawns afterimage clones that attack. Frozen kills spawn extra shards.',
     mechanic: 'Freeze stops movement. Shurikens also freeze. Shards scatter from frozen kills. Parry window reflects projectiles.',
@@ -346,6 +351,7 @@ const NINJA_GUIDE = {
   },
   wind: {
     element: 'Air / Momentum',
+    lore: 'The one who brought them all together. Wind is a wandering scout who has traveled every corner of the land. She was the first to see the Overlord\'s full design — the conquered guilds, the forbidden rituals, the conscripted protectors. She called in every favor and tracked every lead: Fire through the arena circuits, Earth through the guild halls, Shadow through whispered rumor, Crystal from the frozen north, Storm from the thunder peaks, and Bubble... from a river. When Wind speaks, even rivals listen.',
     special: 'Trimerang â€” Homing boomerang that orbits back. Gains power from wind meter.',
     ultimate: 'Trimerang Burst â€” Sends a storm of orbiting trimerangs around you.',
     mechanic: 'Wind Power (0-10) builds while not taking damage. At 10: 50% dodge chance, double next hit, enemies slowed. Resets on damage.',
@@ -353,25 +359,26 @@ const NINJA_GUIDE = {
   },
   storm: {
     element: 'Lightning / Soak',
+    lore: 'Shadow\'s rival brother, brash where Shadow is patient. Storm fights with raw voltage and zero subtlety. He joined the rebellion for his own reasons — the Overlord\'s Reign controls the storm-forged weapons that were once his clan\'s birthright. He doesn\'t care about saving the world; he wants his thunder back. But fighting alongside his brother, even as rivals, has rekindled something neither will admit.',
     special: 'Storm Orb â€” Fire water orbs that soak enemies (mark for lightning).',
     ultimate: 'Lightning Reign â€” Rain soaks all enemies, chain lightning strikes between soaked targets every 30 frames.',
-    mechanic: 'Soaked enemies take chain lightning. Soak lasts 5 sec. Shurikens also apply soak. Lightning chains between nearby soaked enemies.',
+    mechanic: 'Soaked enemies take chain lightning. Soak lasts 5 sec. Shurikens also apply soak. Sword strikes paralyse enemies with electric shock.',
     tips: 'Soak groups then attack one to chain lightning through all!'
   }
 };
 
 // â”€â”€ Bestiary Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BESTIARY_DESCS = {
-  walker: 'A basic patrolling enemy. Walks back and forth, turns at edges.',
-  shooter: 'Ranged enemy that fires projectiles at the player.',
-  jumper: 'Agile enemy that frequently leaps toward the player.',
-  bouncer: 'Fires bouncy projectiles that ricochet off surfaces.',
-  shielded: 'Carries a frontal shield that blocks incoming projectiles.',
-  deflector: 'A ronin swordsman that deflects projectiles back and throws shurikens.',
-  protector: 'Heals nearby allies with an aura. Slow but tanky.',
-  attacker: 'Floating orb that is invulnerable while allies are in its aura. Fires rapid piercing shots.',
-  flyer: 'Airborne enemy that swoops toward the player.',
-  flyshooter: 'Airborne shooter. Combines flying mobility with ranged attacks.',
+  walker: 'Standard foot soldiers of the Overlord\'s Reign. Once common villagers, now conscripted and armored. They patrol endlessly, guarding the territories the Overlord has claimed.',
+  shooter: 'Ranged sentinels trained in the Overlord\'s war camps. They fire enchanted bolts from a distance, keeping intruders pinned down while heavier forces advance.',
+  jumper: 'Agile scouts that leap across rooftops and chasms. Bred for speed in the Overlord\'s breeding pits, they close distance before their prey can react.',
+  bouncer: 'Artillery specialists armed with mortar cannons that lob explosive rounds. Their bouncing projectiles make them deadly in enclosed spaces. The bigger ones fire twin salvos.',
+  shielded: 'Elite guards carrying enchanted barriers forged by the Aegis Protectors\' Guild — before the Guild was conquered. Their frontal shields absorb all projectiles, even piercing ones.',
+  deflector: 'The famed Ronin — wandering swordsmen who once served no master. Now sworn to the Overlord\'s court, they deflect projectiles with precise blade-work and hurl shurikens of their own. Fire\'s long-time rival awaits among their ranks at the Capital Arena.',
+  protector: 'Members of the ancient Aegis Guild, forced into the Overlord\'s service. Their healing auras sustain nearby allies. Earth and Wind once knew their elders well — freeing them may turn the tide of war.',
+  attacker: 'Forbidden orbs summoned through ancient ritual at the Tower. Shadow has seen the truth: they are fragments of a sealed darkness, older than any nation. While allies remain in their aura, the orbs are invulnerable. The Reign grows bolder with each one summoned.',
+  flyer: 'Winged soldiers enchanted with levitation runes. They dive from above without warning, striking before retreating to the safety of the sky.',
+  flyshooter: 'The Overlord\'s aerial bombardiers. Combining flight with ranged firepower, they rain projectiles from angles ground forces cannot easily reach. Among the most feared units in the Reign\'s army.',
 };
 
 function getBestiaryEntries() {
@@ -596,6 +603,21 @@ function renderGuidePopup(ctx) {
   for (const line of tipLines) {
     cy += 14;
     ctx.fillText(line, bx + 24, cy);
+  }
+
+  // Lore
+  if (guide.lore) {
+    cy += 20;
+    ctx.fillStyle = '#b8a060';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText('Lore:', bx + 24, cy);
+    ctx.fillStyle = '#a89868';
+    ctx.font = 'italic 11px monospace';
+    const loreLines = wrapText(ctx, guide.lore, bw - 60);
+    for (const line of loreLines) {
+      cy += 14;
+      ctx.fillText(line, bx + 24, cy);
+    }
   }
 
   // Footer
