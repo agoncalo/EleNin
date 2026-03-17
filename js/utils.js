@@ -106,6 +106,21 @@ function renderHpBar(ctx, cam, entity, barWidth) {
 // Process burn DOT for an entity (enemy or boss)
 function processBurn(entity, game) {
   if (entity.burnTimer <= 0) return;
+  // Water element enemies: fully immune to burn
+  if (entity.element === 'water') {
+    entity.burnTimer = 0;
+    return;
+  }
+  // Fire element enemies: burn heals them instead
+  if (entity.element === 'fire') {
+    entity.burnTimer = 0;
+    const healAmt = Math.min(2, entity.maxHp - entity.hp);
+    if (healAmt > 0) {
+      entity.hp += healAmt;
+      game.effects.push(new Effect(entity.x + entity.w / 2, entity.y + entity.h / 2, '#4f4', 4, 2, 8));
+    }
+    return;
+  }
   entity.burnTimer--;
   if (entity.burnTimer % 5 === 0) {
     game.effects.push(new Effect(entity.x + entity.w / 2, entity.y + entity.h / 2, '#f63', 6, 2, 10));

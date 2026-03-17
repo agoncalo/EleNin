@@ -292,11 +292,17 @@ class Game {
     const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
+    // Elemental variant chance
+    if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
+      e.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+      e.elementColors = ELEMENT_COLORS[e.element];
+      e.color = e.elementColors.body;
+    }
     if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
       this.spawnedMiniboss.add(pick.type);
     }
     this.enemies.push(e);
-    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#fff', 6, 3, 10));
+    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, e.element ? e.elementColors.particle : '#fff', 6, 3, 10));
   }
 
   spawnBoss() {
@@ -304,9 +310,15 @@ class Game {
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
     this.boss = new Boss(bx, by, waveDef.boss, this.wave);
+    // Elemental variant chance
+    if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
+      this.boss.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+      this.boss.elementColors = ELEMENT_COLORS[this.boss.element];
+      this.boss.color = this.boss.elementColors.body;
+    }
     this.bossActive = true;
     this.bossMessage = 180;
-    this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, '#f44', 25, 6, 25));
+    this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, this.boss.element ? this.boss.elementColors.particle : '#f44', 25, 6, 25));
     SFX.bossSpawn();
     this.showWaveMessage(this.boss.name + ` (${this.wave}/${TOTAL_WAVES})`);
   }

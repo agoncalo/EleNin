@@ -8,6 +8,105 @@ const FIXED_DT = 1000 / 60; // 60 fps timestep
 
 const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
+// ── Elemental Affinities ─────────────────────────────────────
+// Elements that enemies can have (shadow is NOT an affinity)
+const ENEMY_ELEMENTS = ['fire', 'earth', 'water', 'crystal', 'wind', 'lightning', 'steel'];
+
+// Colors for each element
+const ELEMENT_COLORS = {
+  fire:      { body: '#d44', accent: '#f93', glow: '#f60', particle: '#fa3' },
+  earth:     { body: '#8a5', accent: '#a87', glow: '#7a4', particle: '#a96' },
+  water:     { body: '#46a', accent: '#6af', glow: '#38d', particle: '#4af' },
+  crystal:   { body: '#2bb', accent: '#aff', glow: '#0dd', particle: '#8ff' },
+  wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },
+  lightning: { body: '#aa4', accent: '#ff8', glow: '#dd6', particle: '#ff4' },
+  steel:     { body: '#899', accent: '#bcc', glow: '#8aa', particle: '#abb' },
+};
+
+// Interaction matrix: attackElement -> enemyElement -> result
+// 'normal' = full damage, 'resist' = blocked (shield pop), 'heal' = heals enemy (green cross)
+// Steel = melee sword / shuriken hits
+const ELEMENT_MATRIX = {
+  fire: {
+    fire: 'heal',      // fire heals fire
+    earth: 'normal',
+    water: 'resist',   // water resists fire
+    crystal: 'normal', // fire beats crystal (melts)
+    wind: 'normal',
+    lightning: 'normal',
+    steel: 'normal',
+  },
+  earth: {
+    fire: 'normal',
+    earth: 'heal',     // earth heals earth
+    water: 'normal',
+    crystal: 'normal',
+    wind: 'normal',
+    lightning: 'normal',
+    steel: 'heal',     // steel heals earth (metal in ground)
+  },
+  water: {
+    fire: 'normal',    // water beats fire
+    earth: 'resist',   // earth resists water
+    water: 'heal',     // water heals water
+    crystal: 'normal',
+    wind: 'resist',    // wind resists water (blows it away)
+    lightning: 'normal',
+    steel: 'normal',
+  },
+  crystal: {
+    fire: 'resist',    // fire resists crystal (melts)
+    earth: 'normal',
+    water: 'normal',
+    crystal: 'heal',   // crystal heals crystal
+    wind: 'normal',
+    lightning: 'normal',
+    steel: 'normal',
+  },
+  wind: {
+    fire: 'normal',
+    earth: 'resist',   // earth resists wind (too heavy)
+    water: 'normal',   // wind beats water (evaporates)
+    crystal: 'normal',
+    wind: 'heal',      // wind heals wind
+    lightning: 'normal',
+    steel: 'normal',
+  },
+  lightning: {
+    fire: 'normal',
+    earth: 'resist',   // earth grounds lightning
+    water: 'normal',   // lightning beats water
+    crystal: 'normal',
+    wind: 'normal',
+    lightning: 'heal',
+    steel: 'normal',
+  },
+  steel: {
+    fire: 'resist',    // fire melts steel
+    earth: 'normal',   // steel beats earth
+    water: 'normal',
+    crystal: 'normal',
+    wind: 'normal',
+    lightning: 'normal',
+    steel: 'normal',   // steel vs steel = normal, not heal
+  },
+};
+
+// Map ninja type -> attack element. Shadow has no element (always steel/normal).
+// Storm is multi-element: melee=steel, soak/chain=lightning+water
+const NINJA_ATTACK_ELEMENTS = {
+  fire: 'fire',
+  earth: 'earth',
+  bubble: 'water',
+  shadow: 'steel',   // shadow uses blades, no elemental affinity
+  crystal: 'crystal',
+  wind: 'wind',
+  storm: 'lightning', // default element, water for soak-related
+};
+
+// Chance for an enemy to be elemental (per spawn)
+const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% chance
+
 const NINJA_TYPES = {
   fire: {
     name: 'Fire Ninja',

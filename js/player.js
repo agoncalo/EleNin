@@ -800,7 +800,7 @@ class Player {
         const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
         const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
-          e.takeDamage(slamDmg, game, this.x + this.w / 2);
+          e.takeDamage(slamDmg, game, this.x + this.w / 2, 'physical');
           e.vy = -5;
           e.vx = Math.sign(dx) * 4;
           if (this.ninjaType === 'fire') {
@@ -827,7 +827,7 @@ class Player {
         const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
         const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
-          game.boss.takeDamage(slamDmg, game, this.x + this.w / 2);
+          game.boss.takeDamage(slamDmg, game, this.x + this.w / 2, 'physical');
         }
       }
     }
@@ -913,7 +913,7 @@ class Player {
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
             }
-            e.takeDamage(dmg, game, this.x + this.w / 2);
+            e.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
             if (!this.ultimateReady && !this.ultimateActive) {
               this.addUltimateCharge(4);
             }
@@ -922,7 +922,7 @@ class Player {
             if (this.ninjaType === 'crystal') {
               for (const other of game.enemies) {
                 if (other !== e && !other.dead && other.freezeTimer >= 1) {
-                  other.takeDamage(dmg * 0.75, game, this.x + this.w / 2);
+                  other.takeDamage(dmg * 0.75, game, this.x + this.w / 2, 'steel');
                 }
               }
             }
@@ -996,7 +996,7 @@ class Player {
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += this.crystalClones ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
-          game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
           if (game.boss.dead) {
             if (this.ninjaType === 'shadow') {
               game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', game.camera));

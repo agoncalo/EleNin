@@ -56,6 +56,10 @@ class Enemy {
       this.h = big ? 44 : 36;
       this.attackerAuraRadius = big ? 240 : 180;
     }
+    // Elemental variant
+    this.element = null;
+    this.elementColors = null;
+    this.baseColor = this.color; // preserve original type color
   }
 
   update(game) {
@@ -88,6 +92,14 @@ class Enemy {
 
     // Burn DOT
     if (this.burnTimer > 0) {
+      // Water: immune to burn; Fire: burn heals instead
+      if (this.element === 'water') { this.burnTimer = 0; }
+      else if (this.element === 'fire') {
+        this.burnTimer = 0;
+        const healAmt = Math.min(2, this.maxHp - this.hp);
+        if (healAmt > 0) { this.hp += healAmt; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 4, 2, 8)); }
+      }
+      else {
       this.burnTimer--;
       if (this.burnTimer % 5 === 0) {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
@@ -109,6 +121,7 @@ class Enemy {
           }
           this.onDeath(game);
         }
+      }
       }
     }
 
@@ -151,7 +164,7 @@ class Enemy {
           const dx = px - cx, dy = py - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 400 && d > 0) {
-            game.projectiles.push(new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, '#ff4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
+            game.projectiles.push(new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
           }
         }
         break;
@@ -175,7 +188,7 @@ class Enemy {
           const dx = px - cx, dy = py - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 450 && d > 0) {
-            const p = new Projectile(cx, cy, (dx / d) * 3.5, (dy / d) * 3 - 2, '#f6f', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+            const p = new Projectile(cx, cy, (dx / d) * 3.5, (dy / d) * 3 - 2, this.element ? this.elementColors.accent : '#f6f', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
             p.bouncy = true;
             game.projectiles.push(p);
           }
@@ -219,7 +232,7 @@ class Enemy {
               const cos = Math.cos(ang), sin = Math.sin(ang);
               const svx = baseVx * cos - baseVy * sin;
               const svy = baseVx * sin + baseVy * cos;
-              const sh = new Projectile(cx, cy, svx, svy, '#ccc', this.contactDmg, 'enemy');
+              const sh = new Projectile(cx, cy, svx, svy, this.element ? this.elementColors.accent : '#ccc', this.contactDmg, 'enemy');
               sh.w = 8; sh.h = 8;
               sh.isShuriken = true;
               sh.life = 120;
@@ -271,7 +284,7 @@ class Enemy {
             const sdx = px - auraCx, sdy = py - auraCy;
             const sd = Math.sqrt(sdx * sdx + sdy * sdy);
             if (sd > 0 && sd < 500) {
-              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, '#f44', this.contactDmg, 'enemy');
+              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
               p.piercing = true;
               p.w = 6; p.h = 6;
               p.life = 90;
@@ -316,7 +329,7 @@ class Enemy {
           const adx = px - cx, ady = py - cy;
           const ad = Math.sqrt(adx * adx + ady * ady);
           if (ad < 500 && ad > 0) {
-            game.projectiles.push(new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, '#fa4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
+            game.projectiles.push(new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy'));
           }
         }
         break;
@@ -383,7 +396,7 @@ class Enemy {
     }
   }
 
-  takeDamage(amount, game, fromX) {
+  takeDamage(amount, game, fromX, attackElement) {
     if (this.dead) return;
     if (this.damageIframes > 0) return;
     // Attacker: invulnerable while enemies are in its aura
@@ -418,6 +431,36 @@ class Enemy {
         return;
       }
     }
+    // Elemental interaction — derive attack element if not passed
+    if (this.element && game) {
+      const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
+      if (atkEl && ELEMENT_MATRIX[atkEl]) {
+        let result = ELEMENT_MATRIX[atkEl][this.element];
+        // Steel (sword) attacks never heal — downgrade to resist
+        if (atkEl === 'steel' && result === 'heal') result = 'resist';
+        if (result === 'resist') {
+          // Colored shield pop — no damage
+          this.flashTimer = 6;
+          const col = this.elementColors.accent;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
+          game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
+          return;
+        }
+        if (result === 'heal') {
+          // Heal enemy instead of damaging
+          const healAmt = Math.min(amount, this.maxHp - this.hp);
+          if (healAmt > 0) {
+            this.hp += healAmt;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 6, 2, 10));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 8, this.y - 10, '+' + healAmt, '#4f4'));
+          } else {
+            // Already full HP — small green flash
+            game.effects.push(new Effect(this.x + this.w / 2, this.y, '#4f4', 3, 1, 6));
+          }
+          return;
+        }
+      }
+    }
     this.hp -= amount;
     this.flashTimer = 6;
     this.damageIframes = 15;
@@ -437,7 +480,7 @@ class Enemy {
     game.totalKills++;
     // Track kill for achievements & bestiary
     recordKill(game.player.ninjaType);
-    recordBestiaryKill(this.type, this.big, false);
+    recordBestiaryKill(this.type, this.big, false, this.element);
     // Track deflector kill for earth construct unlock
     if (this.type === 'deflector') game.player.defeatedDeflector = true;
     SFX.enemyDie();
@@ -553,6 +596,36 @@ class Enemy {
       if (Math.random() < 0.15) {
         game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
       }
+    }
+
+    // Elemental aura
+    if (this.element && this.elementColors) {
+      const tick = game ? game.tick : 0;
+      // Pulsing outer glow
+      ctx.save();
+      ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
+      ctx.fillStyle = this.elementColors.glow;
+      ctx.beginPath();
+      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Ambient element particles
+      if (Math.random() < 0.25) {
+        const px = this.x + Math.random() * this.w;
+        const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
+        game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
+      }
+      // Small element pip (diamond) above head
+      const pipX = sx + this.w / 2;
+      const pipY = sy - 5;
+      ctx.fillStyle = this.elementColors.accent;
+      ctx.beginPath();
+      ctx.moveTo(pipX, pipY - 4);
+      ctx.lineTo(pipX + 3, pipY);
+      ctx.lineTo(pipX, pipY + 4);
+      ctx.lineTo(pipX - 3, pipY);
+      ctx.closePath();
+      ctx.fill();
     }
 
     // Big border
@@ -933,7 +1006,7 @@ class Boss extends Enemy {
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
     }
 
-    // Burn DOT (reuse parent pattern)
+    // Burn DOT (reuse parent pattern) — bosses have no element, always burn normally
     if (this.burnTimer > 0) {
       this.burnTimer--;
       if (this.burnTimer % 5 === 0) {
