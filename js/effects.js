@@ -1,3 +1,197 @@
+// ── Substitution Log (shadow ninja) ──────────────────────────
+class SubstitutionLog {
+  constructor(x, y, w, h) {
+    this.x = x; this.y = y;
+    this.w = w; this.h = h;
+    this.life = 90;
+    this.maxLife = 90;
+    this.vy = -1.5;
+    this.rot = (Math.random() < 0.5 ? 1 : -1) * (0.02 + Math.random() * 0.03);
+    this.angle = 0;
+    this.cloudPuffs = [];
+    for (let i = 0; i < 6; i++) {
+      this.cloudPuffs.push({
+        ox: (Math.random() - 0.5) * 24,
+        oy: (Math.random() - 0.5) * 20,
+        r: 6 + Math.random() * 10,
+        vx: (Math.random() - 0.5) * 1.2,
+        vy: -0.3 - Math.random() * 0.8,
+        life: 25 + Math.random() * 15
+      });
+    }
+    this.done = false;
+  }
+  update() {
+    this.life--;
+    this.vy += 0.12;
+    this.y += this.vy;
+    this.angle += this.rot;
+    if (this.life <= 0) this.done = true;
+  }
+  render(ctx, cam) {
+    const fade = Math.min(1, this.life / 20);
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const cx = sx + this.w / 2;
+    const cy = sy + this.h / 2;
+    const logW = this.w + 6;
+    const logH = this.h + 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this.angle);
+
+    const lx = -logW / 2;
+    const ly = -logH / 2;
+    // Shadow
+    ctx.globalAlpha = fade * 0.25;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(0, logH / 2 + 2, logW / 2 + 2, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Main log body (rounded rect)
+    ctx.globalAlpha = fade * 0.95;
+    ctx.fillStyle = '#9B6B3D';
+    const r = 4;
+    ctx.beginPath();
+    ctx.moveTo(lx + r, ly);
+    ctx.lineTo(lx + logW - r, ly);
+    ctx.quadraticCurveTo(lx + logW, ly, lx + logW, ly + r);
+    ctx.lineTo(lx + logW, ly + logH - r);
+    ctx.quadraticCurveTo(lx + logW, ly + logH, lx + logW - r, ly + logH);
+    ctx.lineTo(lx + r, ly + logH);
+    ctx.quadraticCurveTo(lx, ly + logH, lx, ly + logH - r);
+    ctx.lineTo(lx, ly + r);
+    ctx.quadraticCurveTo(lx, ly, lx + r, ly);
+    ctx.fill();
+    // Darker edges
+    ctx.globalAlpha = fade * 0.4;
+    ctx.fillStyle = '#6B4226';
+    ctx.fillRect(lx + 1, ly, logW - 2, 3);
+    ctx.fillRect(lx + 1, ly + logH - 3, logW - 2, 3);
+    // Wood grain lines
+    ctx.globalAlpha = fade * 0.3;
+    ctx.strokeStyle = '#5C3A1E';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < 4; i++) {
+      const gy = ly + 5 + i * (logH / 5);
+      ctx.beginPath();
+      ctx.moveTo(lx + 3, gy);
+      ctx.bezierCurveTo(lx + logW * 0.3, gy - 1.5, lx + logW * 0.6, gy + 1.5, lx + logW - 3, gy);
+      ctx.stroke();
+    }
+    // Top end (cross-section ellipse with rings)
+    ctx.globalAlpha = fade * 0.7;
+    ctx.fillStyle = '#C4965A';
+    ctx.beginPath();
+    ctx.ellipse(0, ly + 2, logW / 2 - 1, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = fade * 0.4;
+    ctx.strokeStyle = '#8B6B3D';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.ellipse(0, ly + 2, logW / 2 - 5, 2.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, ly + 2, logW / 2 - 9, 1.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Small knot
+    ctx.globalAlpha = fade * 0.5;
+    ctx.fillStyle = '#5C3A1E';
+    ctx.beginPath();
+    ctx.ellipse(-3 + logW * 0.15, logH * 0.45 - logH / 2, 2.5, 3, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // White smoke cloud
+    const cloudCx = this.x + this.w / 2 - cam.x;
+    const cloudCy = this.y + this.h / 2 - cam.y;
+    for (const p of this.cloudPuffs) {
+      p.ox += p.vx;
+      p.oy += p.vy;
+      p.r += 0.3;
+      p.life--;
+      if (p.life <= 0) continue;
+      const a = Math.min(1, p.life / 10) * fade * 0.45;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(cloudCx + p.ox, cloudCy + p.oy, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Smoke Grenade (shadow ninja) ─────────────────────────────
+class SmokeGrenade {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.vx = (Math.random() - 0.5) * 3;
+    this.vy = -3 - Math.random() * 2;
+    this.graceTimer = 20;
+    this.landed = false;
+    this.life = 300; // 5 seconds
+    this.maxLife = 300;
+    this.radius = 60;
+    this.done = false;
+    this.puffs = [];
+  }
+  update() {
+    if (!this.landed) {
+      this.vy += 0.18;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.graceTimer--;
+      if (this.graceTimer <= 0 && this.vy > 0) {
+        this.landed = true;
+        this.vy = 0;
+        this.vx = 0;
+      }
+      return;
+    }
+    this.life--;
+    if (this.life <= 0) this.done = true;
+    // Spawn smoke puffs
+    if (this.life > 30 && Math.random() < 0.4) {
+      this.puffs.push({
+        ox: (Math.random() - 0.5) * this.radius * 1.2,
+        oy: (Math.random() - 0.5) * 20 - 5,
+        r: 4 + Math.random() * 8,
+        vy: -0.2 - Math.random() * 0.5,
+        life: 20 + Math.random() * 15
+      });
+    }
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i];
+      p.oy += p.vy;
+      p.r += 0.15;
+      p.life--;
+      if (p.life <= 0) this.puffs.splice(i, 1);
+    }
+  }
+  render(ctx, cam) {
+    const fade = Math.min(1, this.life / 30);
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    // Ground haze
+    ctx.globalAlpha = fade * 0.15;
+    ctx.fillStyle = '#c8b8d8';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, this.radius, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Smoke puffs
+    for (const p of this.puffs) {
+      const a = Math.min(1, p.life / 8) * fade * 0.35;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#ddd';
+      ctx.beginPath();
+      ctx.arc(sx + p.ox, sy + p.oy, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 // ── Effect (particles) ───────────────────────────────────────
 class Effect {
   constructor(x, y, color, count, speed, life) {

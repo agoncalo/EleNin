@@ -1590,7 +1590,15 @@ class Player {
     // Shadow ninja: stealth accumulation
     if (this.ninjaType === 'shadow') {
       const now = game.tick;
-      const stealthRate = this.shadowUltBuff ? 5 : 1; // Way faster during ult
+      let smokeBoost = 0;
+      for (const e of game.effects) {
+        if (e instanceof SmokeGrenade && !e.done) {
+          const dx = (this.x + this.w / 2) - e.x;
+          const dy = (this.y + this.h / 2) - e.y;
+          if (dx * dx + dy * dy < e.radius * e.radius) { smokeBoost = 3; break; }
+        }
+      }
+      const stealthRate = (this.shadowUltBuff ? 5 : 1) + smokeBoost;
       if (now - this.lastDamageTick > 60 && now - this.lastEnemyTouch > 60) {
         this.shadowStealth = Math.min(this.shadowStealth + stealthRate, 300);
         if (this.shadowStealth % 60 === 0 && this.shadowKillThreshold < 15) {
@@ -1969,15 +1977,41 @@ class Player {
         }
         this.nextHitDouble = true;
         break;
-      case 'shadow':
+      case 'shadow': {
+        const oldX = this.x, oldY = this.y;
+        const substitution = game.tick - this.lastDamageTick <= 60 && this.lastDamageAmount > 0;
+        if (substitution) {
+          this.hp = Math.min(this.hp + this.lastDamageAmount, this.maxHp);
+          this.lastDamageAmount = 0;
+          this.statusBurn = 0;
+          this.statusFreeze = 0;
+          this.statusFloat = 0;
+          this.statusParalyse = 0;
+          this.statusHeavy = 0;
+          this.statusStun = 0;
+          game.effects.push(new SubstitutionLog(oldX, oldY, this.w, this.h));
+          game.effects.push(new Effect(oldX + this.w / 2, oldY + this.h / 2, '#ccc', 10, 3, 15));
+          game.effects.push(new TextEffect(oldX + this.w / 2, oldY - 10, 'SUBSTITUTION!', '#a4e'));
+        }
         this.x += this.facing * 300;
         this.y -= 30;
+        // Clamp to level bounds
+        if (this.x < 0) this.x = 0;
+        if (this.x + this.w > game.levelW) this.x = game.levelW - this.w;
+        if (this.y < -100) this.y = -100;
         this.vy = 0;
-        this.invincibleTimer = 15;
+        this.invincibleTimer = 30;
         this.stopMidair = true;
         this.stopMidairTimer = 20;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 12, 3, 12));
+        // Drop two smoke grenades at random nearby positions
+        for (let i = 0; i < 2; i++) {
+          const gx = this.x + this.w / 2 + (Math.random() - 0.5) * 200;
+          const gy = this.y + this.h;
+          game.effects.push(new SmokeGrenade(gx, gy));
+        }
         break;
+      }
       case 'crystal': {
         // Spawn a diamond shard aimed at nearest enemy
         if (!game.diamondShards) game.diamondShards = [];
@@ -2062,6 +2096,7 @@ class Player {
       }
     }
     this.hp -= amount;
+    this.lastDamageAmount = amount;
     this.invincibleTimer = 45;
     this.lastDamageTick = game.tick;
     this.windPower = 0;
