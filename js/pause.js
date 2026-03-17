@@ -457,7 +457,7 @@ function renderToast(ctx) {
   ctx.fillText(isBestiary ? '\uD83D\uDCD6 New Bestiary Entry!' : '\u2606 Achievement Unlocked!', tx + 10, ty + 18);
   ctx.fillStyle = '#fff';
   ctx.font = '12px monospace';
-  ctx.fillText(`${currentToast.icon} ${currentToast.name}`, tx + 10, ty + 36);
+  ctx.fillText(isBestiary ? `${currentToast.icon} ${currentToast.desc}` : `${currentToast.icon} ${currentToast.name}`, tx + 10, ty + 36);
   ctx.restore();
 }
 
