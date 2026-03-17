@@ -119,8 +119,8 @@ const NINJA_TYPES = {
   },
   earth: {
     name: 'Earth Ninja',
-    color: '#8b5e3c',
-    accentColor: '#4a7a3a',
+    color: '#a0622a',
+    accentColor: '#2e9e2e',
     key: '2',
     attackDamage: 2,
     jumpPower: -10,

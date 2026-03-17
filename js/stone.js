@@ -154,14 +154,25 @@ class StoneSpike extends StoneConstruct {
     }
   }
   render(ctx, cam) {
-    ctx.fillStyle = '#6c8';
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    // Brown spike body
+    ctx.fillStyle = '#a0622a';
     ctx.beginPath();
-    ctx.moveTo(this.x - cam.x, this.y + this.h - cam.y);
-    ctx.lineTo(this.x + this.w/2 - cam.x, this.y - cam.y);
-    ctx.lineTo(this.x + this.w - cam.x, this.y + this.h - cam.y);
+    ctx.moveTo(sx, sy + this.h);
+    ctx.lineTo(sx + this.w/2, sy);
+    ctx.lineTo(sx + this.w, sy + this.h);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#333';
+    // Green accent tip
+    ctx.fillStyle = '#2e9e2e';
+    ctx.beginPath();
+    ctx.moveTo(sx + this.w * 0.3, sy + this.h * 0.5);
+    ctx.lineTo(sx + this.w/2, sy);
+    ctx.lineTo(sx + this.w * 0.7, sy + this.h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#5a3a1a';
     ctx.stroke();
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
