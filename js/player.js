@@ -34,8 +34,9 @@ class Player {
     // Earth ultimate: stone golem mecha
     this.earthGolem = null; // { timer, facing, punchTimer, shootTimer, x, y, w, h, hp }
 
-    // Bubble ultimate: ride inside a big bubble
-    this.bubbleRide = null; // { timer, hp, maxHp, x, y, w, h, facing, contactCd, trailTimer }
+    // Bubble ultimate: bubbles on every enemy + underwater
+    this.bubbleRide = null; // kept for switchNinja cleanup
+    this.bubbleUlt = null; // { timer, trapped: [], underwaterAlpha, damageTick }
 
     // Shadow ultimate: darkness + eyes
     this.shadowDarkness = 0;    // 0-1 overlay alpha
@@ -100,6 +101,9 @@ class Player {
     this.windDashTimer = 0;
     this.windTrails = [];
     this.windFullTrails = [];
+
+    // Wind ultimate: giant bow + arrows
+    this.windBow = null; // { timer, phase, arrows: [], bowAlpha, bowScale }
 
     // Storm ninja state
     this.stormChaining = false;
@@ -274,26 +278,32 @@ class Player {
         break;
 
       case 'bubble':
-        // Ride inside a big bubble
-        this.ultimateTimer = 420; // 7 seconds
-        this.bubbleRide = {
-          timer: 420,
-          hp: 15,
-          maxHp: 15,
-          x: this.x - 26,
-          y: this.y - 26,
-          w: 76,
-          h: 76,
-          facing: this.facing,
-          contactCd: 0,
-          trailTimer: 0
-        };
+        // Spawn a bubble on every enemy — float and damage them, underwater background
+        this.ultimateTimer = 300; // 5 seconds
+        {
+          const trapped = [];
+          for (const e of game.enemies) {
+            if (!e.dead) {
+              trapped.push({ enemy: e, floatY: e.y, baseY: e.y, bobPhase: Math.random() * Math.PI * 2 });
+            }
+          }
+          if (game.boss && !game.boss.dead) {
+            trapped.push({ enemy: game.boss, floatY: game.boss.y, baseY: game.boss.y, bobPhase: Math.random() * Math.PI * 2 });
+          }
+          this.bubbleUlt = {
+            timer: 300,
+            trapped,
+            underwaterAlpha: 0,
+            damageTick: 0,
+            bubbleParticles: []
+          };
+        }
         SFX.special();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 25, 6, 20));
         break;
 
       case 'shadow':
-        // Screen goes dark, glowing eyes appear
+        // Screen goes dark, glowing eyes appear + purple paralysis on all enemies
         this.ultimateTimer = 360; // 6 seconds of buff after cutscene
         this.shadowDarkness = 0;
         this.shadowEyesTimer = 60; // eyes visible for 60 frames
@@ -303,6 +313,21 @@ class Player {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 40, 10, 30));
         this.shadowStealth = 300;
         this.backstabReady = true;
+        // Apply purple paralysis to ALL enemies (including lightning elementals)
+        for (const e of game.enemies) {
+          if (!e.dead) {
+            e.purpleParalyseTimer = 150; // ~2.5 seconds
+            e.vx = 0;
+            e.vy = 0;
+            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a040ff', 10, 3, 14));
+          }
+        }
+        if (game.boss && !game.boss.dead) {
+          game.boss.purpleParalyseTimer = 90; // shorter for boss
+          game.boss.vx = 0;
+          game.boss.vy = 0;
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a040ff', 14, 4, 16));
+        }
         SFX.backstab();
         break;
 
@@ -339,31 +364,26 @@ class Player {
         break;
 
       case 'wind':
-        this.ultimateTimer = 180;
+        // Giant bow fires 5 arrows upward, they crash down on enemies
+        this.ultimateTimer = 300; // 5 seconds total
         this.windPower = 10;
-        if (!game.trimerangs) game.trimerangs = [];
-        // Spawn +3 new trimerangs
-        for (let i = 0; i < 3; i++) {
-          const angle = (i / 3) * Math.PI * 2;
-          const px = this.x + this.w / 2 + Math.cos(angle) * 40;
-          const py = this.y + this.h / 2 + Math.sin(angle) * 40;
-          game.trimerangs.push(new Trimerang(px, py, Math.cos(angle) * 4, Math.sin(angle) * 4, 'player'));
-        }
-        // Set ALL active trimerangs to orbit mode
-        const totalTrimerangs = game.trimerangs.length;
-        for (let i = 0; i < totalTrimerangs; i++) {
-          const t = game.trimerangs[i];
-          if (t.done) continue;
-          t.orbiting = true;
-          t.orbitTimer = 90; // orbit for ~1.5 seconds
-          t.orbitAngle = (i / totalTrimerangs) * Math.PI * 2;
-          t.orbitRadius = 50 + (i % 3) * 20;
-          t.burstAngle = (i / totalTrimerangs) * Math.PI * 2; // spread evenly outward
-          t.hitSet.clear();
-        }
+        this.windBow = {
+          timer: 300,
+          phase: 'bow',    // 'bow' -> 'fire' -> 'rain'
+          bowAlpha: 0,
+          bowScale: 0,
+          bowTimer: 60,    // bow appears for 1 second
+          arrows: [],
+          arrowsFired: false,
+          centerX: this.x + this.w / 2,
+          centerY: this.y + this.h / 2
+        };
+        // Center camera on player
+        game.camera.x = this.x + this.w / 2 - CANVAS_W / 2;
+        game.camera.y = this.y + this.h / 2 - CANVAS_H / 2;
         SFX.bossSpawn();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 25, 6, 20));
-        this.invincibleTimer = 40;
+        this.invincibleTimer = 300;
         break;
 
       case 'storm':
@@ -397,7 +417,7 @@ class Player {
 
   switchNinja(type) {
     if (this.ninjaType === type) return;
-    if (this.ultCutscene || this.earthGolem || this.bubbleRide) return; // Can't switch during ultimate cutscene, golem, or bubble ride
+    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow) return; // Can't switch during ultimate cutscene, golem, bubble, or wind bow
     this.ninjaType = type;
     this.comboMeter = 0;
     this.comboTimer = 0;
@@ -614,75 +634,181 @@ class Player {
         }
       }
 
-      // Bubble: ride inside big bubble
-      if (this.ninjaType === 'bubble' && this.bubbleRide) {
-        const b = this.bubbleRide;
-        b.timer--;
-        // Movement — hover like golem but faster
-        let moveX = 0, moveY = 0;
-        if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
-        if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
-        if (keys['ArrowUp'] || keys['KeyW'] || touchState.up || gpState.axes[1] < -0.3) moveY = -1;
-        if (keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.axes[1] > 0.3) moveY = 1;
-        if (moveX !== 0) { b.facing = moveX; this.facing = moveX; }
-        b.x += moveX * 4.5;
-        b.y += moveY * 4.5 + Math.sin(game.tick * 0.06) * 0.6;
-        b.x = Math.max(0, Math.min(game.levelW - b.w, b.x));
-        b.y = Math.max(-50, Math.min(480 - b.h, b.y));
-        // Player follows bubble center
-        this.x = b.x + b.w / 2 - this.w / 2;
-        this.y = b.y + b.h / 2 - this.h / 2;
+      // Wind: giant bow fires arrows upward, they crash down
+      if (this.ninjaType === 'wind' && this.windBow) {
+        const wb = this.windBow;
+        wb.timer--;
+        // Keep player centered and frozen
+        this.vx = 0;
         this.vy = 0;
-        this.grounded = false;
 
-        // Contact damage
-        if (b.contactCd > 0) b.contactCd--;
-        if (b.contactCd <= 0) {
-          const bBox = { x: b.x, y: b.y, w: b.w, h: b.h };
-          for (const e of game.enemies) {
-            if (!e.dead && rectOverlap(bBox, e)) {
-              e.takeDamage(this.type.attackDamage + this.bonusDamage + 2, game, b.x + b.w / 2);
-              const kd = Math.sign(e.x + e.w / 2 - (b.x + b.w / 2)) || 1;
-              e.vx = kd * 5;
-              e.vy = -3;
-              b.contactCd = 10;
-              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4af', 8, 3, 10));
-              break;
-            }
-          }
-          if (b.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap({ x: b.x, y: b.y, w: b.w, h: b.h }, game.boss)) {
-            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 2, game, b.x + b.w / 2);
-            b.contactCd = 10;
-            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4af', 12, 4, 14));
-          }
-        }
-
-        // Trail bubbles
-        b.trailTimer++;
-        if (b.trailTimer % 12 === 0) {
-          game.bubbles.push(new Bubble(
-            b.x + b.w / 2 + randInt(-20, 20),
-            b.y + b.h / 2 + randInt(-10, 10),
-            this.type.attackDamage + this.bonusDamage
-          ));
-        }
-
-        // Bubble expires
-        if (b.timer <= 0 || b.hp <= 0) {
-          // Burst
-          SFX.slam();
-          damageInRadius(game, b.x + b.w / 2, b.y + b.h / 2, 120, (this.type.attackDamage + this.bonusDamage) * 2, b.x + b.w / 2);
-          game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#4af', 30, 8, 22));
-          game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#8cf', 20, 6, 18));
-          // Scatter trail bubbles on burst
-          for (let i = 0; i < 6; i++) {
-            game.bubbles.push(new Bubble(
-              b.x + b.w / 2 + randInt(-80, 80),
-              b.y + b.h / 2 + randInt(-60, 40),
-              this.type.attackDamage + this.bonusDamage
+        if (wb.phase === 'bow') {
+          // Bow appears and grows
+          wb.bowAlpha = Math.min(wb.bowAlpha + 0.04, 1);
+          wb.bowScale = Math.min(wb.bowScale + 0.03, 1);
+          wb.bowTimer--;
+          // Wind particles around bow
+          if (game.tick % 3 === 0) {
+            game.effects.push(new Effect(
+              wb.centerX + randInt(-60, 60),
+              wb.centerY + randInt(-80, 80),
+              '#bfb', 4, 2, 12
             ));
           }
-          this.bubbleRide = null;
+          if (wb.bowTimer <= 0) {
+            wb.phase = 'fire';
+            // Create 30 arrows that launch upward in a wide volley
+            for (let i = 0; i < 30; i++) {
+              const spreadX = (i - 14.5) * 12 + randInt(-8, 8);
+              wb.arrows.push({
+                x: wb.centerX + spreadX * 0.4,
+                y: wb.centerY - 60,
+                vx: spreadX * 0.03,
+                vy: -16 - Math.random() * 6,
+                phase: 'up',    // 'up' -> 'pause' -> 'down'
+                pauseTimer: 20 + Math.floor(i / 3) * 4 + randInt(0, 6),
+                targetX: 0,
+                targetY: 0,
+                trail: [],
+                done: false,
+                hitSet: new Set(),
+                size: 0.8 + Math.random() * 0.4
+              });
+            }
+            SFX.shuriken();
+          }
+        } else if (wb.phase === 'fire') {
+          // Update arrows
+          let allDone = true;
+          for (const a of wb.arrows) {
+            if (a.done) continue;
+            allDone = false;
+            if (a.phase === 'up') {
+              a.x += a.vx;
+              a.y += a.vy;
+              a.vy += 0.4; // decelerate
+              a.trail.push({ x: a.x, y: a.y, life: 20 });
+              // Wind trail particles
+              if (game.tick % 2 === 0) {
+                game.effects.push(new Effect(a.x, a.y, '#8d8', 2, 1, 8));
+              }
+              if (a.vy >= 0) {
+                a.phase = 'pause';
+                // Pick a target — pool enemies AND boss together
+                const targets = [];
+                for (const e of game.enemies) {
+                  if (!e.dead) targets.push(e);
+                }
+                if (game.boss && !game.boss.dead) targets.push(game.boss);
+                if (targets.length > 0) {
+                  const target = targets[Math.floor(Math.random() * targets.length)];
+                  a.targetX = target.x + target.w / 2 + randInt(-20, 20);
+                  a.targetY = target.y + target.h / 2;
+                } else {
+                  a.targetX = wb.centerX + randInt(-100, 100);
+                  a.targetY = wb.centerY + 60;
+                }
+              }
+            } else if (a.phase === 'pause') {
+              // Brief pause at apex
+              a.pauseTimer--;
+              a.size = Math.min(a.size + 0.05, 2); // arrow grows slightly
+              if (a.pauseTimer <= 0) {
+                a.phase = 'down';
+                // Calculate velocity toward target
+                const dx = a.targetX - a.x;
+                const dy = a.targetY - a.y;
+                const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                a.vx = (dx / d) * 16;
+                a.vy = (dy / d) * 16;
+                SFX.attack();
+              }
+            } else if (a.phase === 'down') {
+              a.x += a.vx;
+              a.y += a.vy;
+              a.vy += 0.3; // accelerate downward
+              a.trail.push({ x: a.x, y: a.y, life: 15 });
+              // Check impact with ground or near target
+              if (a.y >= a.targetY - 5 || a.y > game.camera.y + CANVAS_H + 50) {
+                a.done = true;
+                // Impact damage in radius
+                damageInRadius(game, a.targetX, a.targetY, 100, (this.type.attackDamage + this.bonusDamage + 6) * 4, a.targetX);
+                game.effects.push(new Effect(a.targetX, a.targetY, '#bfb', 20, 7, 18));
+                game.effects.push(new Effect(a.targetX, a.targetY, '#8d8', 15, 5, 14));
+                game.effects.push(new Effect(a.targetX, a.targetY, '#fff', 10, 4, 10));
+                SFX.slam();
+                triggerHitstop(5);
+              }
+            }
+            // Decay trails
+            for (const t of a.trail) t.life--;
+            a.trail = a.trail.filter(t => t.life > 0);
+          }
+          if (allDone || wb.timer <= 0) {
+            wb.phase = 'done';
+          }
+        }
+        // Expire
+        if (wb.phase === 'done' || wb.timer <= 0) {
+          this.windBow = null;
+        }
+      }
+
+      // Bubble: enemies trapped in bubbles, floating + underwater
+      if (this.ninjaType === 'bubble' && this.bubbleUlt) {
+        const bu = this.bubbleUlt;
+        bu.timer--;
+        // Fade in underwater overlay
+        bu.underwaterAlpha = Math.min(bu.underwaterAlpha + 0.02, 0.35);
+        // Damage tick every 20 frames
+        bu.damageTick++;
+        const doDamage = bu.damageTick % 20 === 0;
+        // Update trapped enemies — float upward with bob
+        for (const t of bu.trapped) {
+          if (t.enemy.dead) continue;
+          t.bobPhase += 0.06;
+          t.floatY -= 0.6; // float upward
+          t.enemy.x += Math.sin(t.bobPhase * 0.7) * 0.3; // gentle sway
+          t.enemy.y = t.floatY + Math.sin(t.bobPhase) * 4;
+          t.enemy.vx = 0;
+          t.enemy.vy = 0;
+          t.enemy.freezeTimer = 2; // keep them immobile
+          if (doDamage) {
+            t.enemy.takeDamage(this.type.attackDamage + this.bonusDamage + 1, game, this.x + this.w / 2);
+            game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#4af', 6, 2, 10));
+          }
+        }
+        // Spawn underwater bubble particles
+        if (game.tick % 4 === 0) {
+          bu.bubbleParticles.push({
+            x: game.camera.x + Math.random() * CANVAS_W,
+            y: game.camera.y + CANVAS_H + 10,
+            speed: 0.5 + Math.random() * 1.5,
+            size: 3 + Math.random() * 8,
+            wobble: Math.random() * Math.PI * 2,
+            life: 180
+          });
+        }
+        for (const p of bu.bubbleParticles) {
+          p.y -= p.speed;
+          p.x += Math.sin(p.wobble) * 0.3;
+          p.wobble += 0.04;
+          p.life--;
+        }
+        bu.bubbleParticles = bu.bubbleParticles.filter(p => p.life > 0);
+        // Expire
+        if (bu.timer <= 0) {
+          // Pop all bubbles with final burst damage
+          for (const t of bu.trapped) {
+            if (!t.enemy.dead) {
+              t.enemy.freezeTimer = 0;
+              t.enemy.takeDamage((this.type.attackDamage + this.bonusDamage) * 2, game, this.x + this.w / 2);
+              game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#4af', 14, 5, 16));
+              game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#8cf', 10, 3, 12));
+            }
+          }
+          SFX.slam();
+          this.bubbleUlt = null;
         }
       }
 
@@ -731,6 +857,8 @@ class Player {
         // Don't end fire ult while meteors are still in flight
         if (this.ninjaType === 'fire' && this.fireMeteors.some(m => !m.done)) {
           // keep running until all meteors land
+        } else if (this.ninjaType === 'wind' && this.windBow && this.windBow.phase !== 'done') {
+          // keep running until arrows are done
         } else {
           this.ultimateActive = false;
           this.ultimateCharge = 0;
@@ -739,6 +867,8 @@ class Player {
           // Clean up type-specific state
           this.earthGolem = null;
           this.bubbleRide = null;
+          this.bubbleUlt = null;
+          this.windBow = null;
           this.fireMeteors = [];
           this.shadowUltBuff = false;
           this.shadowDarkness = 0;
@@ -755,8 +885,8 @@ class Player {
       }
     }
 
-    // Skip normal movement if in earth golem
-    if (this.earthGolem) {
+    // Skip normal movement if in earth golem or wind bow
+    if (this.earthGolem || this.windBow) {
       // Still allow invincibility, effects, etc. but skip movement/gravity/collision
       if (this.invincibleTimer > 0) this.invincibleTimer--;
       return;
@@ -890,7 +1020,7 @@ class Player {
 
     // Ground slam
     const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
-    if (holdingDown && !this.grounded && !this.slamming && !(this.ninjaType === 'bubble' && this.ultimateActive)) {
+    if (holdingDown && !this.grounded && !this.slamming) {
       this.slamming = true;
       this.vx = 0;
     }

@@ -33,6 +33,7 @@ class Enemy {
     this.onPlatform = null;
     this.freezeTimer = 0;
     this.paralyseTimer = 0;
+    this.purpleParalyseTimer = 0;
     // Deflector state
     this.deflectReady = (type === 'deflector');
     this.deflectTimer = 0;
@@ -87,6 +88,7 @@ class Enemy {
       if (this.damageIframes > 0) this.damageIframes--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
+      if (this.purpleParalyseTimer > 0) this.purpleParalyseTimer--;
       return;
     }
     if (this.paralyseTimer > 0) {
@@ -114,6 +116,35 @@ class Enemy {
         const sx = this.x + Math.random() * this.w;
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
+      }
+      return;
+    }
+    // Purple paralysis (shadow ultimate) — affects ALL enemies including lightning
+    if (this.purpleParalyseTimer > 0) {
+      this.purpleParalyseTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (!p.thin && rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      // Purple electric sparks
+      if (Math.random() < 0.5) {
+        const sx = this.x + Math.random() * this.w;
+        const sy = this.y + Math.random() * this.h;
+        game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#a040ff' : '#d0a0ff', 2, 1.5, 8));
       }
       return;
     }
@@ -658,6 +689,32 @@ class Enemy {
       ctx.lineWidth = 1;
     }
 
+    // Purple paralysis effect overlay (shadow ultimate)
+    if (this.purpleParalyseTimer > 0) {
+      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.purpleParalyseTimer * 0.4);
+      ctx.fillStyle = '#a040ff';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+      // Purple lightning bolt arcs
+      ctx.strokeStyle = '#d0a0ff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        let bx = sx + Math.random() * this.w;
+        let by = sy;
+        ctx.moveTo(bx, by);
+        for (let j = 0; j < 3; j++) {
+          bx += (Math.random() - 0.5) * 10;
+          by += this.h / 3;
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+    }
+
     // Burn effect overlay
     if (this.burnTimer > 0) {
       ctx.globalAlpha = 0.3 + 0.15 * Math.sin(this.burnTimer * 0.3);
@@ -1100,6 +1157,7 @@ class Boss extends Enemy {
       if (this.damageIframes > 0) this.damageIframes--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
+      if (this.purpleParalyseTimer > 0) this.purpleParalyseTimer--;
       return;
     }
     if (this.paralyseTimer > 0) {
@@ -1126,6 +1184,35 @@ class Boss extends Enemy {
         const sx = this.x + Math.random() * this.w;
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
+      }
+      return;
+    }
+    // Purple paralysis (shadow ultimate) — affects ALL bosses including lightning
+    if (this.purpleParalyseTimer > 0) {
+      this.purpleParalyseTimer--;
+      this.vx = 0;
+      if (!this.flying) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+        this.y += this.vy;
+        for (const p of game.platforms) {
+          if (rectOverlap(this, p)) {
+            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+              this.y = p.y - this.h;
+              this.vy = 0;
+            }
+          }
+        }
+      } else {
+        this.vy = 0;
+      }
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      // Purple electric sparks
+      if (Math.random() < 0.5) {
+        const sx = this.x + Math.random() * this.w;
+        const sy = this.y + Math.random() * this.h;
+        game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#a040ff' : '#d0a0ff', 2, 1.5, 8));
       }
       return;
     }
@@ -1728,6 +1815,31 @@ class Boss extends Enemy {
       ctx.fillRect(sx, sy, this.w, this.h);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        let bx = sx + Math.random() * this.w;
+        let by = sy;
+        ctx.moveTo(bx, by);
+        for (let j = 0; j < 3; j++) {
+          bx += (Math.random() - 0.5) * 10;
+          by += this.h / 3;
+          ctx.lineTo(bx, by);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+    }
+
+    // Purple paralysis effect overlay (shadow ultimate)
+    if (this.purpleParalyseTimer > 0) {
+      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.purpleParalyseTimer * 0.4);
+      ctx.fillStyle = '#a040ff';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#d0a0ff';
       ctx.lineWidth = 1.5;
       ctx.globalAlpha = 0.6 + 0.4 * Math.random();
       for (let i = 0; i < 2; i++) {

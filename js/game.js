@@ -709,6 +709,7 @@ class Game {
     const fireUltSky = this.player.ultimateActive && this.player.ninjaType === 'fire';
     const shadowUltSky = this.player.ultimateActive && this.player.ninjaType === 'shadow';
     const stormUltSky = this.player.ultimateActive && this.player.ninjaType === 'storm';
+    const bubbleUltSky = this.player.ultimateActive && this.player.ninjaType === 'bubble' && this.player.bubbleUlt;
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
     if (fireUltSky) {
       grad.addColorStop(0, '#4a0a0a');
@@ -719,6 +720,9 @@ class Game {
     } else if (stormUltSky) {
       grad.addColorStop(0, '#0a0a1e');
       grad.addColorStop(1, '#151530');
+    } else if (bubbleUltSky) {
+      grad.addColorStop(0, '#082040');
+      grad.addColorStop(1, '#0a3060');
     } else {
       grad.addColorStop(0, '#0a0a2e');
       grad.addColorStop(1, '#1a1a3e');
@@ -737,7 +741,7 @@ class Game {
     }
 
     // Background mountains
-    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : (stormUltSky ? '#0a0a1e' : '#1a1a3a'));
+    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : (stormUltSky ? '#0a0a1e' : (bubbleUltSky ? '#0a2040' : '#1a1a3a')));
     for (let i = 0; i < this.levelW; i += 200) {
       const bx = i - cam.x * 0.2;
       if (bx > -200 && bx < CANVAS_W + 200) {
@@ -920,53 +924,187 @@ class Game {
       ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
     }
 
-    // Bubble ultimate: render ride bubble
-    if (this.player.bubbleRide) {
-      const b = this.player.bubbleRide;
-      const bx = b.x - cam.x;
-      const by = b.y - cam.y;
-      const cx = bx + b.w / 2;
-      const cy = by + b.h / 2;
-      const r = b.w / 2;
-      // Outer glow
+    // Bubble ultimate: underwater overlay + bubbles on enemies
+    if (this.player.bubbleUlt) {
+      const bu = this.player.bubbleUlt;
+      // Underwater tint overlay
       ctx.save();
-      ctx.globalAlpha = 0.15 + Math.sin(this.tick * 0.08) * 0.05;
-      ctx.fillStyle = '#4af';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 8, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = bu.underwaterAlpha;
+      ctx.fillStyle = '#1040a0';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
-      // Main bubble
+      // Light rays (underwater caustics)
       ctx.save();
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#4af';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      // Outline
-      ctx.globalAlpha = 0.7;
-      ctx.strokeStyle = '#8cf';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      // Shine highlight
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      // HP bar
-      if (b.hp < b.maxHp) {
-        ctx.fillStyle = '#234';
-        ctx.fillRect(bx, by - 8, b.w, 4);
-        ctx.fillStyle = '#4af';
-        ctx.fillRect(bx, by - 8, b.w * (b.hp / b.maxHp), 4);
+      ctx.globalAlpha = bu.underwaterAlpha * 0.3;
+      for (let i = 0; i < 6; i++) {
+        const rx = (i * 180 + this.tick * 0.3) % (CANVAS_W + 100) - 50;
+        ctx.fillStyle = '#4080ff';
+        ctx.beginPath();
+        ctx.moveTo(rx, 0);
+        ctx.lineTo(rx + 30 + Math.sin(this.tick * 0.02 + i) * 15, CANVAS_H);
+        ctx.lineTo(rx + 60 + Math.sin(this.tick * 0.02 + i) * 15, CANVAS_H);
+        ctx.lineTo(rx + 20, 0);
+        ctx.fill();
       }
-      // Timer bar
-      ctx.fillStyle = '#222';
-      ctx.fillRect(bx, by - 4, b.w, 2);
-      ctx.fillStyle = '#8cf';
-      ctx.fillRect(bx, by - 4, b.w * (b.timer / 420), 2);
+      ctx.restore();
+      // Floating bubble particles
+      ctx.save();
+      for (const p of bu.bubbleParticles) {
+        const px = p.x - cam.x;
+        const py = p.y - cam.y;
+        if (px > -20 && px < CANVAS_W + 20 && py > -20 && py < CANVAS_H + 20) {
+          ctx.globalAlpha = Math.min(0.4, p.life / 60);
+          ctx.strokeStyle = '#8cf';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(px, py, p.size, 0, Math.PI * 2);
+          ctx.stroke();
+          // Tiny shine
+          ctx.globalAlpha *= 0.5;
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(px - p.size * 0.3, py - p.size * 0.3, p.size * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+      // Draw bubble around each trapped enemy
+      for (const t of bu.trapped) {
+        if (t.enemy.dead) continue;
+        const ex = t.enemy.x + t.enemy.w / 2 - cam.x;
+        const ey = t.enemy.y + t.enemy.h / 2 - cam.y;
+        const br = Math.max(t.enemy.w, t.enemy.h) * 0.8;
+        // Outer glow
+        ctx.save();
+        ctx.globalAlpha = 0.15 + Math.sin(this.tick * 0.1 + t.bobPhase) * 0.05;
+        ctx.fillStyle = '#4af';
+        ctx.beginPath();
+        ctx.arc(ex, ey, br + 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // Main bubble
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#4af';
+        ctx.beginPath();
+        ctx.arc(ex, ey, br, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = '#8cf';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Shine
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(ex - br * 0.3, ey - br * 0.3, br * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Timer bar at top
+      ctx.fillStyle = '#123';
+      ctx.fillRect(CANVAS_W / 2 - 100, 20, 200, 6);
+      ctx.fillStyle = '#4af';
+      ctx.fillRect(CANVAS_W / 2 - 100, 20, 200 * (bu.timer / 300), 6);
+    }
+
+    // Wind ultimate: giant bow + arrows
+    if (this.player.windBow) {
+      const wb = this.player.windBow;
+      const bcx = wb.centerX - cam.x;
+      const bcy = wb.centerY - cam.y;
+      if (wb.phase === 'bow' || wb.phase === 'fire') {
+        // Draw giant bow facing upward (rotated 90° from vertical)
+        ctx.save();
+        ctx.globalAlpha = wb.bowAlpha * 0.9;
+        const scale = wb.bowScale;
+        const bowW = 180 * scale; // horizontal span
+        const bowH = 50 * scale;  // curve depth upward
+        // Bow body (curved arc opening upward)
+        ctx.strokeStyle = '#5a3';
+        ctx.lineWidth = 6 * scale;
+        ctx.beginPath();
+        ctx.moveTo(bcx - bowW / 2, bcy);
+        ctx.quadraticCurveTo(bcx, bcy - bowH, bcx + bowW / 2, bcy);
+        ctx.stroke();
+        // Bow limb glow
+        ctx.strokeStyle = '#8d8';
+        ctx.lineWidth = 3 * scale;
+        ctx.globalAlpha = wb.bowAlpha * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(bcx - bowW / 2, bcy);
+        ctx.quadraticCurveTo(bcx, bcy - bowH, bcx + bowW / 2, bcy);
+        ctx.stroke();
+        // Bowstring (horizontal)
+        ctx.strokeStyle = '#bfb';
+        ctx.lineWidth = 2 * scale;
+        ctx.globalAlpha = wb.bowAlpha * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(bcx - bowW / 2, bcy);
+        ctx.lineTo(bcx + bowW / 2, bcy);
+        ctx.stroke();
+        // Wind swirl around bow
+        ctx.globalAlpha = wb.bowAlpha * 0.3;
+        ctx.strokeStyle = '#bfb';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          const angle = this.tick * 0.05 + i * (Math.PI * 2 / 3);
+          const sr = 60 + Math.sin(this.tick * 0.03 + i) * 15;
+          ctx.beginPath();
+          ctx.arc(bcx + Math.cos(angle) * sr, bcy - 20 + Math.sin(angle) * sr * 0.4, 8, 0, Math.PI * 1.5);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      // Draw arrows
+      for (const a of wb.arrows) {
+        if (a.done) continue;
+        ctx.save();
+        const ax = a.x - cam.x;
+        const ay = a.y - cam.y;
+        // Arrow trail
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#8d8';
+        ctx.lineWidth = 2;
+        for (let i = 1; i < a.trail.length; i++) {
+          const t0 = a.trail[i - 1];
+          const t1 = a.trail[i];
+          ctx.globalAlpha = 0.3 * (t1.life / 20);
+          ctx.beginPath();
+          ctx.moveTo(t0.x - cam.x, t0.y - cam.y);
+          ctx.lineTo(t1.x - cam.x, t1.y - cam.y);
+          ctx.stroke();
+        }
+        // Arrow body
+        ctx.globalAlpha = 1;
+        const arrowLen = 20 * a.size;
+        const angle = Math.atan2(a.vy || -1, a.vx || 0);
+        ctx.translate(ax, ay);
+        ctx.rotate(angle);
+        // Shaft
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(-arrowLen, -1.5, arrowLen, 3);
+        // Arrowhead
+        ctx.fillStyle = '#bfb';
+        ctx.beginPath();
+        ctx.moveTo(4, 0);
+        ctx.lineTo(-6, -5);
+        ctx.lineTo(-6, 5);
+        ctx.fill();
+        // Fletching
+        ctx.fillStyle = '#5a3';
+        ctx.beginPath();
+        ctx.moveTo(-arrowLen, 0);
+        ctx.lineTo(-arrowLen - 6, -4);
+        ctx.lineTo(-arrowLen - 2, 0);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-arrowLen, 0);
+        ctx.lineTo(-arrowLen - 6, 4);
+        ctx.lineTo(-arrowLen - 2, 0);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     // Storm ultimate: rain rendering
