@@ -1345,7 +1345,7 @@ class Boss extends Enemy {
               const kbDir = Math.sign(game.player.x - cx) || 1;
               game.player.vx = kbDir * 12;
               game.player.vy = -6;
-              if (!game.player.slamming) game.player.takeDamage(this.contactDmg, game);
+              if (!game.player.slamming) game.player.takeDamage(this.contactDmg, game, this.element || null);
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -1373,7 +1373,7 @@ class Boss extends Enemy {
               const kbDir = Math.sign(game.player.x - cx) || 1;
               game.player.vx = kbDir * 10;
               game.player.vy = -5;
-              if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game);
+              if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null);
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }

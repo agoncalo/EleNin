@@ -1077,7 +1077,7 @@ class Player {
     // Spike collision
     for (const s of game.spikes) {
       if (rectOverlap(this, s)) {
-        this.takeDamage(2, game);
+        this.takeDamage(2, game, 'spike');
         this.vy = -8;
         break;
       }
@@ -1775,6 +1775,7 @@ class Player {
             e.hitCooldown = 15;
             triggerHitstop(4);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 12));
+            if (e.element) this.applyElementalStatus(e.element, game);
           }
         }
         if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
@@ -1783,6 +1784,7 @@ class Player {
           game.boss.hitCooldown = 15;
           triggerHitstop(4);
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#bfb', 12, 5, 14));
+          if (game.boss.element) this.applyElementalStatus(game.boss.element, game);
         }
       } else if (Math.abs(this.vx) > 3) {
         this.windTrails.push({ x: this.x, y: this.y, life: 8 });
@@ -1819,7 +1821,7 @@ class Player {
     this.attackCooldown = 15;
     SFX.attack();
 
-    if (this.ninjaType === 'wind') {
+    if (this.ninjaType === 'wind' && !this.statusHeavy && !this.statusFreeze) {
       this.windDashing = true;
       this.windDashTimer = 15;
       this.vx = this.facing * 15;
@@ -2070,6 +2072,35 @@ class Player {
     }
   }
 
+  applyElementalStatus(element, game) {
+    if (!element) return;
+    if (element === 'fire') {
+      this.statusBurn = 180;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
+    } else if (element === 'crystal' || element === 'water') {
+      this.statusFreeze = 120;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FREEZE!', '#0ff'));
+    } else if (element === 'wind') {
+      this.statusFloat = 150;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FLOAT!', '#8f8'));
+    } else if (element === 'lightning') {
+      this.statusParalyse = 180;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
+    } else if (element === 'earth') {
+      if (this.heavyCooldown <= 0) {
+        this.statusHeavy = 150;
+        this.heavyCooldown = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
+      }
+    } else if (element === 'steel') {
+      if (this.steelCooldown <= 0) {
+        this.statusSteel = 120;
+        this.steelCooldown = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
+      }
+    }
+  }
+
   takeDamage(amount, game, element) {
     if (this.godMode) return;
     if (this.earthGolem) return;
@@ -2080,7 +2111,9 @@ class Player {
       triggerHitstop(3);
       return;
     }
-    if (this.invincibleTimer > 0) return;
+    if (this.invincibleTimer > 0) {
+      if (!(this.windDashing && element)) return;
+    }
     if (this.ninjaType === 'wind' && this.windPower >= 10 && (this.windFirstDodge || Math.random() < 0.5)) {
       this.windFirstDodge = false;
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'EVADE', '#8cf'));
@@ -2116,34 +2149,7 @@ class Player {
     SFX.playerHurt();
     triggerHitstop(6);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
-    // Apply elemental status effect
-    if (element) {
-      if (element === 'fire') {
-        this.statusBurn = 180;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
-      } else if (element === 'crystal' || element === 'water') {
-        this.statusFreeze = 120;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FREEZE!', '#0ff'));
-      } else if (element === 'wind') {
-        this.statusFloat = 150;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FLOAT!', '#8f8'));
-      } else if (element === 'lightning') {
-        this.statusParalyse = 180;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
-      } else if (element === 'earth') {
-        if (this.heavyCooldown <= 0) {
-          this.statusHeavy = 150;
-          this.heavyCooldown = 300;
-          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
-        }
-      } else if (element === 'steel') {
-        if (this.steelCooldown <= 0) {
-          this.statusSteel = 120;
-          this.steelCooldown = 300;
-          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
-        }
-      }
-    }
+    this.applyElementalStatus(element, game);
     if (this.hp <= 0) {
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
