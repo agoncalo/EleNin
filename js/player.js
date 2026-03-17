@@ -132,6 +132,9 @@ class Player {
     this.shurikenLevel = 1;
     this.shurikenRechargeTimer = 0;
 
+    // Death respawn delay
+    this.deathTimer = 0;
+
     // Ground slam
     this.slamming = false;
 
@@ -437,6 +440,20 @@ class Player {
         this.triggerUltimateEffect(game);
       }
       return; // Skip all normal update during cutscene
+    }
+
+    // ── Death respawn delay ──
+    if (this.deathTimer > 0) {
+      this.deathTimer--;
+      if (this.deathTimer <= 0) {
+        this.hp = this.maxHp;
+        this.x = 100; this.y = 200;
+        this.vx = 0; this.vy = 0;
+        this.invincibleTimer = 90;
+        this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0;
+        this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
+      }
+      return;
     }
 
     // ── Ultimate active updates ──
@@ -1089,11 +1106,8 @@ class Player {
         this.hp -= 1;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         if (this.hp <= 0) {
-          this.hp = this.maxHp;
-          this.x = 100; this.y = 200;
+          this.deathTimer = 180;
           this.vx = 0; this.vy = 0;
-          this.invincibleTimer = 90;
-          this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
           game.deaths++;
           game.lives--;
           if (game.lives <= 0) { game.gameOver = true; recordGameOver(game.totalKills); }
@@ -1994,11 +2008,8 @@ class Player {
       }
     }
     if (this.hp <= 0) {
-      this.hp = this.maxHp;
-      this.x = 100; this.y = 200;
+      this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
-      this.invincibleTimer = 90;
-      this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0; this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
       game.deaths++;
       game.lives--;
       if (game.lives <= 0) {
@@ -2009,6 +2020,9 @@ class Player {
   }
 
   render(ctx, cam) {
+    // Hide player during death delay
+    if (this.deathTimer > 0) return;
+
     const t = this.type;
     let sx = this.x - cam.x;
     const sy = this.y - cam.y;
