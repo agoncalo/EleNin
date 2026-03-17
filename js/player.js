@@ -127,6 +127,8 @@ class Player {
     this.statusStun = 0;    // brief full-stop stun (from paralyse)
     this.statusHeavy = 0;   // earth: heavier gravity
     this.statusSteel = 0;   // steel: invulnerable but can't move
+    this.heavyCooldown = 0; // cooldown before heavy can reapply
+    this.steelCooldown = 0; // cooldown before steel can reapply
     this.freezeNudge = 0;   // visual nudge from mashing out of freeze
     this.maxShurikens = 3;
     this.shurikenLevel = 1;
@@ -789,6 +791,7 @@ class Player {
       }
       this.invincibleTimer = 2; // stay invulnerable while steel'd
       this.statusSteel--;
+      if (this.steelCooldown > 0) this.steelCooldown--;
       if (this.statusBurn > 0) this.statusBurn--;
       if (this.statusFreeze > 0) this.statusFreeze--;
       if (this.statusFloat > 0) this.statusFloat--;
@@ -834,6 +837,8 @@ class Player {
       if (this.statusFloat > 0) this.statusFloat--;
       if (this.statusHeavy > 0) this.statusHeavy--;
       if (this.statusSteel > 0) this.statusSteel--;
+      if (this.heavyCooldown > 0) this.heavyCooldown--;
+      if (this.steelCooldown > 0) this.steelCooldown--;
       // Spark particles
       if (Math.random() < 0.4) {
         game.effects.push(new Effect(
@@ -1137,6 +1142,8 @@ class Player {
     if (this.statusParalyse > 0) this.statusParalyse--;
     if (this.statusHeavy > 0) this.statusHeavy--;
     if (this.statusStun > 0) this.statusStun--;
+    if (this.heavyCooldown > 0) this.heavyCooldown--;
+    if (this.steelCooldown > 0) this.steelCooldown--;
 
     // Attack
     if (this.attacking) {
@@ -2124,11 +2131,17 @@ class Player {
         this.statusParalyse = 180;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
       } else if (element === 'earth') {
-        this.statusHeavy = 150;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
+        if (this.heavyCooldown <= 0) {
+          this.statusHeavy = 150;
+          this.heavyCooldown = 300;
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
+        }
       } else if (element === 'steel') {
-        this.statusSteel = 120;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
+        if (this.steelCooldown <= 0) {
+          this.statusSteel = 120;
+          this.steelCooldown = 300;
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
+        }
       }
     }
     if (this.hp <= 0) {
