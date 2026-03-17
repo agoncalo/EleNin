@@ -38,12 +38,12 @@ const ELEMENT_MATRIX = {
   },
   earth: {
     fire: 'normal',
-    earth: 'heal',     // earth heals earth
+    earth: 'normal',   // earth vs earth = normal, not heal (like steel)
     water: 'normal',
     crystal: 'normal',
     wind: 'normal',
     lightning: 'normal',
-    steel: 'heal',     // steel heals earth (metal in ground)
+    steel: 'normal',   // steel vs earth = normal
   },
   water: {
     fire: 'normal',    // water beats fire
