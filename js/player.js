@@ -13,6 +13,9 @@ class Player {
     this.ninjaType = 'fire';
     this.invincibleTimer = 90;
     this.bonusDamage = 0;
+    this.bonusSpeed = 0;
+    this.bonusReach = 0;
+    this.bonusArmor = 0;
     this.godMode = false;
 
     // Ultimate system
@@ -1016,7 +1019,7 @@ class Player {
     if (!this.windDashing && !this.fireDashing) {
       const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
       const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
-      this.vx = moveX * t.speed * speedMult * freezeMult;
+      this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult;
       if (moveX !== 0) this.facing = moveX;
     }
 
@@ -1568,6 +1571,14 @@ class Player {
             b.thrown = true;
             b.takeDamage(1, game);
             this.nextHitDouble = true;
+          }
+        }
+        // Destroy enemy projectiles with attack
+        for (const p of game.projectiles) {
+          if (!p.done && p.owner !== 'player' && this.attackBox && rectOverlap(this.attackBox, p)) {
+            p.done = true;
+            game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#fff', 6, 2, 8));
+            SFX.parry();
           }
         }
         // Pop bubbles with attack
@@ -2172,7 +2183,7 @@ class Player {
     const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
     this._scytheAttack = shadowFullStealth || shadowUltBonus; // remember for render
     const stormReach = this.ninjaType === 'storm' ? 40 : 0;
-    const reach = stormReach || (shadowUltBonus ? 95 : (shadowFullStealth ? 68 : 36));
+    const reach = (stormReach || (shadowUltBonus ? 95 : (shadowFullStealth ? 68 : 36))) + this.bonusReach * 4;
     const isScythe = this._scytheAttack;
     // Derive hitbox from the crescent arc geometry
     const scytheBonus = isScythe ? (shadowUltBonus ? 20 : 12) : 0;
@@ -2500,6 +2511,7 @@ class Player {
         return;
       }
     }
+    amount = Math.max(1, amount - this.bonusArmor);
     this.hp -= amount;
     this.lastDamageAmount = amount;
     this.invincibleTimer = 45;

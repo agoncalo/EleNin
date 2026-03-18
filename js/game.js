@@ -552,6 +552,10 @@ class Game {
         const avgDmg = Math.round(kills * 0.10);
         const avgShield = Math.round(kills * 0.08);
         const avgShuriken = Math.round(kills * 0.12);
+        const avgSpeed = Math.round(kills * 0.04);
+        const avgReach = Math.round(kills * 0.04);
+        const avgUlt = Math.round(kills * 0.04) * 50;
+        const avgArmor = Math.round(kills * 0.04);
         pl.maxHp += avgMaxHp;
         pl.hp = Math.min(pl.hp + avgMaxHp, pl.maxHp);
         pl.bonusDamage += avgDmg;
@@ -559,6 +563,10 @@ class Game {
         pl.shield = pl.maxShield;
         pl.maxShurikens += avgShuriken;
         pl.shurikens = pl.maxShurikens;
+        pl.bonusSpeed += avgSpeed;
+        pl.bonusReach += avgReach;
+        if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(avgUlt);
+        pl.bonusArmor += avgArmor;
       }
       this.advanceWave();
     }
@@ -1671,62 +1679,6 @@ class Game {
     const ninjaBarY = CANVAS_H - 36;
     const gap = 6;
 
-    // Attack power display (below death panel)
-    const baseAtk = pl.type.attackDamage;
-    const bonusAtk = pl.bonusDamage;
-    const totalAtk = baseAtk + bonusAtk;
-    const atkPanelX = 8, atkPanelY = 36;
-    const atkPanelW = bonusAtk > 0 ? 88 : 66, atkPanelH = 28;
-    // Panel background
-    ctx.save();
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.moveTo(atkPanelX + 4, atkPanelY);
-    ctx.lineTo(atkPanelX + atkPanelW - 4, atkPanelY);
-    ctx.quadraticCurveTo(atkPanelX + atkPanelW, atkPanelY, atkPanelX + atkPanelW, atkPanelY + 4);
-    ctx.lineTo(atkPanelX + atkPanelW, atkPanelY + atkPanelH - 4);
-    ctx.quadraticCurveTo(atkPanelX + atkPanelW, atkPanelY + atkPanelH, atkPanelX + atkPanelW - 4, atkPanelY + atkPanelH);
-    ctx.lineTo(atkPanelX + 4, atkPanelY + atkPanelH);
-    ctx.quadraticCurveTo(atkPanelX, atkPanelY + atkPanelH, atkPanelX, atkPanelY + atkPanelH - 4);
-    ctx.lineTo(atkPanelX, atkPanelY + 4);
-    ctx.quadraticCurveTo(atkPanelX, atkPanelY, atkPanelX + 4, atkPanelY);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    // Border in ninja color
-    ctx.strokeStyle = t.color;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.restore();
-    // Sword icon
-    const ix = atkPanelX + 7, iy = atkPanelY + 6;
-    ctx.save();
-    ctx.strokeStyle = '#ddd';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(ix, iy + 14); ctx.lineTo(ix + 10, iy); ctx.stroke();
-    ctx.strokeStyle = '#999';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(ix - 1, iy + 10); ctx.lineTo(ix + 5, iy + 8); ctx.stroke();
-    ctx.fillStyle = '#a86';
-    ctx.fillRect(ix - 1, iy + 13, 4, 3);
-    ctx.restore();
-    // Total damage number
-    const numX = atkPanelX + 22;
-    ctx.font = 'bold 16px monospace';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(totalAtk, numX, atkPanelY + 20);
-    // Base + bonus breakdown
-    if (bonusAtk > 0) {
-      const totalW = ctx.measureText(String(totalAtk)).width;
-      ctx.font = '10px monospace';
-      ctx.fillStyle = '#aaa';
-      ctx.fillText(`${baseAtk}`, numX + totalW + 5, atkPanelY + 14);
-      ctx.fillStyle = '#5f5';
-      ctx.fillText(`+${bonusAtk}`, numX + totalW + 5 + ctx.measureText(`${baseAtk}`).width + 1, atkPanelY + 14);
-    }
-
     // Element bar
     let elemBarW = 140, elemBarVal = 0, elemBarMax = 1, elemBarColor = '#aaa', elemBarGlow = false, elemBarLabel = '';
     if (pl.ninjaType === 'fire') {
@@ -1799,11 +1751,58 @@ class Game {
     ctx.font = 'bold 10px monospace';
     ctx.fillText(`HP ${Math.round(pl.hp)}/${Math.round(pl.maxHp)}`, hpBarX + 3, hpBarY + 9);
 
+    // Buff icons data
+    const buffItems = [];
+    const baseAtk = pl.type.attackDamage;
+    const totalAtk = baseAtk + pl.bonusDamage;
+    buffItems.push({ icon: '\u2694', value: totalAtk, color: '#f80', hasBonus: pl.bonusDamage > 0 });
+    buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: '#0f0' });
+    buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: '#fa0' });
+    buffItems.push({ icon: '\u25a0', value: pl.bonusArmor, color: '#88f' });
+    buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
+
     // Ultimate bar
     const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
     const ultimateBarH = 14;
     const ultimateBarX = CANVAS_W / 2 - ultimateBarW / 2;
     const ultimateBarY = hpBarY - ultimateBarH - gap;
+
+    // Buff icons above ultimate bar (ICON -> value)
+    if (buffItems.length > 0) {
+      ctx.font = 'bold 14px monospace';
+      let totalBW = 0;
+      const itemWidths = [];
+      for (const b of buffItems) {
+        let iw = ctx.measureText(b.icon).width + 3 + ctx.measureText(String(b.value)).width;
+        if (b.hasBonus) {
+          ctx.font = '10px monospace';
+          iw += 2 + ctx.measureText(`+${pl.bonusDamage}`).width;
+          ctx.font = 'bold 14px monospace';
+        }
+        itemWidths.push(iw);
+        totalBW += iw;
+      }
+      totalBW += (buffItems.length - 1) * 14;
+      let bx = CANVAS_W / 2 - totalBW / 2;
+      const by = ultimateBarY - 6;
+      for (let i = 0; i < buffItems.length; i++) {
+        const b = buffItems[i];
+        ctx.fillStyle = b.color;
+        ctx.fillText(b.icon, bx, by);
+        const iconW = ctx.measureText(b.icon).width;
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(b.value), bx + iconW + 3, by);
+        if (b.hasBonus) {
+          const valW = ctx.measureText(String(b.value)).width;
+          ctx.font = '10px monospace';
+          ctx.fillStyle = '#5f5';
+          ctx.fillText(`+${pl.bonusDamage}`, bx + iconW + 3 + valW + 2, by);
+          ctx.font = 'bold 14px monospace';
+        }
+        bx += itemWidths[i] + 14;
+      }
+    }
+
     ctx.save();
     if (pl.ultimateReady || pl.ultimateActive) {
       ctx.shadowColor = '#ff0';
@@ -1894,19 +1893,15 @@ class Game {
       }
     }
 
-    // Death counter + Lives (top left)
+    // Death counter (top left)
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(8, 8, 130, 24);
+    ctx.fillRect(8, 8, 90, 24);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(8, 8, 130, 24);
+    ctx.strokeRect(8, 8, 90, 24);
     ctx.fillStyle = '#f66';
     ctx.font = 'bold 11px monospace';
     ctx.fillText(`Deaths: ${this.deaths}`, 16, 25);
-    ctx.fillStyle = '#4f4';
-    for (let i = 0; i < this.lives; i++) {
-      ctx.fillText('\u2665', 100 + i * 12, 25);
-    }
 
     // Wave info panel (top right)
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
