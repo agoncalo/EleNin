@@ -559,14 +559,17 @@ class Game {
         pl.maxHp += avgMaxHp;
         pl.hp = Math.min(pl.hp + avgMaxHp, pl.maxHp);
         pl.bonusDamage += avgDmg;
-        pl.maxShield += avgShield * 3;
-        pl.shield = pl.maxShield;
+        pl.maxShield += avgShield * 2;
+        pl.shield = Math.min(pl.shield + avgShield * 3, pl.maxShield);
         pl.maxShurikens += avgShuriken;
         pl.shurikens = pl.maxShurikens;
         pl.bonusSpeed += avgSpeed;
         pl.bonusReach += avgReach;
-        if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(avgUlt);
         pl.bonusArmor += avgArmor;
+        // Assume one ultimate activation per wave: scale requirement and refill
+        pl.ultimateMax = Math.round(pl.ultimateMax * 1.2);
+        pl.ultimateCharge = pl.ultimateMax;
+        pl.ultimateReady = true;
       }
       this.advanceWave();
     }
@@ -1758,7 +1761,7 @@ class Game {
     buffItems.push({ icon: '\u2694', value: totalAtk, color: '#f80', hasBonus: pl.bonusDamage > 0 });
     buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: '#0f0' });
     buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: '#fa0' });
-    buffItems.push({ icon: '\u25a0', value: pl.bonusArmor, color: '#88f' });
+    buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
     buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
 
     // Ultimate bar

@@ -376,7 +376,7 @@ class Orb {
             case 'heal': pl.hp = Math.min(pl.hp + 3, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
             case 'maxhp': pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
             case 'damage': pl.bonusDamage += 1; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
-            case 'shield': pl.maxShield += 3; pl.shield = pl.maxShield; game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
+            case 'shield': pl.maxShield += 2; pl.shield = Math.min(pl.shield + 3, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
             case 'shuriken': pl.maxShurikens += 1; pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
             case 'speed': pl.bonusSpeed += 1; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
             case 'reach': pl.bonusReach += 1; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
@@ -425,8 +425,8 @@ class Orb {
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f80', 8, 3, 12));
           break;
         case 'shield':
-          pl.maxShield += 3;
-          pl.shield = pl.maxShield;
+          pl.maxShield += 2;
+          pl.shield = Math.min(pl.shield + 3, pl.maxShield);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
           break;
         case 'shuriken':
@@ -500,8 +500,8 @@ class Orb {
             game.effects.push(new Effect(cx, cy, '#f80', 8, 3, 12));
             break;
           case 'shield':
-            pl.maxShield += 3;
-            pl.shield = pl.maxShield;
+            pl.maxShield += 2;
+            pl.shield = Math.min(pl.shield + 3, pl.maxShield);
             game.effects.push(new Effect(cx, cy, '#4af', 8, 3, 12));
             break;
           case 'shuriken':

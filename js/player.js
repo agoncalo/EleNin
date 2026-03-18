@@ -148,6 +148,9 @@ class Player {
     // Death respawn delay
     this.deathTimer = 0;
 
+    // Pending damage (highest prevails per frame)
+    this._pendingDamage = null; // { amount, element, killerInfo }
+
     // Ground slam
     this.slamming = false;
 
@@ -462,6 +465,9 @@ class Player {
   }
 
   update(game) {
+    // Apply highest pending damage from last frame
+    this._applyPendingDamage(game);
+
     // ── Ultimate cutscene float phase ──
     if (this.ultCutscene) {
       this.ultCutsceneTimer--;
@@ -2484,6 +2490,19 @@ class Player {
     if (this.invincibleTimer > 0) {
       if (!(this.windDashing && element)) return;
     }
+    if (this.fireArmor || this.chainStriking || this.stormChaining) return;
+    // Queue damage — highest prevails per frame
+    if (!this._pendingDamage || amount > this._pendingDamage.amount) {
+      this._pendingDamage = { amount, element, killerInfo };
+    }
+  }
+
+  _applyPendingDamage(game) {
+    if (!this._pendingDamage) return;
+    let amount = this._pendingDamage.amount;
+    const element = this._pendingDamage.element;
+    this._pendingDamage = null;
+
     if (this.ninjaType === 'wind' && this.windPower >= 10 && (this.windFirstDodge || Math.random() < 0.5)) {
       this.windFirstDodge = false;
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'EVADE', '#8cf'));
