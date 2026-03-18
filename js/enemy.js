@@ -46,6 +46,8 @@ class Enemy {
     this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
+    this.iceSliding = false;
+    this.iceSlideDmg = 0;
     this.floatTimer = 0;
     this.paralyseTimer = 0;
     this.purpleParalyseTimer = 0;
@@ -92,27 +94,92 @@ class Enemy {
     if (this.dead) return;
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
-      this.vx = 0;
-      if (!this.flying) {
-        this.vy += GRAVITY;
-        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
-        this.y += this.vy;
-        for (const p of game.platforms) {
-          if (!p.thin && rectOverlap(this, p)) {
-            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-              this.y = p.y - this.h;
-              this.vy = 0;
+      // Ice sliding: frozen enemy was hit, slides and hits others
+      // Frozen contact damage: 10% of this enemy's max HP, min 1
+      const frozenDmg = Math.max(1, Math.round(this.maxHp * 0.1));
+      if (this.iceSliding) {
+        this.vx *= 0.96;
+        if (Math.abs(this.vx) < 0.3) { this.iceSliding = false; this.vx = 0; }
+        this.x += this.vx;
+        // Gravity + vertical collision (but NO edge awareness — they fall off)
+        if (!this.flying) {
+          this.vy += GRAVITY;
+          if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+          this.y += this.vy;
+          for (const p of game.platforms) {
+            if (p.thin) continue;
+            if (rectOverlap(this, p)) {
+              if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+                this.y = p.y - this.h;
+                this.vy = 0;
+              }
             }
           }
         }
+        // Hit other enemies while sliding
+        const slideCX = this.x + this.w / 2;
+        for (const other of game.enemies) {
+          if (other === this || other.dead || other.damageIframes > 0) continue;
+          if (rectOverlap(this, other)) {
+            other.takeDamage(frozenDmg, game, slideCX);
+            other.vx = Math.sign(this.vx) * 6;
+            other.vy = -3;
+            // If the other is also frozen, launch it too
+            if (other.freezeTimer > 0 && !other.iceSliding) {
+              other.iceSliding = true;
+              other.vx = Math.sign(this.vx) * 8;
+            }
+            game.effects.push(new Effect(other.x + other.w / 2, other.y + other.h / 2, '#aff', 8, 3, 12));
+            SFX.hit();
+          }
+        }
+        // Hit boss while sliding
+        if (game.boss && !game.boss.dead && game.boss !== this && rectOverlap(this, game.boss)) {
+          game.boss.takeDamage(frozenDmg, game, slideCX);
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 10, 3, 14));
+          this.vx *= -0.5; // bounce back off boss
+        }
+        // Ice trail particles
+        if (Math.random() < 0.4) {
+          game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#cef', 3, 1, 8));
+        }
       } else {
-        this.vy = 0;
+        // Stationary frozen: still deal contact damage to overlapping enemies
+        for (const other of game.enemies) {
+          if (other === this || other.dead || other.damageIframes > 0 || other.freezeTimer > 0) continue;
+          if (rectOverlap(this, other)) {
+            other.takeDamage(frozenDmg, game, this.x + this.w / 2);
+            const kbDir = Math.sign(other.x + other.w / 2 - (this.x + this.w / 2)) || 1;
+            other.vx = kbDir * 4;
+            other.vy = -2;
+            game.effects.push(new Effect(other.x + other.w / 2, other.y + other.h / 2, '#aff', 6, 2, 10));
+          }
+        }
+        this.vx = 0;
+        if (!this.flying) {
+          this.vy += GRAVITY;
+          if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+          this.y += this.vy;
+          for (const p of game.platforms) {
+            if (!p.thin && rectOverlap(this, p)) {
+              if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+                this.y = p.y - this.h;
+                this.vy = 0;
+              }
+            }
+          }
+        } else {
+          this.vy = 0;
+        }
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this.hitCooldown > 0) this.hitCooldown--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
       if (this.purpleParalyseTimer > 0) this.purpleParalyseTimer--;
       return;
+    } else {
+      this.iceSliding = false;
     }
     if (this.paralyseTimer > 0) {
       this.paralyseTimer--;
@@ -1083,6 +1150,19 @@ class Enemy {
     }
   }
 
+  // Crystal ninja: freeze + launch into ice slide
+  launchIceSlide(game, fromX, dmg) {
+    if (this.dead || this.flying) return;
+    this.freezeTimer = Math.max(this.freezeTimer, 60);
+    this.iceSliding = true;
+    this.iceSlideDmg = Math.max(1, Math.round(dmg * 0.8));
+    const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : 1;
+    this.vx = dir * 12;
+    this.vy = -3;
+    this.damageIframes = 8;
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 10, 4, 14));
+  }
+
   onDeath(game) {
     game.waveKills++;
     game.totalKills++;
@@ -1729,21 +1809,43 @@ class Boss extends Enemy {
     if (this.damageIframes > 0) this.damageIframes--;
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
-      this.vx = 0;
-      if (!this.flying) {
-        this.vy += GRAVITY;
-        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
-        this.y += this.vy;
-        for (const p of game.platforms) {
-          if (rectOverlap(this, p)) {
-            if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-              this.y = p.y - this.h;
-              this.vy = 0;
+      if (this.iceSliding) {
+        this.vx *= 0.92;
+        if (Math.abs(this.vx) < 0.3) { this.iceSliding = false; this.vx = 0; }
+        this.x += this.vx;
+        if (!this.flying) {
+          this.vy += GRAVITY;
+          if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+          this.y += this.vy;
+          for (const p of game.platforms) {
+            if (rectOverlap(this, p)) {
+              if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+                this.y = p.y - this.h;
+                this.vy = 0;
+              }
             }
           }
         }
+        if (Math.random() < 0.4) {
+          game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#cef', 3, 1, 8));
+        }
       } else {
-        this.vy = 0;
+        this.vx = 0;
+        if (!this.flying) {
+          this.vy += GRAVITY;
+          if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+          this.y += this.vy;
+          for (const p of game.platforms) {
+            if (rectOverlap(this, p)) {
+              if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+                this.y = p.y - this.h;
+                this.vy = 0;
+              }
+            }
+          }
+        } else {
+          this.vy = 0;
+        }
       }
       if (this.damageIframes > 0) this.damageIframes--;
       if (this.flashTimer > 0) this.flashTimer--;
@@ -2477,6 +2579,19 @@ class Boss extends Enemy {
       this.dead = true;
       this.onDeath(game);
     }
+  }
+
+  // Boss version: weaker slide (bosses are heavy)
+  launchIceSlide(game, fromX, dmg) {
+    if (this.dead) return;
+    this.freezeTimer = Math.max(this.freezeTimer, 30);
+    this.iceSliding = true;
+    this.iceSlideDmg = 0;
+    const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : 1;
+    this.vx = dir * 5;
+    if (!this.flying) this.vy = -2;
+    this.damageIframes = 8;
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 10, 4, 14));
   }
 
   onDeath(game) {

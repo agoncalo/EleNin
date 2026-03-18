@@ -168,7 +168,7 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
 
   switch (itemId) {
     case 'pickaxe': {
-      // Simple pick: straight handle + triangular point
+      // Pickaxe: diagonal handle + head perpendicular to shaft
       // Handle (diagonal)
       ctx.strokeStyle = '#a87';
       ctx.lineWidth = Math.max(2, size / 8);
@@ -176,14 +176,14 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
       ctx.moveTo(s * 0.4, s * 0.7);
       ctx.lineTo(-s * 0.15, -s * 0.05);
       ctx.stroke();
-      // Metal head — horizontal bar with pointed left end
+      // Metal head — angled to match shaft, pointed left end curves down
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(-s * 0.7, -s * 0.35);  // left point
-      ctx.lineTo(-s * 0.1, -s * 0.55);
-      ctx.lineTo(s * 0.5, -s * 0.25);   // right blunt end
-      ctx.lineTo(s * 0.4, -s * 0.1);
-      ctx.lineTo(-s * 0.1, -s * 0.2);
+      ctx.moveTo(-s * 0.65, s * 0.15);   // left pick point (curved down)
+      ctx.lineTo(-s * 0.3, -s * 0.15);
+      ctx.lineTo(s * 0.2, -s * 0.55);    // right blunt end (upper-right)
+      ctx.lineTo(s * 0.3, -s * 0.35);
+      ctx.lineTo(-s * 0.15, -s * 0.05);  // meets shaft top
       ctx.closePath();
       ctx.fill();
       // Shine
@@ -191,8 +191,8 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
       ctx.globalAlpha = 0.4;
       ctx.lineWidth = Math.max(1, size / 16);
       ctx.beginPath();
-      ctx.moveTo(-s * 0.4, -s * 0.38);
-      ctx.lineTo(s * 0.2, -s * 0.3);
+      ctx.moveTo(-s * 0.4, 0);
+      ctx.lineTo(s * 0.1, -s * 0.38);
       ctx.stroke();
       ctx.globalAlpha = 1;
       break;

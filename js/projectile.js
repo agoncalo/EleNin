@@ -216,9 +216,7 @@ class DiamondShard {
           const prevIframes = e.damageIframes;
           e.takeDamage(dmg, game, this.x);
           if (e.damageIframes > prevIframes) {
-            e.vx = 0;
-            e.vy = 0;
-            if (e.freezeTimer < 20) e.freezeTimer = 20;
+            e.launchIceSlide(game, this.x, dmg);
           }
           game.effects.push(new Effect(this.x, this.y, '#aff', 8, 3, 10));
           triggerHitstop(3);
@@ -236,9 +234,7 @@ class DiamondShard {
         const prevIframes = game.boss.damageIframes;
         game.boss.takeDamage(dmg, game, this.x);
         if (game.boss.damageIframes > prevIframes) {
-          game.boss.vx = 0;
-          game.boss.vy = 0;
-          if (game.boss.freezeTimer < 20) game.boss.freezeTimer = 20;
+          game.boss.launchIceSlide(game, this.x, dmg);
         }
         game.effects.push(new Effect(this.x, this.y, '#aff', 10, 4, 12));
         triggerHitstop(3);
@@ -466,12 +462,9 @@ class Projectile {
           if (this.isKunai) {
             this._kunaiExplode(game, e);
           }
-          // Freeze dust: also freeze on hit
+          // Freeze dust: freeze + ice slide on hit
           if (this.freezeDust) {
-            e.freezeTimer = 60;
-            e.vx = 0;
-            e.vy = 0;
-            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 8, 3, 12));
+            e.launchIceSlide(game, this.x, this.damage);
           }
           // Soaking: apply soak on hit
           if (this.soaking) {
@@ -490,7 +483,7 @@ class Projectile {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 8, 3, 12));
             }
           }
-          // Pushback effect (skip if frozen)
+          // Pushback effect (skip if ice sliding)
           if (!this.freezeDust) {
             const dx = e.x + e.w / 2 - (this.x + this.w / 2);
             const dy = e.y + e.h / 2 - (this.y + this.h / 2);
@@ -566,12 +559,9 @@ class Projectile {
         if (this.isKunai) {
           this._kunaiExplode(game);
         }
-        // Freeze dust: also freeze boss on hit
+        // Freeze dust: freeze + slide boss on hit
         if (this.freezeDust) {
-          game.boss.freezeTimer = 40;
-          game.boss.vx = 0;
-          game.boss.vy = 0;
-          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 10, 4, 14));
+          game.boss.launchIceSlide(game, this.x, this.damage);
         }
         // Soaking: apply soak on boss hit
         if (this.soaking) {

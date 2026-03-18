@@ -1358,11 +1358,8 @@ class Player {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h, '#a67540', 8, 3, 10));
               break;
             case 'crystal':
-              // Freeze enemies
-              e.freezeTimer = Math.max(e.freezeTimer, 60);
-              e.vx = 0;
-              e.vy = 0;
-              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 3, 14));
+              // Freeze + ice slide
+              e.launchIceSlide(game, slamCX, slamDmg);
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#0ff', 6, 2, 10));
               break;
             case 'shadow':
@@ -1411,10 +1408,7 @@ class Player {
               game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y, '#8cf', 8, 2, 12));
               break;
             case 'crystal':
-              game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 40);
-              game.boss.vx = 0;
-              game.boss.vy = 0;
-              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
+              game.boss.launchIceSlide(game, slamCX, slamDmg);
               break;
             case 'shadow':
               game.boss.purpleParalyseTimer = Math.max(game.boss.purpleParalyseTimer, 40);
@@ -1611,6 +1605,7 @@ class Player {
             e.hitCooldown = 15;
 
             if (this.ninjaType === 'crystal') {
+              e.launchIceSlide(game, this.x + this.w / 2, dmg);
               for (const other of game.enemies) {
                 if (other !== e && !other.dead && other.freezeTimer >= 1) {
                   other.takeDamage(dmg * 0.75, game, this.x + this.w / 2, 'steel');
@@ -1758,6 +1753,7 @@ class Player {
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 8, 3, 12));
           }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
+          if (this.ninjaType === 'crystal') game.boss.launchIceSlide(game, this.x + this.w / 2, dmg);
           game.boss.hitCooldown = 15;
           triggerHitstop(5);
         }
