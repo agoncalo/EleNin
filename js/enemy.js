@@ -46,6 +46,7 @@ class Enemy {
     this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
+    this.floatTimer = 0;
     this.paralyseTimer = 0;
     this.purpleParalyseTimer = 0;
     // Deflector state
@@ -229,8 +230,12 @@ class Enemy {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
 
-    // Gravity (not for flyers)
-    if (!this.flying) {
+    // Gravity (not for flyers, not for floating)
+    if (this.floatTimer > 0) {
+      this.floatTimer--;
+      this.vy -= 0.15; // gentle upward drift
+      if (this.vy < -3) this.vy = -3;
+    } else if (!this.flying) {
       this.vy += GRAVITY;
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
     }
@@ -1815,6 +1820,10 @@ class Boss extends Enemy {
 
     if (this.flying) {
       this.hoverPhase += 0.03;
+    } else if (this.floatTimer > 0) {
+      this.floatTimer--;
+      this.vy -= 0.1;
+      if (this.vy < -2) this.vy = -2;
     } else {
       this.vy += GRAVITY;
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;

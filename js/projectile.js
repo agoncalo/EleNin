@@ -382,7 +382,7 @@ class Projectile {
     if (this.owner !== 'boss' || (this.bouncy && this.bouncesLeft > 0)) {
       for (const p of game.platforms) {
         if (p.thin) continue;
-        if (this.isKunai) continue; // Kunai passes through platforms
+        if (this.isKunai || this.noPlat) continue; // Kunai/mecha projectiles pass through platforms
         if (rectOverlap(this, p)) {
           if (this.bouncy && (this.bouncesLeft > 0 || this.life > 30)) {
             // Only bounce off the top of platforms (falling down onto them)

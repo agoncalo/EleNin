@@ -178,6 +178,27 @@ class Player {
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
 
+  // Mecha hand punch hit detection
+  _mechaHandHit(game, g, hand) {
+    const hitBox = { x: hand.x - 32, y: hand.y - 32, w: 64, h: 64 };
+    const dmg = (this.type.attackDamage + this.bonusDamage) * 3;
+    const gcx = g.x + g.w / 2;
+    for (const e of game.enemies) {
+      if (!e.dead && rectOverlap(hitBox, e)) {
+        e.takeDamage(dmg, game, gcx);
+        const kbDir = Math.sign(e.x + e.w / 2 - gcx) || g.facing;
+        e.vx = kbDir * 16; e.vy = -10;
+        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4a8', 12, 4, 14));
+      }
+    }
+    if (game.boss && !game.boss.dead && rectOverlap(hitBox, game.boss)) {
+      game.boss.takeDamage(dmg, game, gcx);
+      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4a8', 16, 5, 18));
+    }
+    SFX.hit();
+    triggerHitstop(3);
+  }
+
   // Ultimate activation — starts the Rondo-of-Blood-style cutscene float
   activateUltimate(game) {
     this.ultimateActive = true;
@@ -277,25 +298,31 @@ class Player {
         break;
 
       case 'earth':
-        // Summon a Megaman X4-style stone golem mecha that the player rides
+        // Summon shmup-boss mecha — big head + hand frame that follows
         this.ultimateTimer = 480; // 8 seconds
+        {
+        const hcx = this.x + this.w / 2, hcy = this.y - 20;
         this.earthGolem = {
           timer: 480,
           facing: this.facing,
-          punchTimer: 0,
-          punchCooldown: 0,
-          shootTimer: 0,
-          shootCooldown: 0,
-          contactCd: 0,
-          x: this.x - 48,
-          y: this.y - 72,
-          w: 120,
-          h: 128,
+          x: this.x - 24,
+          y: this.y - 40,
+          w: 112,
+          h: 100,
           hp: 50,
           maxHp: 50,
-          hovering: true,
-          punchHit: false
+          contactCd: 0,
+          // Hand frame follows head with lag
+          frameX: hcx,
+          frameY: hcy + 140,
+          leftHand:  { offX: 0, punchTimer: 0 },
+          rightHand: { offX: 0, punchTimer: 0 },
+          punchCooldown: 0,
+          punchSide: 1,
+          missileCooldown: 0,
+          ballCooldown: 0,
         };
+        }
         SFX.slam();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4a8', 25, 6, 20));
         break;
@@ -575,13 +602,15 @@ class Player {
         }
       }
 
-      // Earth: update golem mecha
+      // Earth: update shmup-boss mecha with orbiting hands
       if (this.ninjaType === 'earth' && this.earthGolem) {
         const g = this.earthGolem;
         g.timer--;
-        // Player is inside the golem — move golem with input
-        let moveX = 0;
-        let moveY = 0;
+        const cx = g.x + g.w / 2;
+        const cy = g.y + g.h / 2;
+
+        // Move mecha with input
+        let moveX = 0, moveY = 0;
         if (keys['ArrowLeft'] || keys['KeyA'] || touchState.left || gpState.axes[0] < -0.3) moveX = -1;
         if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
         if (keys['ArrowUp'] || keys['KeyW'] || touchState.up || gpState.axes[1] < -0.3) moveY = -1;
@@ -589,81 +618,115 @@ class Player {
         if (moveX !== 0) g.facing = moveX;
         g.x += moveX * 2.5;
         g.y += moveY * 2.5 + Math.sin(game.tick * 0.05) * 0.5;
-        // Keep golem within bounds
         g.x = Math.max(0, Math.min(game.levelW - g.w, g.x));
         g.y = Math.max(-50, Math.min(480 - g.h, g.y));
-        // Player position follows golem center
         this.x = g.x + g.w / 2 - this.w / 2;
         this.y = g.y + g.h - this.h - 8;
         this.vy = 0;
         this.grounded = false;
 
-        // Contact damage
+        // Hand frame follows head with smooth lag
+        const headCX = cx, headCY = g.y + 20;
+        const frameTargX = headCX;
+        const frameTargY = headCY + 140; // gap below head (2x scale)
+        g.frameX += (frameTargX - g.frameX) * 0.08;
+        g.frameY += (frameTargY - g.frameY) * 0.08;
+
+        const lh = g.leftHand, rh = g.rightHand;
+        const handSpacing = 140;
+
+        // Punch offsets (lunge forward then return)
+        if (lh.punchTimer > 0) {
+          lh.punchTimer--;
+          lh.offX = Math.sin((lh.punchTimer / 20) * Math.PI) * 160 * g.facing;
+          if (lh.punchTimer === 10) {
+            lh.x = g.frameX - handSpacing + lh.offX;
+            lh.y = g.frameY;
+            this._mechaHandHit(game, g, lh);
+          }
+        } else {
+          lh.offX *= 0.7;
+        }
+        if (rh.punchTimer > 0) {
+          rh.punchTimer--;
+          rh.offX = Math.sin((rh.punchTimer / 20) * Math.PI) * 160 * g.facing;
+          if (rh.punchTimer === 10) {
+            rh.x = g.frameX + handSpacing + rh.offX;
+            rh.y = g.frameY;
+            this._mechaHandHit(game, g, rh);
+          }
+        } else {
+          rh.offX *= 0.7;
+        }
+        // World positions for hands
+        lh.x = g.frameX - handSpacing + lh.offX;
+        lh.y = g.frameY;
+        rh.x = g.frameX + handSpacing + rh.offX;
+        rh.y = g.frameY;
+
+        // Contact damage (body)
         if (g.contactCd > 0) g.contactCd--;
         if (g.contactCd <= 0) {
           const golemBox = { x: g.x, y: g.y, w: g.w, h: g.h };
           for (const e of game.enemies) {
             if (!e.dead && rectOverlap(golemBox, e)) {
-              e.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, g.x + g.w / 2);
-              const kbDir = Math.sign(e.x + e.w / 2 - (g.x + g.w / 2)) || 1;
-              e.vx = kbDir * 6;
-              e.vy = -4;
+              e.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, cx);
+              const kbDir = Math.sign(e.x + e.w / 2 - cx) || 1;
+              e.vx = kbDir * 14; e.vy = -8;
               g.contactCd = 15;
               break;
             }
           }
-          if (g.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap(golemBox, game.boss)) {
-            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, g.x + g.w / 2);
+          if (g.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap({ x: g.x, y: g.y, w: g.w, h: g.h }, game.boss)) {
+            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, cx);
             g.contactCd = 15;
           }
         }
 
-        // Punch attack (Z/J or mouse)
+        // Punch: attack button — alternating hand lunges forward
         if (g.punchCooldown > 0) g.punchCooldown--;
-        if (g.punchTimer > 0) {
-          g.punchTimer--;
-          if (!g.punchHit && g.punchTimer < 10) {
-            g.punchHit = true;
-            const punchX = g.x + (g.facing > 0 ? g.w : -40);
-            const punchY = g.y + 20;
-            const punchBox = { x: punchX, y: punchY, w: 48, h: 40 };
-            for (const e of game.enemies) {
-              if (!e.dead && rectOverlap(punchBox, e)) {
-                e.takeDamage((this.type.attackDamage + this.bonusDamage) * 3, game, g.x + g.w / 2);
-                game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4a8', 12, 4, 14));
-              }
-            }
-            if (game.boss && !game.boss.dead && rectOverlap(punchBox, game.boss)) {
-              game.boss.takeDamage((this.type.attackDamage + this.bonusDamage) * 3, game, g.x + g.w / 2);
-              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4a8', 16, 5, 18));
-            }
-            SFX.hit();
-            triggerHitstop(3);
-          }
-        }
         if (g.punchCooldown <= 0 && (consumePress('KeyZ') || consumePress('KeyJ') || justPressed['MouseAttack'] || gpJust[GP_ATTACK])) {
-          g.punchTimer = 18;
-          g.punchCooldown = 30;
-          g.punchHit = false;
+          const hand = g.punchSide > 0 ? rh : lh;
+          hand.punchTimer = 20;
+          g.punchCooldown = 24;
+          g.punchSide *= -1; // alternate
           SFX.attack();
         }
 
-        // Shoot projectile (X/K or mouse right)
-        if (g.shootCooldown > 0) g.shootCooldown--;
-        if (g.shootCooldown <= 0 && (consumePress('KeyX') || consumePress('KeyK') || justPressed['MouseSpecial'] || gpJust[GP_SPECIAL])) {
-          g.shootCooldown = 20;
-          const px = g.x + (g.facing > 0 ? g.w + 4 : -12);
-          const py = g.y + g.h / 2;
-          const golemDmg = this.type.attackDamage + this.bonusDamage;
-          game.projectiles.push(new Projectile(px, py, g.facing * 8, 0, '#a87040', golemDmg + 4, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, -2, '#a87040', golemDmg + 2, 'player'));
-          game.projectiles.push(new Projectile(px, py, g.facing * 7, 2, '#a87040', golemDmg + 2, 'player'));
+        // Missiles: special button — 2 rockets in facing direction
+        if (g.missileCooldown > 0) g.missileCooldown--;
+        if (g.missileCooldown <= 0 && (consumePress('KeyX') || consumePress('KeyK') || justPressed['MouseSpecial'] || gpJust[GP_SPECIAL])) {
+          g.missileCooldown = 28;
+          const px = cx + g.facing * (g.w / 2 + 4);
+          const dmg = this.type.attackDamage + this.bonusDamage + 5;
+          const p1 = new Projectile(px, cy - 10, g.facing * 9, -1.5, '#f84', dmg, 'player');
+          const p2 = new Projectile(px, cy + 10, g.facing * 9,  1.5, '#f84', dmg, 'player');
+          p1.isMissile = true; p2.isMissile = true;
+          p1.noPlat = true; p2.noPlat = true;
+          game.projectiles.push(p1, p2);
           SFX.shuriken();
+        }
+
+        // Yellow ball burst: shuriken button — radial shmup-boss pattern
+        if (g.ballCooldown > 0) g.ballCooldown--;
+        if (g.ballCooldown <= 0 && (consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN])) {
+          g.ballCooldown = 40;
+          const count = 12;
+          const dmg = this.type.attackDamage + this.bonusDamage + 2;
+          for (let i = 0; i < count; i++) {
+            const a = (Math.PI * 2 / count) * i;
+            const spd = 5;
+            const bp = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#ff0', dmg, 'player');
+            bp.noPlat = true;
+            game.projectiles.push(bp);
+          }
+          SFX.slam();
+          game.effects.push(new Effect(cx, cy, '#ff0', 16, 5, 16));
         }
 
         // Golem expires
         if (g.timer <= 0) {
-          game.effects.push(new Effect(g.x + g.w / 2, g.y + g.h / 2, '#aaa', 20, 6, 20));
+          game.effects.push(new Effect(cx, cy, '#aaa', 20, 6, 20));
           SFX.slam();
           this.earthGolem = null;
         }
@@ -1281,10 +1344,10 @@ class Player {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f80', 8, 3, 12));
               break;
             case 'bubble':
-              // Float enemies upward
-              e.vy = -8;
+              // Make enemies lose gravity
+              e.vy = -6;
               e.vx = Math.sign(dx) * 2;
-              e.freezeTimer = Math.max(e.freezeTimer, 40);
+              e.floatTimer = 90;
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4af', 10, 3, 16));
               game.effects.push(new Effect(e.x + e.w / 2, e.y, '#8cf', 6, 2, 12));
               break;
@@ -1341,9 +1404,11 @@ class Player {
               game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f80', 10, 4, 14));
               break;
             case 'bubble':
-              game.boss.vy = -4;
-              game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 25);
+              game.boss.vy = -6;
+              game.boss.vx = Math.sign(dx) * 3;
+              game.boss.floatTimer = 45;
               game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4af', 12, 3, 16));
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y, '#8cf', 8, 2, 12));
               break;
             case 'crystal':
               game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 40);

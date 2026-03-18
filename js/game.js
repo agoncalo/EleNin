@@ -952,7 +952,7 @@ class Game {
       }
     }
 
-    // Earth ultimate: render golem mecha — LoL silhouette (big shoulders + huge L-forearms, small body)
+    // Earth ultimate: render mecha — BIG head + BIG hands, no bar, hand frame follows head
     if (this.player.earthGolem) {
       const g = this.player.earthGolem;
       const gx = g.x - cam.x;
@@ -961,11 +961,7 @@ class Game {
       const facing = g.facing;
       const cx = gx + g.w / 2;
       const cy = gy + g.h / 2;
-      // Shading palette
-      const li = '#c8a878';
-      const mi = '#8b6340';
-      const dk = '#5a3a1a';
-      const vdk = '#3a200e';
+      const li = '#c8a878', mi = '#8b6340', dk = '#5a3a1a', vdk = '#3a200e';
 
       const bevel = (bx, by, bw, bh, col, bs) => {
         bs = bs || 2;
@@ -980,261 +976,122 @@ class Game {
         ctx.globalAlpha = 1;
       };
 
+      // Screen positions
+      const lhx = g.leftHand.x - cam.x, lhy = g.leftHand.y - cam.y;
+      const rhx = g.rightHand.x - cam.x, rhy = g.rightHand.y - cam.y;
+
       // === HOVER SHADOW ===
       ctx.save();
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.2;
       ctx.beginPath();
-      ctx.ellipse(cx, gy + g.h + 4, g.w * 0.7, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx, gy + g.h + 15, 80, 7, 0, 0, Math.PI * 2);
       ctx.fillStyle = '#2a1508';
       ctx.fill();
       ctx.restore();
 
-      // === THRUSTER GLOW (at waist level) ===
-      const waistY = gy + g.h * 0.55;
-      ctx.save();
-      ctx.globalAlpha = 0.4 + Math.sin(t * 0.15) * 0.12;
-      const thrG = ctx.createRadialGradient(cx, waistY, 4, cx, waistY, 30);
-      thrG.addColorStop(0, '#ff8');
-      thrG.addColorStop(0.4, '#f80');
-      thrG.addColorStop(1, 'transparent');
-      ctx.fillStyle = thrG;
-      ctx.fillRect(cx - 24, waistY - 8, 48, 20);
-      for (let i = 0; i < 4; i++) {
-        ctx.globalAlpha = 0.25 + Math.random() * 0.25;
-        ctx.fillStyle = i % 2 ? '#ff6' : '#f84';
-        ctx.fillRect(cx - 16 + Math.random() * 32, waistY + Math.random() * 10, 2 + Math.random() * 3, 2 + Math.random() * 4);
-      }
-      ctx.restore();
-
-      // === TORSO — compact "o" body ===
-      const tW = 40, tH = 50;
-      const tX = cx - tW / 2;
-      const tY = gy + 22;
-      // Main body
-      const bodyG = ctx.createLinearGradient(tX, tY, tX + tW, tY + tH);
-      bodyG.addColorStop(0, '#8b6340');
-      bodyG.addColorStop(0.5, '#6b4226');
-      bodyG.addColorStop(1, '#4a2e14');
-      ctx.fillStyle = bodyG;
-      ctx.fillRect(tX, tY, tW, tH);
-      // Bevels
-      ctx.fillStyle = li; ctx.globalAlpha = 0.4;
-      ctx.fillRect(tX, tY, tW, 2);
-      ctx.fillRect(tX, tY, 2, tH);
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
-      ctx.fillRect(tX, tY + tH - 2, tW, 2);
-      ctx.fillRect(tX + tW - 2, tY, 2, tH);
-      ctx.globalAlpha = 1;
-      // Chest plate
-      bevel(tX + 5, tY + 4, tW - 10, 20, '#9a7050', 2);
-      // Center ridge
-      ctx.fillStyle = li; ctx.globalAlpha = 0.35;
-      ctx.fillRect(cx - 1, tY + 5, 2, 18);
-      ctx.globalAlpha = 1;
-      // Chest vents
-      ctx.fillStyle = vdk;
-      ctx.fillRect(tX + 7, tY + 8, 5, 10);
-      ctx.fillRect(tX + tW - 12, tY + 8, 5, 10);
-      ctx.fillStyle = '#2a8';
-      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 8;
-      ctx.fillRect(tX + 8, tY + 9, 3, 8);
-      ctx.fillRect(tX + tW - 11, tY + 9, 3, 8);
-      ctx.shadowBlur = 0;
-      // Armor seams
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
-      ctx.fillRect(tX + 2, tY + 26, tW - 4, 1);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.25;
-      ctx.fillRect(tX + 2, tY + 27, tW - 4, 1);
-      ctx.globalAlpha = 1;
-      // Bottom plate
-      bevel(tX + 2, tY + tH - 10, tW - 4, 10, '#7a5a3a', 2);
-      // Thruster vents
-      ctx.fillStyle = vdk;
-      ctx.fillRect(tX + 8, tY + tH - 6, 7, 4);
-      ctx.fillRect(tX + tW - 15, tY + tH - 6, 7, 4);
-      ctx.fillStyle = '#f80'; ctx.globalAlpha = 0.35 + Math.sin(t * 0.2) * 0.1;
-      ctx.fillRect(tX + 9, tY + tH - 5, 5, 2);
-      ctx.fillRect(tX + tW - 14, tY + tH - 5, 5, 2);
-      ctx.globalAlpha = 1;
-
-      // === SHOULDERS — massive, wider than body ===
-      const shW = 32, shH = 22;
-      const shY = gy + 12;
-      // Left shoulder
-      const lshX = tX - shW + 4;
-      bevel(lshX, shY, shW, shH, '#8b5e3c', 2);
-      // Shoulder plate ridge
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(lshX + 4, shY + 4, shW - 8, 3);
-      ctx.globalAlpha = 1;
-      // AO under shoulder
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.35;
-      ctx.fillRect(lshX + 2, shY + shH, shW - 4, 3);
-      ctx.globalAlpha = 1;
-      // Shoulder gem
-      ctx.fillStyle = vdk;
-      ctx.fillRect(lshX + shW / 2 - 5, shY + 6, 10, 10);
-      ctx.fillStyle = '#3c4';
-      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 6;
-      ctx.fillRect(lshX + shW / 2 - 4, shY + 7, 8, 8);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#afa'; ctx.globalAlpha = 0.6;
-      ctx.fillRect(lshX + shW / 2 - 2, shY + 8, 3, 3);
-      ctx.globalAlpha = 1;
-
-      // Right shoulder
-      const rshX = tX + tW - 4;
-      bevel(rshX, shY, shW, shH, '#8b5e3c', 2);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(rshX + 4, shY + 4, shW - 8, 3);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.35;
-      ctx.fillRect(rshX + 2, shY + shH, shW - 4, 3);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = vdk;
-      ctx.fillRect(rshX + shW / 2 - 5, shY + 6, 10, 10);
-      ctx.fillStyle = '#3c4';
-      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 6;
-      ctx.fillRect(rshX + shW / 2 - 4, shY + 7, 8, 8);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#afa'; ctx.globalAlpha = 0.6;
-      ctx.fillRect(rshX + shW / 2 - 2, shY + 8, 3, 3);
-      ctx.globalAlpha = 1;
-
-      // === ARMS — L-shape: thin upper arm going down, then HUGE forearm extending out ===
-      const punchExt = g.punchTimer > 0 ? facing * 28 : 0;
-      // Upper arm: thin vertical segment
-      const uaW = 14, uaH = 28;
-      // Forearm: massive horizontal block
-      const faW = 30, faH = 22;
-
-      // -- Left arm --
-      const luaX = lshX + shW / 2 - uaW / 2;
-      const luaY = shY + shH + 2;
-      // Upper arm
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.25;
-      ctx.fillRect(luaX + 2, luaY - 2, uaW - 4, 3);
-      ctx.globalAlpha = 1;
-      bevel(luaX, luaY, uaW, uaH, '#7a5a3a', 2);
-      // Elbow joint
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
-      ctx.fillRect(luaX + 1, luaY + uaH - 2, uaW - 2, 2);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(luaX + 1, luaY + uaH, uaW - 2, 1);
-      ctx.globalAlpha = 1;
-      // Forearm — huge block extending LEFT (outward) + punch offset
-      const lfaX = luaX + uaW / 2 - faW + (facing < 0 ? punchExt : 0);
-      const lfaY = luaY + uaH;
-      bevel(lfaX, lfaY, faW, faH, '#8b5e3c', 2);
-      // Forearm plating highlight
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(lfaX + 3, lfaY + 3, faW - 6, 4);
-      ctx.globalAlpha = 1;
-      // Forearm armor segments
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
-      ctx.fillRect(lfaX + 3, lfaY + faH / 2, faW - 6, 1);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(lfaX + 3, lfaY + faH / 2 + 1, faW - 6, 1);
-      ctx.globalAlpha = 1;
-      // Fist at end of forearm (left side)
-      bevel(lfaX - 4, lfaY + 2, 8, faH - 4, '#9a7050', 2);
-      // Knuckle lines
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
-      ctx.fillRect(lfaX - 3, lfaY + 5, 6, 1);
-      ctx.fillRect(lfaX - 3, lfaY + faH - 6, 6, 1);
-      ctx.globalAlpha = 1;
-
-      // -- Right arm --
-      const ruaX = rshX + shW / 2 - uaW / 2;
-      const ruaY = shY + shH + 2;
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.25;
-      ctx.fillRect(ruaX + 2, ruaY - 2, uaW - 4, 3);
-      ctx.globalAlpha = 1;
-      bevel(ruaX, ruaY, uaW, uaH, '#7a5a3a', 2);
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
-      ctx.fillRect(ruaX + 1, ruaY + uaH - 2, uaW - 2, 2);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(ruaX + 1, ruaY + uaH, uaW - 2, 1);
-      ctx.globalAlpha = 1;
-      // Forearm — huge block extending RIGHT (outward) + punch offset
-      const rfaX = ruaX + uaW / 2 + (facing > 0 ? punchExt : 0);
-      const rfaY = ruaY + uaH;
-      bevel(rfaX, rfaY, faW, faH, '#8b5e3c', 2);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(rfaX + 3, rfaY + 3, faW - 6, 4);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
-      ctx.fillRect(rfaX + 3, rfaY + faH / 2, faW - 6, 1);
-      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
-      ctx.fillRect(rfaX + 3, rfaY + faH / 2 + 1, faW - 6, 1);
-      ctx.globalAlpha = 1;
-      // Fist at end of forearm (right side)
-      bevel(rfaX + faW - 4, rfaY + 2, 8, faH - 4, '#9a7050', 2);
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
-      ctx.fillRect(rfaX + faW - 3, rfaY + 5, 6, 1);
-      ctx.fillRect(rfaX + faW - 3, rfaY + faH - 6, 6, 1);
-      ctx.globalAlpha = 1;
-
-      // Fist glow on punch
-      if (g.punchTimer > 0) {
-        const fistCX = facing > 0 ? rfaX + faW : lfaX - 2;
-        const fistCY = (facing > 0 ? rfaY : lfaY) + faH / 2;
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        const pG = ctx.createRadialGradient(fistCX, fistCY, 2, fistCX, fistCY, 18);
-        pG.addColorStop(0, '#fff');
-        pG.addColorStop(0.3, '#ff4');
-        pG.addColorStop(1, 'transparent');
-        ctx.fillStyle = pG;
-        ctx.beginPath();
-        ctx.arc(fistCX, fistCY, 18, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // === HEAD — small, compact ===
-      const headW = 24, headH = 18;
+      // === BIG HEAD (2x: ~112x84) ===
+      const headW = 112, headH = 84;
       const headX = cx - headW / 2;
-      const headY = gy + 2;
-      bevel(headX, headY, headW, headH, mi, 2);
+      const headY = gy - 20;
+      // Skull
+      bevel(headX, headY, headW, headH, mi, 3);
+      // Chin plate
+      bevel(headX + 12, headY + headH - 20, headW - 24, 20, dk, 2);
       // Visor recess
       ctx.fillStyle = vdk;
-      ctx.fillRect(headX + 3, headY + 7, headW - 6, 6);
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(headX + 4, headY + 8, headW - 8, 4);
-      ctx.fillStyle = '#000'; ctx.globalAlpha = 0.4;
-      ctx.fillRect(headX + 4, headY + 8, headW - 8, 1);
+      ctx.fillRect(headX + 12, headY + 28, headW - 24, 28);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(headX + 16, headY + 32, headW - 32, 20);
+      // Visor shine
       ctx.fillStyle = '#555'; ctx.globalAlpha = 0.3;
-      ctx.fillRect(headX + 4, headY + 11, headW - 8, 1);
+      ctx.fillRect(headX + 16, headY + 32, headW - 32, 2);
+      ctx.fillStyle = '#000'; ctx.globalAlpha = 0.4;
+      ctx.fillRect(headX + 16, headY + 50, headW - 32, 2);
       ctx.globalAlpha = 1;
       // Glowing eyes
-      ctx.fillStyle = '#ff0';
-      ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6;
-      const eyeOff = facing > 0 ? 3 : 0;
-      ctx.fillRect(headX + 5 + eyeOff, headY + 9, 3, 2);
-      ctx.fillRect(headX + 12 + eyeOff, headY + 9, 3, 2);
-      ctx.shadowBlur = 0;
-      // Horn crest
-      bevel(cx - 3, headY - 5, 6, 7, '#b8864e', 1);
-      ctx.fillStyle = '#2e9e2e';
-      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 3;
-      ctx.fillRect(cx - 1, headY - 4, 2, 5);
-      ctx.shadowBlur = 0;
-      // Neck shadow
-      ctx.fillStyle = vdk; ctx.globalAlpha = 0.3;
-      ctx.fillRect(headX + 2, headY + headH, headW - 4, 4);
+      ctx.fillStyle = '#ff0'; ctx.shadowColor = '#ff0'; ctx.shadowBlur = 12;
+      const eyeOff = facing > 0 ? 8 : 0;
+      ctx.fillRect(headX + 20 + eyeOff, headY + 36, 16, 10);
+      ctx.fillRect(headX + headW - 36 + eyeOff, headY + 36, 16, 10);
+      // Eye highlights
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.6;
+      ctx.fillRect(headX + 24 + eyeOff, headY + 38, 6, 4);
+      ctx.fillRect(headX + headW - 32 + eyeOff, headY + 38, 6, 4);
       ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      // Horn/antenna
+      bevel(cx - 10, headY - 20, 20, 24, '#b8864e', 2);
+      ctx.fillStyle = '#2e9e2e'; ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 6;
+      ctx.fillRect(cx - 4, headY - 18, 8, 20);
+      ctx.shadowBlur = 0;
+      // Cheek plates
+      bevel(headX - 8, headY + 20, 12, 36, '#7a5533', 2);
+      bevel(headX + headW - 4, headY + 20, 12, 36, '#7a5533', 2);
+      // Forehead ridge
+      ctx.fillStyle = li; ctx.globalAlpha = 0.3;
+      ctx.fillRect(headX + 20, headY + 8, headW - 40, 3);
+      ctx.globalAlpha = 1;
+      // Thruster glow under head
+      ctx.save();
+      ctx.globalAlpha = 0.35 + Math.sin(t * 0.15) * 0.1;
+      const htG = ctx.createRadialGradient(cx, headY + headH + 5, 3, cx, headY + headH + 5, 28);
+      htG.addColorStop(0, '#ff8');
+      htG.addColorStop(0.5, '#f80');
+      htG.addColorStop(1, 'transparent');
+      ctx.fillStyle = htG;
+      ctx.fillRect(cx - 22, headY + headH, 44, 16);
+      ctx.restore();
 
-      // HP bar
+      // === BIG HANDS (2x: ~88x88) ===
+      const drawHand = (hx, hy, punching, side) => {
+        const hw = 88, hh = 88;
+        const fx = hx - hw / 2, fy = hy - hh / 2;
+        // Punch glow
+        if (punching) {
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          const aG = ctx.createRadialGradient(hx, hy, 5, hx, hy, 60);
+          aG.addColorStop(0, '#fff');
+          aG.addColorStop(0.3, '#ff4');
+          aG.addColorStop(1, 'transparent');
+          ctx.fillStyle = aG;
+          ctx.beginPath();
+          ctx.arc(hx, hy, 60, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        // Fist block
+        bevel(fx, fy, hw, hh, '#9a7050', 3);
+        bevel(fx + 8, fy + 8, hw - 16, hh - 16, '#8b6340', 2);
+        // Green gem
+        ctx.fillStyle = '#3c4'; ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 8;
+        ctx.fillRect(hx - 9, hy - 9, 18, 18);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#afa'; ctx.globalAlpha = 0.5;
+        ctx.fillRect(hx - 4, hy - 4, 8, 8);
+        ctx.globalAlpha = 1;
+        // Knuckle ridges
+        const knuckleX = side < 0 ? fx : fx + hw - 12;
+        for (let k = 0; k < 4; k++) {
+          const ky = fy + 12 + k * 18;
+          ctx.fillStyle = li; ctx.globalAlpha = 0.3;
+          ctx.fillRect(knuckleX, ky, 12, 10);
+          ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+          ctx.fillRect(knuckleX, ky + 10, 12, 2);
+        }
+        ctx.globalAlpha = 1;
+      };
+      drawHand(lhx, lhy, g.leftHand.punchTimer > 0, -1);
+      drawHand(rhx, rhy, g.rightHand.punchTimer > 0, 1);
+
+      // HP bar (above head)
       if (g.hp < g.maxHp) {
         ctx.fillStyle = '#400';
-        ctx.fillRect(gx, gy - 10, g.w, 4);
+        ctx.fillRect(headX, headY - 26, headW, 6);
         ctx.fillStyle = '#4a7a3a';
-        ctx.fillRect(gx, gy - 10, g.w * (g.hp / g.maxHp), 4);
+        ctx.fillRect(headX, headY - 26, headW * (g.hp / g.maxHp), 6);
       }
     }
-
-    // Bubble ultimate: underwater overlay + bubbles on enemies
     if (this.player.bubbleUlt) {
       const bu = this.player.bubbleUlt;
       // Underwater tint overlay
