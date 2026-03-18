@@ -392,7 +392,7 @@ class StoneDeflector extends StoneConstruct {
     this.deflectReady = this.grounded;
     if (this.deflectReady) {
       for (const p of game.projectiles) {
-        if (p.done || p.owner !== 'enemy') continue;
+        if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
         if (rectOverlap(this, p)) {
           p.vx = -p.vx * 1.5;
           p.vy = -p.vy * 1.5;

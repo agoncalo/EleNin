@@ -11,7 +11,13 @@ class Enemy {
     this.vx = 0; this.vy = 0;
     this.hp = (big ? base.hp * 4 : base.hp) * this.wave;
     this.maxHp = this.hp;
-    this.contactDmg = Math.round((big ? base.dmg + 2 : base.dmg) * (1 + this.wave * 0.1875));
+    // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
+    const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
+    const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
+    const _hitsN = {walker:12,shooter:12,jumper:10,bouncer:10,shielded:10,deflector:7,protector:12,attacker:6,flyer:8,flyshooter:8};
+    const _hitsB = {walker:6,shooter:6,jumper:5,bouncer:5,shielded:5,deflector:4,protector:6,attacker:3,flyer:4,flyshooter:4};
+    const _hits = big ? (_hitsB[type] || 5) : (_hitsN[type] || 10);
+    this.contactDmg = Math.max(1, Math.round(_ehp / _hits + _arm));
     this.color = base.color;
     this.facing = Math.random() < 0.5 ? -1 : 1;
     this.dead = false;
@@ -55,6 +61,13 @@ class Enemy {
     // Protector aura — always huge miniboss size
     this.auraRadius = (type === 'protector') ? (big ? 260 : 200) : 0;
     this.deflectFlash = 0;
+    // Flyer dash state
+    this.flyerDashState = 'idle';
+    this.flyerDashTimer = 0;
+    this.flyerDashCooldown = 0;
+    this._dashVx = 0;
+    this._dashVy = 0;
+    this.knockbackTimer = 0;
     // Attacker state
     this.attackerInvulnerable = (type === 'attacker');
     // Protector: always huge
@@ -185,7 +198,7 @@ class Enemy {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
       }
       if (this.burnTimer % 30 === 0) {
-        const bdmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        const bdmg = Math.max(1, Math.round(this.maxHp * 0.01));
         this.hp -= bdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
@@ -275,7 +288,7 @@ class Enemy {
           const dx = px - cx, dy = py - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 400 && d > 0) {
-            const p = new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+            const p = new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', this.contactDmg, 'enemy');
             if (this.element) p.element = this.element;
             game.projectiles.push(p);
           }
@@ -334,7 +347,7 @@ class Enemy {
             const shots = this.big ? 2 : 1;
             for (let si = 0; si < shots; si++) {
               const sSpread = spread + si * dir * 0.8;
-              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5), this.element ? this.elementColors.accent : '#f6f', 3 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5), this.element ? this.elementColors.accent : '#f6f', this.contactDmg, 'enemy');
               p.bouncy = true;
               if (this.element) p.element = this.element;
               game.projectiles.push(p);
@@ -533,6 +546,7 @@ class Enemy {
       case 'attacker': {
         // Floating orb — seeks hover height above ground, bobs gently
         this.hoverPhase += 0.04;
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; break; }
         this.vx *= 0.9;
         const hoverTarget = 350;
         const hoverDist = hoverTarget - this.y;
@@ -576,41 +590,237 @@ class Enemy {
         }
         break;
       }
+      case 'attacker': {
+        // Floating orb — seeks hover height above ground, bobs gently
+        this.hoverPhase += 0.04;
+        this.vx *= 0.9;
+        const hoverTarget = 350;
+        const hoverDist = hoverTarget - this.y;
+        if (Math.abs(hoverDist) > 4) {
+          this.vy += Math.sign(hoverDist) * 0.15;
+          this.vy *= 0.92;
+        } else {
+          this.vy = Math.sin(this.hoverPhase) * 0.6;
+        }
+        this.facing = px > cx ? 1 : -1;
+        // Count alive non-attacker enemies in aura
+        const auraCx = this.x + this.w / 2;
+        const auraCy = this.y + this.h / 2;
+        const aR = this.attackerAuraRadius || 100;
+        let nearbyAlive = 0;
+        for (const other of game.enemies) {
+          if (other === this || other.dead || other.type === 'attacker') continue;
+          const odx = (other.x + other.w / 2) - auraCx;
+          const ody = (other.y + other.h / 2) - auraCy;
+          if (Math.sqrt(odx * odx + ody * ody) <= aR) nearbyAlive++;
+        }
+        this.attackerInvulnerable = nearbyAlive > 0;
+        // Shoot fast piercing projectiles when invulnerable (enemies nearby)
+        if (this.attackerInvulnerable) {
+          this.shootTimer++;
+          const shootRate = this.big ? 25 : 35;
+          if (this.shootTimer >= shootRate) {
+            this.shootTimer = 0;
+            const sdx = px - auraCx, sdy = py - auraCy;
+            const sd = Math.sqrt(sdx * sdx + sdy * sdy);
+            if (sd > 0 && sd < 500) {
+              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
+              p.piercing = true;
+              p.w = 6; p.h = 6;
+              p.life = 90;
+              if (this.element) p.element = this.element;
+              game.projectiles.push(p);
+              game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
+            }
+          }
+        }
+        // Defensive projectile dodge dash
+        if (this.flyerDashCooldown > 0) this.flyerDashCooldown--;
+        if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0) {
+          for (const proj of game.projectiles) {
+            if (proj.owner === 'enemy' || proj.owner === 'boss' || proj.done) continue;
+            const pdx = proj.x - cx, pdy = proj.y - cy;
+            const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pDist > 120) continue;
+            const dot = pdx * proj.vx + pdy * proj.vy;
+            if (dot < 0) {
+              const pLen = Math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy) || 1;
+              const perpX = -proj.vy / pLen, perpY = proj.vx / pLen;
+              const side = (perpX * (px - cx) + perpY * (py - cy)) > 0 ? 1 : -1;
+              this.flyerDashState = 'dashing';
+              this.flyerDashTimer = 0;
+              this._dashVx = perpX * side * speed * 5;
+              this._dashVy = perpY * side * speed * 5;
+              game.effects.push(new Effect(cx, cy, '#f88', 6, 3, 10));
+              break;
+            }
+          }
+        }
+        if (this.flyerDashState === 'dashing') {
+          this.vx = this._dashVx;
+          this.vy = this._dashVy;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 10) {
+            this.flyerDashState = 'recovering';
+            this.flyerDashTimer = 0;
+          }
+        } else if (this.flyerDashState === 'recovering') {
+          this.vx *= 0.85;
+          this.vy *= 0.85;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 12) {
+            this.flyerDashState = 'idle';
+            this.flyerDashCooldown = this.big ? 500 : 300;
+          }
+        }
+        break;
+      }
       case 'flyer': {
         this.hoverPhase += 0.03;
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; break; }
         const fdx = px - cx, fdy = py - cy;
         const fd = Math.sqrt(fdx * fdx + fdy * fdy);
-        if (fd > 50) {
-          let flyResist = windResist;
-          if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((fdx > 0 && px > cx) || (fdx < 0 && px < cx)))) flyResist = 1;
-          this.vx = (fdx / fd) * speed * 1.6 * flyResist;
-          this.vy = (fdy / fd) * speed * 1.6 * flyResist + Math.sin(this.hoverPhase) * 0.5;
-        } else {
-          this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1.5;
-        }
         this.facing = fdx > 0 ? 1 : -1;
+        if (this.flyerDashCooldown > 0) this.flyerDashCooldown--;
+
+        // Projectile dodge detection
+        if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0) {
+          for (const p of game.projectiles) {
+            if (p.owner === 'enemy' || p.owner === 'boss' || p.done) continue;
+            const pdx = p.x - cx, pdy = p.y - cy;
+            const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pDist > 120) continue;
+            // Check if projectile is heading toward us
+            const dot = pdx * p.vx + pdy * p.vy;
+            if (dot < 0) {
+              // Dodge perpendicular to projectile direction
+              const pLen = Math.sqrt(p.vx * p.vx + p.vy * p.vy) || 1;
+              const perpX = -p.vy / pLen, perpY = p.vx / pLen;
+              const side = (perpX * fdx + perpY * fdy) > 0 ? 1 : -1;
+              this.flyerDashState = 'dashing';
+              this.flyerDashTimer = 0;
+              this._dashDefensive = true;
+              this._dashVx = perpX * side * speed * 3.5;
+              this._dashVy = perpY * side * speed * 3.5;
+              game.effects.push(new Effect(cx, cy, '#bfb', 6, 3, 10));
+              break;
+            }
+          }
+        }
+
+        // Aggressive dash toward player
+        if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0 && fd < 200 && fd > 40) {
+          this.flyerDashState = 'prepare';
+          this.flyerDashTimer = 0;
+          this._dashDefensive = false;
+          const cdx = px - cx, cdy = py - cy;
+          const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+          this._dashVx = (cdx / cd) * speed * 5;
+          this._dashVy = (cdy / cd) * speed * 5;
+        }
+
+        if (this.flyerDashState === 'prepare') {
+          this.vx *= 0.7; this.vy *= 0.7;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 25) {
+            this.flyerDashState = 'dashing';
+            this.flyerDashTimer = 0;
+            game.effects.push(new Effect(cx, cy, '#bfb', 8, 4, 12));
+          }
+        } else if (this.flyerDashState === 'dashing') {
+          this.vx = this._dashVx;
+          this.vy = this._dashVy;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= (this._dashDefensive ? 8 : 12)) {
+            this.flyerDashState = 'recovering';
+            this.flyerDashTimer = 0;
+          }
+        } else if (this.flyerDashState === 'recovering') {
+          this.vx *= 0.85;
+          this.vy *= 0.85;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 15) {
+            this.flyerDashState = 'idle';
+            this.flyerDashCooldown = this.big ? 500 : 300;
+          }
+        } else {
+          // Normal flyer movement
+          if (fd > 50) {
+            let flyResist = windResist;
+            if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((fdx > 0 && px > cx) || (fdx < 0 && px < cx)))) flyResist = 1;
+            this.vx = (fdx / fd) * speed * 1.6 * flyResist;
+            this.vy = (fdy / fd) * speed * 1.6 * flyResist + Math.sin(this.hoverPhase) * 0.5;
+          } else {
+            this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1.5;
+          }
+        }
         break;
       }
       case 'flyshooter': {
         this.hoverPhase += 0.025;
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; break; }
         const sdx = px - cx, sdy = (py - 80) - cy;
         const sd = Math.sqrt(sdx * sdx + sdy * sdy);
-        if (sd > 40) {
-          let flyResist = windResist;
-          if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((sdx > 0 && px > cx) || (sdx < 0 && px < cx)))) flyResist = 1;
-          this.vx = (sdx / sd) * speed * 1.2 * flyResist;
-          this.vy = (sdy / sd) * speed * 1.2 * flyResist + Math.sin(this.hoverPhase) * 0.4;
-        } else {
-          this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1;
-        }
         this.facing = sdx > 0 ? 1 : -1;
+        if (this.flyerDashCooldown > 0) this.flyerDashCooldown--;
+
+        // Projectile dodge
+        if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0) {
+          for (const p of game.projectiles) {
+            if (p.owner === 'enemy' || p.owner === 'boss' || p.done) continue;
+            const pdx = p.x - cx, pdy = p.y - cy;
+            const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pDist > 120) continue;
+            const dot = pdx * p.vx + pdy * p.vy;
+            if (dot < 0) {
+              const pLen = Math.sqrt(p.vx * p.vx + p.vy * p.vy) || 1;
+              const perpX = -p.vy / pLen, perpY = p.vx / pLen;
+              const side = (perpX * sdx + perpY * sdy) > 0 ? 1 : -1;
+              this.flyerDashState = 'dashing';
+              this.flyerDashTimer = 0;
+              this._dashDefensive = true;
+              this._dashVx = perpX * side * speed * 3.5;
+              this._dashVy = perpY * side * speed * 3.5;
+              game.effects.push(new Effect(cx, cy, '#db8', 6, 3, 10));
+              break;
+            }
+          }
+        }
+
+        if (this.flyerDashState === 'dashing') {
+          this.vx = this._dashVx;
+          this.vy = this._dashVy;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 7) {
+            this.flyerDashState = 'recovering';
+            this.flyerDashTimer = 0;
+          }
+        } else if (this.flyerDashState === 'recovering') {
+          this.vx *= 0.85;
+          this.vy *= 0.85;
+          this.flyerDashTimer++;
+          if (this.flyerDashTimer >= 12) {
+            this.flyerDashState = 'idle';
+            this.flyerDashCooldown = this.big ? 50 : 70;
+          }
+        } else {
+          // Normal flyshooter movement
+          if (sd > 40) {
+            let flyResist = windResist;
+            if (!(game.player.ninjaType === 'wind' && game.player.windPower >= 10 && ((sdx > 0 && px > cx) || (sdx < 0 && px < cx)))) flyResist = 1;
+            this.vx = (sdx / sd) * speed * 1.2 * flyResist;
+            this.vy = (sdy / sd) * speed * 1.2 * flyResist + Math.sin(this.hoverPhase) * 0.4;
+          } else {
+            this.vx *= 0.92; this.vy = Math.sin(this.hoverPhase) * 1;
+          }
+        }
         this.shootTimer++;
         if (this.shootTimer >= (this.big ? 60 : 80)) {
           this.shootTimer = 0;
           const adx = px - cx, ady = py - cy;
           const ad = Math.sqrt(adx * adx + ady * ady);
           if (ad < 500 && ad > 0) {
-            const p = new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', 2 + Math.floor((this.wave - 1) * 0.5), 'enemy');
+            const p = new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', this.contactDmg, 'enemy');
             if (this.element) p.element = this.element;
             game.projectiles.push(p);
           }
@@ -622,6 +832,12 @@ class Enemy {
     // Charge dash trails
     if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') {
       this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 12 });
+    }
+    if (this.type === 'flyer' && this.flyerDashState === 'dashing') {
+      this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 10 });
+    }
+    if ((this.type === 'flyshooter' || this.type === 'attacker') && this.flyerDashState === 'dashing') {
+      this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 10 });
     }
     if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
 
@@ -811,11 +1027,17 @@ class Enemy {
     this.hp -= amount;
     this.flashTimer = 6;
     this.damageIframes = 15;
-    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 7, flyshooter: 7 };
+    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
     let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
     this.vx = dir * kb;
     if (!this.flying) this.vy = -2;
+    if (this.flying) {
+      this.vy = -kb * 0.3;
+      this.knockbackTimer = 12;
+      this.flyerDashState = 'idle';
+      this.flyerDashTimer = 0;
+    }
     if (this.hp <= 0) {
       this.dead = true;
       this.onDeath(game);
@@ -879,7 +1101,7 @@ class Enemy {
   render(ctx, cam, game) {
     // Charge dash trails
     if (this.chargeTrails && this.chargeTrails.length) {
-      const trailColor = this.type === 'protector' ? '#4f8' : '#5ff';
+      const trailColor = this.type === 'protector' ? '#4f8' : (this.type === 'flyer' || this.type === 'flyshooter') ? '#8c8' : this.type === 'attacker' ? '#f88' : '#5ff';
       for (const t of this.chargeTrails) {
         ctx.save();
         ctx.globalAlpha = (t.life / 12) * 0.4;
@@ -1150,6 +1372,14 @@ class Enemy {
         ctx.fillStyle = '#bdb';
         ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
         ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
+        if (this.flyerDashState === 'prepare') {
+          const pulse = Math.sin(this.flyerDashTimer * 0.5) * 0.4 + 0.6;
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = '#ff0';
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
+          ctx.globalAlpha = 1;
+        }
         break;
       case 'flyshooter':
         ctx.fillStyle = '#dba';
@@ -1394,8 +1624,12 @@ class Boss extends Enemy {
     if (bossType === 'attacker') this.hp = Math.max(this.hp, 500);
     if (bossType === 'flyshooter') this.hp = Math.max(this.hp, 1000);
     this.maxHp = this.hp;
-    // Override contact damage
-    this.contactDmg = Math.round(4 * (1 + wave * 0.1875));
+    // Override contact damage — boss takes 3 hits to kill player
+    const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(wave, 10)] || 148;
+    const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(wave, 10)] || 21;
+    this.contactDmg = Math.max(1, Math.round(_ehp / 3 + _arm));
+    this._bossEhp = _ehp;
+    this._bossArm = _arm;
     // Boss-specific state
     this.phase = 1;
     this.actionTimer = 0;
@@ -1549,7 +1783,7 @@ class Boss extends Enemy {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
       }
       if (this.burnTimer % 30 === 0) {
-        const bdmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        const bdmg = Math.max(1, Math.round(this.maxHp * 0.01));
         this.hp -= bdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
@@ -1623,6 +1857,70 @@ class Boss extends Enemy {
           }
         }
       } else {
+      if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; }
+      else {
+      if (this.flyerDashCooldown > 0) this.flyerDashCooldown--;
+
+      // Boss flyer projectile dodge
+      if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0 && (this.bossType === 'flyer' || this.bossType === 'flyshooter')) {
+        for (const p of game.projectiles) {
+          if (p.owner === 'enemy' || p.owner === 'boss' || p.done) continue;
+          const pdx = p.x - cx, pdy = p.y - cy;
+          const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+          if (pDist > 150) continue;
+          const dot = pdx * p.vx + pdy * p.vy;
+          if (dot < 0) {
+            const pLen = Math.sqrt(p.vx * p.vx + p.vy * p.vy) || 1;
+            const perpX = -p.vy / pLen, perpY = p.vx / pLen;
+            const side = (perpX * dx + perpY * dy) > 0 ? 1 : -1;
+            this.flyerDashState = 'dashing';
+            this.flyerDashTimer = 0;
+            this._dashDefensive = true;
+            this._dashVx = perpX * side * speed * 3.5;
+            this._dashVy = perpY * side * speed * 3.5;
+            game.effects.push(new Effect(cx, cy, '#bfb', 8, 4, 10));
+            break;
+          }
+        }
+      }
+
+      // Boss flyer aggressive dash
+      if (this.flyerDashState === 'idle' && this.flyerDashCooldown <= 0 && this.state === 'chase' && (this.bossType === 'flyer' || this.bossType === 'flyshooter')) {
+        const dd = Math.sqrt(dx * dx + dy * dy);
+        if (dd < 280 && dd > 50) {
+          this.flyerDashState = 'prepare';
+          this.flyerDashTimer = 0;
+          this._dashDefensive = false;
+          this._dashVx = (dx / dd) * speed * 4.5;
+          this._dashVy = (dy / dd) * speed * 4.5;
+        }
+      }
+
+      if (this.flyerDashState === 'prepare') {
+        this.vx *= 0.7; this.vy *= 0.7;
+        this.flyerDashTimer++;
+        if (this.flyerDashTimer >= 30) {
+          this.flyerDashState = 'dashing';
+          this.flyerDashTimer = 0;
+          game.effects.push(new Effect(cx, cy, '#bfb', 10, 5, 14));
+        }
+      } else if (this.flyerDashState === 'dashing') {
+        this.vx = this._dashVx;
+        this.vy = this._dashVy;
+        this.flyerDashTimer++;
+        if (this.flyerDashTimer >= (this._dashDefensive ? 8 : 14)) {
+          this.flyerDashState = 'recovering';
+          this.flyerDashTimer = 0;
+        }
+      } else if (this.flyerDashState === 'recovering') {
+        this.vx *= 0.85;
+        this.vy *= 0.85;
+        this.flyerDashTimer++;
+        if (this.flyerDashTimer >= 18) {
+          this.flyerDashState = 'idle';
+          this.flyerDashCooldown = this.phase === 2 ? 50 : 70;
+        }
+      } else {
       switch (this.state) {
         case 'chase': {
           const tdx = dx, tdy = (py - (this.bossType === 'flyshooter' ? 135 : 45)) - cy;
@@ -1654,23 +1952,27 @@ class Boss extends Enemy {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
               if (this.bossType === 'bouncer') {
-                // Bouncer boss: precise mortar with more bounces and damage
-                const bDmg = 4 + Math.floor((this.wave - 1) * 0.6);
+                // Bouncer boss (flying): high-arc mortar with big bouncy projectiles
+                const bDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
                 const shots = this.phase === 2 ? 3 : 2;
                 for (let si = 0; si < shots; si++) {
-                  const spread = (si - (shots - 1) / 2) * 0.15;
-                  const cos = Math.cos(spread), sin = Math.sin(spread);
-                  const bvx = (dx / d) * 5.5, bvy = (dy / d) * 5.5;
-                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
+                  const spread = (si - (shots - 1) / 2) * 0.2;
+                  const dir = dx > 0 ? 1 : -1;
+                  const lobSpd = 6 + Math.random() * 1.5;
+                  const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
+                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread;
+                  const bvy = Math.sin(highAngle) * lobSpd;
+                  const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
                   p.bouncy = true;
+                  p.w = 8; p.h = 8;
                   p.bouncesLeft = this.phase === 2 ? 5 : 3;
-                  p.life = 180;
+                  p.life = 200;
                   if (this.element) p.element = this.element;
                   game.projectiles.push(p);
                 }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss: bullet spread
-                const sDmg = 3 + Math.floor((this.wave - 1) * 0.5);
+                const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
                 const count = this.phase === 2 ? 5 : 3;
                 const arc = this.phase === 2 ? 0.5 : 0.35;
                 for (let si = 0; si < count; si++) {
@@ -1682,7 +1984,7 @@ class Boss extends Enemy {
                   game.projectiles.push(p);
                 }
               } else {
-                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss');
                 if (this.element) p.element = this.element;
                 game.projectiles.push(p);
               }
@@ -1693,6 +1995,8 @@ class Boss extends Enemy {
           }
           break;
       }
+      } // end else (normal state machine, not dashing)
+      } // end knockback check
       }
       if (this.y < -80) this.y = -80;
       if (this.y > 440) this.y = 440;
@@ -1792,7 +2096,7 @@ class Boss extends Enemy {
             const cdx = px - cx, cdy = py - cy;
             const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
             this._chargeVx = (cdx / cd) * speed * 5;
-            this._chargeVy = (cdy / cd) * speed * 5;
+            this._chargeVy = Math.max((cdy / cd) * speed * 5, -3);
             this.vx = 0;
           }
         }
@@ -1855,7 +2159,7 @@ class Boss extends Enemy {
             const cdx = px - cx, cdy = py - cy;
             const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
             this._chargeVx = (cdx / cd) * speed * 4;
-            this._chargeVy = (cdy / cd) * speed * 4;
+            this._chargeVy = Math.max((cdy / cd) * speed * 4, -3);
             this.vx = 0;
           }
         }
@@ -1904,23 +2208,27 @@ class Boss extends Enemy {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
               if (this.bossType === 'bouncer') {
-                // Bouncer boss: precise mortar with more bounces and damage
-                const bDmg = 4 + Math.floor((this.wave - 1) * 0.6);
+                // Bouncer boss (ground): high-arc mortar with big bouncy projectiles
+                const bDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
                 const shots = this.phase === 2 ? 3 : 2;
                 for (let si = 0; si < shots; si++) {
-                  const spread = (si - (shots - 1) / 2) * 0.15;
-                  const cos = Math.cos(spread), sin = Math.sin(spread);
-                  const bvx = (dx / d) * 5.5, bvy = (dy / d) * 5.5;
-                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
+                  const spread = (si - (shots - 1) / 2) * 0.2;
+                  const dir = dx > 0 ? 1 : -1;
+                  const lobSpd = 6 + Math.random() * 1.5;
+                  const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
+                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread;
+                  const bvy = Math.sin(highAngle) * lobSpd;
+                  const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
                   p.bouncy = true;
+                  p.w = 8; p.h = 8;
                   p.bouncesLeft = this.phase === 2 ? 5 : 3;
-                  p.life = 180;
+                  p.life = 200;
                   if (this.element) p.element = this.element;
                   game.projectiles.push(p);
                 }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss: bullet spread
-                const sDmg = 3 + Math.floor((this.wave - 1) * 0.5);
+                const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
                 const count = this.phase === 2 ? 5 : 3;
                 const arc = this.phase === 2 ? 0.5 : 0.35;
                 for (let si = 0; si < count; si++) {
@@ -1932,7 +2240,7 @@ class Boss extends Enemy {
                   game.projectiles.push(p);
                 }
               } else {
-                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss');
                 if (this.element) p.element = this.element;
                 game.projectiles.push(p);
               }
@@ -1970,6 +2278,9 @@ class Boss extends Enemy {
     // Charge dash trails
     if ((this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging') {
       this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 12 });
+    }
+    if ((this.bossType === 'flyer' || this.bossType === 'flyshooter') && this.flyerDashState === 'dashing') {
+      this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 10 });
     }
     if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
 
@@ -2025,6 +2336,7 @@ class Boss extends Enemy {
       if (this.chargeState === 'charging') { this.chargeState = 'recoil'; this.chargeTimer = 0; }
     }
     if (this.y > 700) { this.y = -40; this.vy = 0; }
+    if (!this.flying && this.y < -60) { this.y = -60; this.vy = 0; }
 
     // Contact damage
     if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
@@ -2079,9 +2391,16 @@ class Boss extends Enemy {
     this.flashTimer = 8;
     this.damageIframes = 12;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 6, 3, 10));
-    // Boss knockback (slight — bosses are heavy)
+    // Boss knockback (slight — bosses are heavy, flyer/flyshooter get more)
     const bDir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
-    this.vx += bDir * 2;
+    const bossKb = (this.bossType === 'flyer' || this.bossType === 'flyshooter') ? 12 : 2;
+    this.vx += bDir * bossKb;
+    if (this.bossType === 'flyer' || this.bossType === 'flyshooter') {
+      this.vy = -bossKb * 0.3;
+      this.knockbackTimer = 10;
+      this.flyerDashState = 'idle';
+      this.flyerDashTimer = 0;
+    }
     if (this.hp <= 0) {
       this.dead = true;
       this.onDeath(game);
@@ -2108,7 +2427,7 @@ class Boss extends Enemy {
   render(ctx, cam, game) {
     // Charge dash trails
     if (this.chargeTrails && this.chargeTrails.length) {
-      const trailColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
+      const trailColor = this.bossType === 'protector' ? '#4f8' : (this.bossType === 'flyer' || this.bossType === 'flyshooter') ? '#8c8' : '#5ff';
       for (const t of this.chargeTrails) {
         ctx.save();
         ctx.globalAlpha = (t.life / 12) * 0.4;
@@ -2358,6 +2677,14 @@ class Boss extends Enemy {
         ctx.fillStyle = this.color;
         ctx.fillRect(sx - 8, sy + 6, 8, this.h - 12);
         ctx.fillRect(sx + this.w, sy + 6, 8, this.h - 12);
+        if (this.flyerDashState === 'prepare') {
+          const pulse = Math.sin(this.flyerDashTimer * 0.4) * 0.4 + 0.6;
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = '#ff0';
+          ctx.font = 'bold 18px monospace';
+          ctx.fillText('!', sx + this.w / 2 - 5, sy - 14);
+          ctx.globalAlpha = 1;
+        }
       }
 
       // Shield
@@ -2421,6 +2748,56 @@ class Boss extends Enemy {
       ctx.fillRect(sx + 8, sy - 6, 6, 8);
       ctx.fillRect(sx + this.w - 14, sy - 6, 6, 8);
       ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
+
+      // Shooter boss: gun barrel
+      if (this.bossType === 'shooter') {
+        const gunColor = this.element ? this.elementColors.accent : '#ff4';
+        const bDir = this.facing;
+        const barrelLen = 18;
+        const barrelW = 4;
+        const gx = sx + (bDir > 0 ? this.w : 0);
+        const gy = sy + this.h * 0.45;
+        // Barrel
+        ctx.fillStyle = '#555';
+        ctx.fillRect(bDir > 0 ? gx : gx - barrelLen, gy - barrelW, barrelLen, barrelW * 2);
+        // Muzzle
+        ctx.fillStyle = gunColor;
+        ctx.fillRect(bDir > 0 ? gx + barrelLen - 4 : gx - barrelLen, gy - barrelW - 1, 4, barrelW * 2 + 2);
+        // Mount
+        ctx.fillStyle = '#666';
+        ctx.fillRect(gx - 3, gy - 2, 6, 5);
+        // Headband
+        ctx.fillStyle = gunColor;
+        ctx.fillRect(sx + 4, sy + 2, this.w - 8, 4);
+      }
+
+      // Bouncer boss: mortar cannon
+      if (this.bossType === 'bouncer') {
+        const cannonColor = this.element ? this.elementColors.body : '#c5c';
+        const muzzleColor = this.element ? this.elementColors.accent : '#f6f';
+        const bDir = this.facing;
+        const cannonAngle = -(Math.PI * 0.35);
+        const barrelLen = 22;
+        const barrelW = 5;
+        const bx = sx + (bDir > 0 ? this.w - 4 : 4);
+        const by = sy + this.h * 0.3;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(bDir > 0 ? cannonAngle : Math.PI - cannonAngle);
+        // Barrel
+        ctx.fillStyle = '#555';
+        ctx.fillRect(0, -barrelW, barrelLen, barrelW * 2);
+        // Muzzle ring
+        ctx.fillStyle = muzzleColor;
+        ctx.fillRect(barrelLen - 4, -barrelW - 2, 4, barrelW * 2 + 4);
+        ctx.restore();
+        // Base mount
+        ctx.fillStyle = '#666';
+        ctx.fillRect(bx - 4, by - 2, 8, 5);
+        // Headband
+        ctx.fillStyle = cannonColor;
+        ctx.fillRect(sx + 4, sy + 2, this.w - 8, 4);
+      }
     }
 
     // Soak drip particles

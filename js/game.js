@@ -148,9 +148,11 @@ class Game {
     this.spikes = [];
     const waveDef = WAVE_DEFS[this.wave - 1];
     const bossType = waveDef ? waveDef.boss : 'walker';
-    // Flying bosses → TOWER, miniboss types → ARENA, else OPEN
-    if (bossType === 'flyer' || bossType === 'flyshooter') {
+    // Flying bosses → TOWER (except flyshooter on last wave → OPEN), miniboss types → ARENA, else OPEN
+    if (bossType === 'flyer') {
       this.levelType = 'tower';
+    } else if (bossType === 'flyshooter') {
+      this.levelType = 'open';
     } else if (bossType === 'deflector' || bossType === 'protector' || bossType === 'attacker') {
       this.levelType = 'arena';
     } else {
@@ -568,8 +570,8 @@ class Game {
         pl.bonusArmor += avgArmor;
         // Assume one ultimate activation per wave: scale requirement and refill
         pl.ultimateMax = Math.round(pl.ultimateMax * 1.2);
-        pl.ultimateCharge = pl.ultimateMax;
-        pl.ultimateReady = true;
+        pl.ultimateCharge = 0;
+        pl.ultimateReady = false;
       }
       this.advanceWave();
     }
@@ -580,15 +582,42 @@ class Game {
       this.player.godMode = !this.player.godMode;
       this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
     }
-    // Cheat: - to spawn boss / fill ultimate
+    // Cheat: - to spawn boss with average end-of-wave stats
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
       this.cheated = true;
       recordCheatUsed();
+      // Set player stats to average for end of current wave
+      const pl = this.player;
+      const _ehp = [0,16,24,34,46,60,73,89,107,127,148];
+      const _arm = [0,1,2,4,6,8,10,13,15,18,21];
+      const w = Math.min(this.wave, 10);
+      // Cumulative kills up to this wave
+      let cumKills = 0;
+      for (let i = 0; i < this.wave && i < WAVE_DEFS.length; i++) cumKills += WAVE_DEFS[i].killsForBoss;
+      const avgMaxHp = 10 + Math.round(cumKills * 0.13);
+      const avgShieldMax = Math.round(cumKills * 0.08) * 2;
+      const avgDmg = Math.round(cumKills * 0.10);
+      const avgShuriken = Math.round(cumKills * 0.12);
+      const avgSpeed = Math.round(cumKills * 0.04);
+      const avgReach = Math.round(cumKills * 0.04);
+      const avgArmor = _arm[w] || 21;
+      pl.maxHp = avgMaxHp;
+      pl.hp = avgMaxHp;
+      pl.maxShield = avgShieldMax;
+      pl.shield = avgShieldMax;
+      pl.bonusDamage = avgDmg;
+      pl.maxShurikens = 3 + avgShuriken;
+      pl.shurikens = pl.maxShurikens;
+      pl.bonusSpeed = avgSpeed;
+      pl.bonusReach = avgReach;
+      pl.bonusArmor = avgArmor;
+      pl.ultimateCharge = 0;
+      pl.ultimateReady = false;
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
-        this.player.ultimateCharge = this.player.ultimateMax;
-        this.player.ultimateReady = true;
+        pl.ultimateCharge = pl.ultimateMax;
+        pl.ultimateReady = true;
       }
     }
 

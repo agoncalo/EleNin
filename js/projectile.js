@@ -193,7 +193,7 @@ class DiamondShard {
     if (this.life <= 0) { this.done = true; return; }
     // Deflect enemy projectiles on contact
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
       const dx = p.x - this.x;
       const dy = p.y - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + 10) {

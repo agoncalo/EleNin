@@ -1590,7 +1590,7 @@ class Player {
         }
         // Destroy enemy projectiles with attack
         for (const p of game.projectiles) {
-          if (!p.done && p.owner !== 'player' && this.attackBox && rectOverlap(this.attackBox, p)) {
+          if (!p.done && p.owner !== 'player' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
             p.done = true;
             game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#fff', 6, 2, 8));
             SFX.parry();
@@ -3107,14 +3107,23 @@ class Player {
       ctx.fillText('BACKSTAB!', sx - 8, sy - 8);
     }
 
-    // Fire armor indicator
+    // Fire armor indicator — small rising flames above head
     if (this.fireArmor) {
-      const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
-      ctx.globalAlpha = pulse;
-      ctx.fillStyle = '#f93';
-      ctx.font = 'bold 10px monospace';
-      ctx.fillText('ARMOR!', sx - 4, sy - 8);
-      ctx.globalAlpha = 1;
+      const tick = game ? game.tick : 0;
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const ox = sx + this.w * 0.15 + (this.w * 0.7 * i / 3);
+        const rise = (tick * 0.8 + i * 17) % 16;
+        const fy = sy - 4 - rise;
+        const alpha = 0.7 * (1 - rise / 16);
+        const sz = 2.5 - rise * 0.1;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = i % 2 === 0 ? '#f80' : '#ff4';
+        ctx.beginPath();
+        ctx.arc(ox, fy, sz, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
     }
 
     // Wind power indicator
@@ -3553,7 +3562,7 @@ class CrystalCastle {
 
     // Block enemy projectiles
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
       if (this._touchesCastleRect(p)) {
         p.done = true;
         game.effects.push(new Effect(p.x, p.y, '#aff', 5, 2, 8));
