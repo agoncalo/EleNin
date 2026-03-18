@@ -360,20 +360,18 @@ class Projectile {
         Math.random() > 0.5 ? '#f80' : '#f50', 4, 1.5, 6
       ));
     }
-    // Hit platforms (skip thin platforms)
-    if (this.owner !== 'boss') {
+    // Hit platforms (skip thin platforms; bouncy only collides downward)
+    if (this.owner !== 'boss' || (this.bouncy && this.bouncesLeft > 0)) {
       for (const p of game.platforms) {
         if (p.thin) continue;
         if (rectOverlap(this, p)) {
-          if (this.bouncy && this.life > 30) {
+          if (this.bouncy && (this.bouncesLeft > 0 || this.life > 30)) {
+            // Only bounce off the top of platforms (falling down onto them)
             if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 6) {
               this.y = p.y - this.h; this.vy = -this.vy * 0.75;
-            } else if (this.vy < 0) {
-              this.vy = -this.vy * 0.75;
-            } else {
-              this.vx = -this.vx * 0.75;
+              if (this.bouncesLeft > 0) this.bouncesLeft--;
+              this.life -= 25;
             }
-            this.life -= 25;
             return;
           }
           this.done = true;
@@ -381,6 +379,12 @@ class Projectile {
           return;
         }
       }
+    }
+    // Boss bouncer: bounce off level walls and floor (not ceiling)
+    if (this.owner === 'boss' && this.bouncy && this.bouncesLeft > 0) {
+      if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
+      if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
+      if (this.y + this.h > 480) { this.y = 480 - this.h; this.vy = -Math.abs(this.vy) * 0.75; this.bouncesLeft--; }
     }
     // Hit stone blocks (power them up)
     if (this.owner === 'enemy' || this.owner === 'boss') {
@@ -398,11 +402,20 @@ class Projectile {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
 
-          // Shielded/Protector: block projectiles from the front (shield stops even piercing)
-          if ((e.type === 'shielded' || e.type === 'protector') && e.shieldHp > 0 && hitFromFront) {
+          // Shielded: block projectiles from the front (shield stops even piercing)
+          if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
             e.flashTimer = 4;
             game.effects.push(new Effect(
               e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
+            ));
+            this.done = true;
+            return;
+          }
+          // Protector: block projectiles from the front (shield stops even piercing)
+          if (e.type === 'protector' && e.shieldHp > 0 && hitFromFront) {
+            e.flashTimer = 4;
+            game.effects.push(new Effect(
+              e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#4f8', 8, 3, 10
             ));
             this.done = true;
             return;
@@ -412,6 +425,7 @@ class Projectile {
           if (e.type === 'deflector' && e.deflectReady && !e.freezeTimer) {
             e.deflectReady = false;
             e.deflectTimer = e.big ? 50 : 80;
+            e.deflectFlash = 12;
             this.vx = -this.vx * 1.2;
             this.vy = (Math.random() - 0.5) * 2;
             this.owner = 'enemy';
@@ -484,12 +498,20 @@ class Projectile {
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         const bossHitFromFront = (this.x + this.w / 2 > game.boss.x + game.boss.w / 2) === (game.boss.facing === 1);
-        // Shielded/Protector boss: block projectiles from the front
-        if ((game.boss.bossType === 'shielded' || game.boss.bossType === 'protector') && game.boss.shieldHp > 0 && bossHitFromFront) {
+        // Shielded boss: block projectiles from the front
+        if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && bossHitFromFront) {
           game.boss.flashTimer = 4;
-          const shieldColor = game.boss.bossType === 'protector' ? '#4f8' : '#5ff';
           game.effects.push(new Effect(
-            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, shieldColor, 8, 3, 10
+            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#5ff', 8, 3, 10
+          ));
+          this.done = true;
+          return;
+        }
+        // Protector boss: block projectiles from the front
+        if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && bossHitFromFront) {
+          game.boss.flashTimer = 4;
+          game.effects.push(new Effect(
+            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#4f8', 8, 3, 10
           ));
           this.done = true;
           return;
@@ -497,6 +519,7 @@ class Projectile {
         // Deflector boss: deflect projectiles back when ready
         if (game.boss.bossType === 'deflector' && game.boss.deflectReady && !game.boss.freezeTimer) {
           game.boss.deflectReady = false;
+          game.boss.deflectFlash = 12;
           this.vx = -this.vx * 1.2;
           this.vy = (Math.random() - 0.5) * 2;
           this.owner = 'enemy';

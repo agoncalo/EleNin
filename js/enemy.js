@@ -28,6 +28,12 @@ class Enemy {
     this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : (type === 'protector') ? (big ? 10 : 8) : 0;
     this.shieldMax = this.shieldHp;
+    // Shield charge state
+    this.chargeState = 'idle';
+    this.chargeTimer = 0;
+    this.chargeStartX = x;
+    this.chargeCooldown = 0;
+    this.chargeTrails = [];
     this.hoverPhase = Math.random() * Math.PI * 2;
     // Per-instance preferred range offset so ranged enemies spread out
     this.rangeOffset = (type === 'shooter' || type === 'bouncer') ? Math.floor(Math.random() * 80) - 40 : 0;
@@ -48,6 +54,7 @@ class Enemy {
     }
     // Protector aura — always huge miniboss size
     this.auraRadius = (type === 'protector') ? (big ? 260 : 200) : 0;
+    this.deflectFlash = 0;
     // Attacker state
     this.attackerInvulnerable = (type === 'attacker');
     // Protector: always huge
@@ -229,8 +236,8 @@ class Enemy {
           if (this.x <= this.patrolLeft) this.facing = 1;
           if (this.x >= this.patrolRight) this.facing = -1;
         }
-        // Lunge at player if facing them and close (not in tower)
-        if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
+        // Lunge at player if facing them and close
+        if (this.vy >= 0 && this.vy < 1) {
           const wDist = Math.abs(px - cx);
           const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
@@ -241,7 +248,7 @@ class Enemy {
         break;
       case 'shooter': {
         const sDist = Math.abs(px - cx);
-        this.facing = px > cx ? 1 : -1;
+        if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
         const sRetreat = 160 + this.rangeOffset;
         const sComfort = 250 + this.rangeOffset;
         const sBuf = 20;
@@ -289,7 +296,7 @@ class Enemy {
         break;
       case 'bouncer': {
         const bDist = Math.abs(px - cx);
-        this.facing = px > cx ? 1 : -1;
+        if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
         const bRetreat = 180 + this.rangeOffset;
         const bComfort = 280 + this.rangeOffset;
         const bBuf = 20;
@@ -337,22 +344,78 @@ class Enemy {
         break;
       }
       case 'shielded': {
-        this.facing = px > cx ? 1 : -1;
-        // Walk toward the player, shield first
-        this.vx = this.facing * speed * 0.7 * windResist;
-        // Lunge at player if close (not in tower)
-        if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
+        if (this.shieldHp > 0) {
+          // Shield charge behavior
+          if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
+          if (this.chargeCooldown > 0) this.chargeCooldown--;
           const shDist = Math.abs(px - cx);
-          if (shDist < 80 && Math.abs(py - cy) < 40) {
-            this.vy = -8;
-            this.vx = this.facing * speed * 2.5;
+          if (this.chargeState === 'prepare') {
+            this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 25) {
+              this.chargeState = 'charging';
+              this.chargeTimer = 0;
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#5ff', 8, 4, 12));
+            }
+          } else if (this.chargeState === 'charging') {
+            this.vx = this._chargeVx * windResist;
+            this.vy = this._chargeVy;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 18) {
+              this.chargeState = 'sliding';
+              this.chargeTimer = 0;
+              this.chargeCooldown = 80;
+            }
+          } else if (this.chargeState === 'sliding') {
+            this.vx *= 0.88;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+              this.chargeState = 'idle';
+            }
+          } else if (this.chargeState === 'recoil') {
+            const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
+            this.vx = backDir * speed * 2.5;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 15 || Math.abs(this.x - this.chargeStartX) < 10) {
+              this.chargeState = 'idle';
+              this.chargeCooldown = 80;
+              this.vx = 0;
+            }
+          } else {
+            // idle — walk toward player
+            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.5 * windResist;
+            if (shDist < 120 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+              this.chargeState = 'prepare';
+              this.chargeTimer = 0;
+              this.chargeStartX = this.x;
+              const cdx = px - cx, cdy = py - cy;
+              const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+              this._chargeVx = (cdx / cd) * speed * 5;
+              this._chargeVy = (cdy / cd) * speed * 5;
+              this.vx = 0;
+            }
+          }
+        } else {
+          // Shield broken — behave like walker
+          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
+          if (this.vy >= 0 && this.vy < 1) {
+            if (this.x <= this.patrolLeft) this.facing = 1;
+            if (this.x >= this.patrolRight) this.facing = -1;
+          }
+          if (this.vy >= 0 && this.vy < 1) {
+            const wDist = Math.abs(px - cx);
+            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
+              this.vy = -8;
+              this.vx = this.facing * speed * 2.5;
+            }
           }
         }
         break;
       }
       case 'deflector': {
         // Miniboss samurai — faces player with dead zone to prevent flipping
-        if (Math.abs(px - cx) > 8) this.facing = px > cx ? 1 : -1;
+        if (this.vy >= 0 && this.vy < 1 && Math.abs(px - cx) > 8) this.facing = px > cx ? 1 : -1;
         const distToPlayer = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
         this.jumpTimer++;
         if (distToPlayer > 60) {
@@ -394,11 +457,77 @@ class Enemy {
         break;
       }
       case 'protector': {
-        // Slow, tanky, walks toward player with shield held
-        this.vx = this.facing * speed * 0.4 * windResist;
-        if (this.x <= this.patrolLeft) this.facing = 1;
-        if (this.x >= this.patrolRight) this.facing = -1;
-        if (Math.abs(px - cx) < 200) this.facing = px > cx ? 1 : -1;
+        if (this.shieldHp > 0) {
+          // Shield charge behavior (slower, tankier)
+          if (this.vy >= 0 && this.vy < 1 && Math.abs(px - cx) < 200) this.facing = px > cx ? 1 : -1;
+          else if (this.vy >= 0 && this.vy < 1) {
+            if (this.x <= this.patrolLeft) this.facing = 1;
+            if (this.x >= this.patrolRight) this.facing = -1;
+          }
+          if (this.chargeCooldown > 0) this.chargeCooldown--;
+          const pDist = Math.abs(px - cx);
+          if (this.chargeState === 'prepare') {
+            this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 35) {
+              this.chargeState = 'charging';
+              this.chargeTimer = 0;
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f8', 8, 4, 12));
+            }
+          } else if (this.chargeState === 'charging') {
+            this.vx = this._chargeVx * windResist;
+            this.vy = this._chargeVy;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 20) {
+              this.chargeState = 'sliding';
+              this.chargeTimer = 0;
+              this.chargeCooldown = 100;
+            }
+          } else if (this.chargeState === 'sliding') {
+            this.vx *= 0.88;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+              this.chargeState = 'idle';
+            }
+          } else if (this.chargeState === 'recoil') {
+            const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
+            this.vx = backDir * speed * 2;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 18 || Math.abs(this.x - this.chargeStartX) < 10) {
+              this.chargeState = 'idle';
+              this.chargeCooldown = 100;
+              this.vx = 0;
+            }
+          } else {
+            // idle — walk slowly toward player
+            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.4 * windResist;
+            if (pDist < 140 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+              this.chargeState = 'prepare';
+              this.chargeTimer = 0;
+              this.chargeStartX = this.x;
+              const cdx = px - cx, cdy = py - cy;
+              const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+              this._chargeVx = (cdx / cd) * speed * 4.5;
+              this._chargeVy = (cdy / cd) * speed * 4.5;
+              this.vx = 0;
+            }
+          }
+        } else {
+          // Shield broken — behave like walker
+          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
+          if (this.vy >= 0 && this.vy < 1) {
+            if (this.x <= this.patrolLeft) this.facing = 1;
+            if (this.x >= this.patrolRight) this.facing = -1;
+          }
+          if (this.vy >= 0 && this.vy < 1) {
+            const wDist = Math.abs(px - cx);
+            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
+              this.vy = -8;
+              this.vx = this.facing * speed * 2.5;
+            }
+          }
+        }
         break;
       }
       case 'attacker': {
@@ -490,15 +619,23 @@ class Enemy {
       }
     }
 
+    // Charge dash trails
+    if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') {
+      this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 12 });
+    }
+    if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
+
     // Apply velocity
     this.x += this.vx;
     this.y += this.vy;
 
     // Platform collision (ground enemies only)
+    const isChargeDashing = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
     if (!this.flying) {
       this.onPlatform = null;
       for (const p of game.platforms) {
         if (p.thin) continue;
+        if (isChargeDashing && p.y < 460) continue;
         if (rectOverlap(this, p)) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
             this.y = p.y - this.h;
@@ -511,16 +648,23 @@ class Enemy {
         const p = this.onPlatform;
         const isRanged = (this.type === 'shooter' || this.type === 'bouncer');
         const retreating = isRanged && Math.sign(this.vx) !== this.facing && Math.abs(this.vx) > 0.1;
-        if (this.type === 'shielded') {
-          // Shielded: jump off ledge toward player (not in tower), stop otherwise
+        if (this.type === 'shielded' || this.type === 'protector') {
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
           const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
           if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
-            if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            } else {
+            if (this.shieldHp > 0) {
+              // Shield up: stop at edge, cancel charge if needed
+              if (this.chargeState === 'charging') {
+                this.chargeState = 'recoil';
+                this.chargeTimer = 0;
+              }
               this.vx = 0;
+              if (atLeftEdge) this.x = p.x + 8 - this.w / 2;
+              if (atRightEdge) this.x = p.x + p.w - 8 - this.w / 2;
+            } else {
+              // Shield broken — stop at edge, turn around
+              this.vx = 0;
+              this.facing = -this.facing;
             }
           }
         } else if (isRanged) {
@@ -540,12 +684,12 @@ class Enemy {
             }
           }
         } else if (this.type === 'walker') {
-          // Walkers: jump off ledge toward player instead of turning (not in tower)
+          // Walkers: jump off ledge toward player instead of turning
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
           const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
           const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
-            if (game.levelType !== 'tower' && facingPlayer && this.vy >= 0 && this.vy < 1) {
+            if (facingPlayer && this.vy >= 0 && this.vy < 1) {
               this.vy = -8;
               this.vx = this.facing * speed * 2.5;
             } else {
@@ -566,26 +710,28 @@ class Enemy {
     if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
     if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
 
-    // Fell off bottom
+    // Fell off bottom — respawn at top
     if (this.y > 700) {
-      if (game.levelType === 'tower') {
-        // Tower: falling into spikes kills enemy
-        this.hp = 0;
-        this.dead = true;
-        game.effects.push(new Effect(this.x + this.w / 2, 500, '#f44', 10, 4, 12));
-        return;
-      }
       this.y = -40; this.vy = 0; this.x = Math.max(40, Math.min(game.levelW - 60, this.x)); return;
     }
 
     // Contact damage
     if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
-      const kbStr = this.big ? 9 : 5;
+      const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
+      const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
       game.player.vx = kbDir * kbStr;
-      game.player.vy = this.big ? -5 : -4;
-      game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.type, element: this.element, isBoss: false });
+      game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
+      if (isCharging) game.player.knockbackTimer = 10;
+      const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
+      game.player.takeDamage(dmg, game, this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.hitCooldown = 30;
+      if (isCharging) {
+        this.chargeState = 'recoil';
+        this.chargeTimer = 0;
+        this.vx = -this.facing * speed * 3;
+        this.vy = -6;
+      }
     }
   }
 
@@ -606,18 +752,19 @@ class Enemy {
         const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
           this.flashTimer = 4;
+          other.deflectFlash = 0;
           game.effects.push(new Effect(this.x + this.w / 2, this.y - 4, '#4f8', 5, 2, 6));
           return;
         }
       }
     }
-    // Shielded / Protector: frontal hits lose 1 shield pip + 75% damage reduction
+    // Shielded / Protector: frontal shield hits lose 1 pip + 75% damage reduction
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
       if (hitFromFront) {
         this.shieldHp--;
         this.flashTimer = 4;
-        const shieldColor = this.type === 'protector' ? '#4f8' : '#5ff';
+        const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#4f8' : '#5ff';
         game.effects.push(new Effect(
           this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 5, 2, 8
         ));
@@ -730,6 +877,17 @@ class Enemy {
   }
 
   render(ctx, cam, game) {
+    // Charge dash trails
+    if (this.chargeTrails && this.chargeTrails.length) {
+      const trailColor = this.type === 'protector' ? '#4f8' : '#5ff';
+      for (const t of this.chargeTrails) {
+        ctx.save();
+        ctx.globalAlpha = (t.life / 12) * 0.4;
+        ctx.fillStyle = trailColor;
+        ctx.fillRect(t.x - cam.x, t.y - cam.y, t.w, t.h);
+        ctx.restore();
+      }
+    }
     // Wind trail afterimage effect
     if (this.windTrails && this.windTrails.length && this.facingPlayer) {
       for (let i = 0; i < this.windTrails.length; ++i) {
@@ -873,6 +1031,49 @@ class Enemy {
         if (this.shieldHp > 0) {
           ctx.fillStyle = `rgba(100,220,255,${0.4 + 0.2 * (this.shieldHp / this.shieldMax)})`;
           ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, sy - 2, 5, this.h + 4);
+          // Charge visual indicators
+          if (this.chargeState === 'prepare') {
+            const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
+            ctx.globalAlpha = pulse;
+            ctx.fillStyle = '#ff0';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
+            ctx.globalAlpha = 1;
+          } else if (this.chargeState === 'charging') {
+            // Windshield arc effect
+            const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
+            const ang = Math.atan2(this._chargeVy, this._chargeVx);
+            ctx.save();
+            ctx.translate(wcx, wcy);
+            ctx.rotate(ang);
+            // Filled glow
+            ctx.globalAlpha = 0.25;
+            ctx.fillStyle = '#5ff';
+            ctx.beginPath();
+            ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
+            ctx.lineTo(this.w * 0.5, 0);
+            ctx.fill();
+            // Arc shield
+            ctx.globalAlpha = 0.7 + 0.2 * Math.sin(this.chargeTimer * 0.8);
+            ctx.strokeStyle = '#aff';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
+            ctx.stroke();
+            // Wind streaks
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = '#dff';
+            ctx.lineWidth = 2;
+            for (let i = -3; i <= 3; i++) {
+              const oy = i * 6;
+              ctx.beginPath();
+              ctx.moveTo(-this.w * 0.8, oy);
+              ctx.lineTo(this.w * 0.3, oy);
+              ctx.stroke();
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+          }
         }
         ctx.fillStyle = '#5a8';
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
@@ -1063,6 +1264,48 @@ class Enemy {
           ctx.fillStyle = '#4f8';
           ctx.fill();
           ctx.restore();
+        }
+        // Charge visual indicators
+        if (this.shieldHp > 0) {
+          if (this.chargeState === 'prepare') {
+            const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
+            ctx.globalAlpha = pulse;
+            ctx.fillStyle = '#ff0';
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText('!', sx + this.w / 2 - 3, sy - 16);
+            ctx.globalAlpha = 1;
+          } else if (this.chargeState === 'charging') {
+            // Windshield arc effect
+            const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
+            const ang = Math.atan2(this._chargeVy, this._chargeVx);
+            ctx.save();
+            ctx.translate(wcx, wcy);
+            ctx.rotate(ang);
+            ctx.globalAlpha = 0.25;
+            ctx.fillStyle = '#4f8';
+            ctx.beginPath();
+            ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
+            ctx.lineTo(this.w * 0.5, 0);
+            ctx.fill();
+            ctx.globalAlpha = 0.7 + 0.2 * Math.sin(this.chargeTimer * 0.8);
+            ctx.strokeStyle = '#afa';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
+            ctx.stroke();
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = '#dfd';
+            ctx.lineWidth = 2;
+            for (let i = -3; i <= 3; i++) {
+              const oy = i * 6;
+              ctx.beginPath();
+              ctx.moveTo(-this.w * 0.8, oy);
+              ctx.lineTo(this.w * 0.3, oy);
+              ctx.stroke();
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+          }
         }
         break;
       }
@@ -1382,7 +1625,7 @@ class Boss extends Enemy {
       } else {
       switch (this.state) {
         case 'chase': {
-          const tdx = dx, tdy = (py - (this.bossType === 'flyshooter' ? 90 : 30)) - cy;
+          const tdx = dx, tdy = (py - (this.bossType === 'flyshooter' ? 135 : 45)) - cy;
           const td = Math.sqrt(tdx * tdx + tdy * tdy);
           if (td > 30) {
             this.vx = (tdx / td) * speed;
@@ -1410,10 +1653,39 @@ class Boss extends Enemy {
           if (this.stateTimer === 15 || this.stateTimer === 30 || (this.phase === 2 && this.stateTimer === 45)) {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
-              if (this.bossType === 'bouncer') p.bouncy = true;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              if (this.bossType === 'bouncer') {
+                // Bouncer boss: precise mortar with more bounces and damage
+                const bDmg = 4 + Math.floor((this.wave - 1) * 0.6);
+                const shots = this.phase === 2 ? 3 : 2;
+                for (let si = 0; si < shots; si++) {
+                  const spread = (si - (shots - 1) / 2) * 0.15;
+                  const cos = Math.cos(spread), sin = Math.sin(spread);
+                  const bvx = (dx / d) * 5.5, bvy = (dy / d) * 5.5;
+                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
+                  p.bouncy = true;
+                  p.bouncesLeft = this.phase === 2 ? 5 : 3;
+                  p.life = 180;
+                  if (this.element) p.element = this.element;
+                  game.projectiles.push(p);
+                }
+              } else if (this.bossType === 'shooter') {
+                // Shooter boss: bullet spread
+                const sDmg = 3 + Math.floor((this.wave - 1) * 0.5);
+                const count = this.phase === 2 ? 5 : 3;
+                const arc = this.phase === 2 ? 0.5 : 0.35;
+                for (let si = 0; si < count; si++) {
+                  const angle = (si - (count - 1) / 2) * (arc / (count - 1));
+                  const cos = Math.cos(angle), sin = Math.sin(angle);
+                  const bvx = (dx / d) * 5, bvy = (dy / d) * 5;
+                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f44', sDmg, 'boss');
+                  if (this.element) p.element = this.element;
+                  game.projectiles.push(p);
+                }
+              } else {
+                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+                if (this.element) p.element = this.element;
+                game.projectiles.push(p);
+              }
             }
           }
           if (this.stateTimer > 60) {
@@ -1441,10 +1713,10 @@ class Boss extends Enemy {
         }
         // Deflect readiness (when grounded)
         this.deflectReady = this.grounded;
-        // Jump toward player (skip in tower levels to avoid falling off)
+        // Jump toward player
         this.jumpTimer++;
         const jumpRate = this.phase === 2 ? 70 : 100;
-        if (this.jumpTimer >= jumpRate && this.grounded && distToPlayer < 300 && game.levelType !== 'tower') {
+        if (this.jumpTimer >= jumpRate && this.grounded && distToPlayer < 300) {
           this.vy = -11;
           this.vx = this.facing * speed * 3;
           this.jumpTimer = 0;
@@ -1473,10 +1745,61 @@ class Boss extends Enemy {
             game.effects.push(new Effect(cx, cy, '#eef', 10, 4, 12));
           }
         }
-      } else if (isProtector) {
-        // Aegis boss: slow, tanky, walks toward player, has protective aura
+      } else if (isShielded && this.shieldHp > 0) {
+        // Shielded boss: shield charge behavior
         this.facing = dx > 0 ? 1 : -1;
-        this.vx = this.facing * speed * 0.5;
+        if (this.chargeCooldown > 0) this.chargeCooldown--;
+        const absDist = Math.abs(dx);
+        if (this.chargeState === 'prepare') {
+          this.vx = Math.sin(this.chargeTimer * 1.5) * 3;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 30) {
+            this.chargeState = 'charging';
+            this.chargeTimer = 0;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#5ff', 10, 5, 14));
+          }
+        } else if (this.chargeState === 'charging') {
+          this.vx = this._chargeVx;
+          this.vy = this._chargeVy;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 22) {
+            this.chargeState = 'sliding';
+            this.chargeTimer = 0;
+            this.chargeCooldown = 70;
+          }
+        } else if (this.chargeState === 'sliding') {
+          this.vx *= 0.88;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+            this.chargeState = 'idle';
+          }
+        } else if (this.chargeState === 'recoil') {
+          const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
+          this.vx = backDir * speed * 2.5;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 18 || Math.abs(this.x - this.chargeStartX) < 15) {
+            this.chargeState = 'idle';
+            this.chargeCooldown = 70;
+            this.vx = 0;
+          }
+        } else {
+          // idle — walk toward player
+          if (this.grounded) this.vx = this.facing * speed * 0.5;
+          if (absDist < 160 && Math.abs(dy) < 80 && this.chargeCooldown <= 0 && this.grounded) {
+            this.chargeState = 'prepare';
+            this.chargeTimer = 0;
+            this.chargeStartX = this.x;
+            const cdx = px - cx, cdy = py - cy;
+            const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+            this._chargeVx = (cdx / cd) * speed * 5;
+            this._chargeVy = (cdy / cd) * speed * 5;
+            this.vx = 0;
+          }
+        }
+      } else if (isProtector && this.shieldHp > 0) {
+        // Protector boss: shield charge + aura healing
+        this.facing = dx > 0 ? 1 : -1;
+        if (this.chargeCooldown > 0) this.chargeCooldown--;
         // Aura heals nearby enemies
         if (this.actionTimer % 60 === 0) {
           for (const e of game.enemies) {
@@ -1489,38 +1812,62 @@ class Boss extends Enemy {
             }
           }
         }
-        // Periodic jump slam
-        if (this.actionTimer > (this.phase === 2 ? 100 : 150) && this.grounded) {
-          this.state = 'jump';
-          this.stateTimer = 0;
-          this.actionTimer = 0;
-        }
-        if (this.state === 'jump') {
-          if (this.stateTimer === 1) {
-            this.vy = -12;
-            this.vx = this.facing * 4;
+        const pAbsDist = Math.abs(dx);
+        if (this.chargeState === 'prepare') {
+          this.vx = Math.sin(this.chargeTimer * 1.5) * 3;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 35) {
+            this.chargeState = 'charging';
+            this.chargeTimer = 0;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f8', 10, 5, 14));
           }
-          if (this.stateTimer > 10 && this.grounded) {
-            game.effects.push(new Effect(cx, this.y + this.h, '#4a6', 18, 5, 18));
-            if (Math.abs(dx) < 100 && Math.abs(dy) < 70) {
-              const kbDir = Math.sign(game.player.x - cx) || 1;
-              game.player.vx = kbDir * 20;
-              game.player.vy = -10;
-              game.player.knockbackTimer = 14;
-              if (!game.player.slamming) game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
-            }
-            this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
+        } else if (this.chargeState === 'charging') {
+          this.vx = this._chargeVx;
+          this.vy = this._chargeVy;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 25) {
+            this.chargeState = 'sliding';
+            this.chargeTimer = 0;
+            this.chargeCooldown = 90;
+          }
+        } else if (this.chargeState === 'sliding') {
+          this.vx *= 0.88;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+            this.chargeState = 'idle';
+          }
+        } else if (this.chargeState === 'recoil') {
+          const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
+          this.vx = backDir * speed * 2;
+          this.chargeTimer++;
+          if (this.chargeTimer >= 20 || Math.abs(this.x - this.chargeStartX) < 15) {
+            this.chargeState = 'idle';
+            this.chargeCooldown = 90;
+            this.vx = 0;
+          }
+        } else {
+          // idle — walk toward player
+          if (this.grounded) this.vx = this.facing * speed * 0.4;
+          if (pAbsDist < 180 && Math.abs(dy) < 80 && this.chargeCooldown <= 0 && this.grounded) {
+            this.chargeState = 'prepare';
+            this.chargeTimer = 0;
+            this.chargeStartX = this.x;
+            const cdx = px - cx, cdy = py - cy;
+            const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+            this._chargeVx = (cdx / cd) * speed * 4;
+            this._chargeVy = (cdy / cd) * speed * 4;
+            this.vx = 0;
           }
         }
       } else {
-        // Default ground boss AI (walker, shooter, jumper, bouncer, shielded)
+        // Default ground boss AI (walker, shooter, jumper, bouncer, shielded/protector without shield)
       switch (this.state) {
         case 'chase': {
           const absDist = Math.abs(dx);
-          if (canShoot && absDist < 120) {
+          if (canShoot && absDist < 180) {
             // Ranged boss: retreat when player is close
             this.vx = -this.facing * speed * 0.8;
-          } else if (canShoot && absDist < 200) {
+          } else if (canShoot && absDist < 300) {
             // Comfortable range — slow down
             this.vx = this.facing * speed * 0.3;
           } else {
@@ -1556,10 +1903,39 @@ class Boss extends Enemy {
           if (this.stateTimer === 15 || this.stateTimer === 35 || (this.phase === 2 && this.stateTimer === 50)) {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
-              const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
-              if (this.bossType === 'bouncer') p.bouncy = true;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              if (this.bossType === 'bouncer') {
+                // Bouncer boss: precise mortar with more bounces and damage
+                const bDmg = 4 + Math.floor((this.wave - 1) * 0.6);
+                const shots = this.phase === 2 ? 3 : 2;
+                for (let si = 0; si < shots; si++) {
+                  const spread = (si - (shots - 1) / 2) * 0.15;
+                  const cos = Math.cos(spread), sin = Math.sin(spread);
+                  const bvx = (dx / d) * 5.5, bvy = (dy / d) * 5.5;
+                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
+                  p.bouncy = true;
+                  p.bouncesLeft = this.phase === 2 ? 5 : 3;
+                  p.life = 180;
+                  if (this.element) p.element = this.element;
+                  game.projectiles.push(p);
+                }
+              } else if (this.bossType === 'shooter') {
+                // Shooter boss: bullet spread
+                const sDmg = 3 + Math.floor((this.wave - 1) * 0.5);
+                const count = this.phase === 2 ? 5 : 3;
+                const arc = this.phase === 2 ? 0.5 : 0.35;
+                for (let si = 0; si < count; si++) {
+                  const angle = (si - (count - 1) / 2) * (arc / (count - 1));
+                  const cos = Math.cos(angle), sin = Math.sin(angle);
+                  const bvx = (dx / d) * 5, bvy = (dy / d) * 5;
+                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f44', sDmg, 'boss');
+                  if (this.element) p.element = this.element;
+                  game.projectiles.push(p);
+                }
+              } else {
+                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', 3 + Math.floor((this.wave - 1) * 0.5), 'boss');
+                if (this.element) p.element = this.element;
+                game.projectiles.push(p);
+              }
             }
           }
           if (this.stateTimer > 65) {
@@ -1591,6 +1967,12 @@ class Boss extends Enemy {
       }
     }
 
+    // Charge dash trails
+    if ((this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging') {
+      this.chargeTrails.push({ x: this.x, y: this.y, w: this.w, h: this.h, life: 12 });
+    }
+    if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
+
     // Apply velocity
     this.x += this.vx;
     this.y += this.vy;
@@ -1614,9 +1996,11 @@ class Boss extends Enemy {
     }
 
     // Platform collision (ground bosses)
+    const isChargeDashing = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
     if (!this.flying) {
       this.grounded = false;
       for (const p of game.platforms) {
+        if (isChargeDashing && p.y < 460) continue;
         if (rectOverlap(this, p)) {
           if (this.dropThrough > 0) {
             // Falling through platform intentionally
@@ -1632,17 +2016,36 @@ class Boss extends Enemy {
     }
 
     // Keep boss in level bounds
-    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
-    if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
+    if (this.x < 0) {
+      this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1;
+      if (this.chargeState === 'charging') { this.chargeState = 'recoil'; this.chargeTimer = 0; }
+    }
+    if (this.x + this.w > game.levelW) {
+      this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1;
+      if (this.chargeState === 'charging') { this.chargeState = 'recoil'; this.chargeTimer = 0; }
+    }
     if (this.y > 700) { this.y = -40; this.vy = 0; }
 
     // Contact damage
     if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
-      game.player.vx = kbDir * 18;
-      game.player.vy = -9;
-      game.player.knockbackTimer = 12;
-      game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+      const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
+      if (isCharging) {
+        game.player.vx = kbDir * 22;
+        game.player.vy = -5;
+        game.player.knockbackTimer = 14;
+        const chargeDmg = Math.round(this.contactDmg * 1.5);
+        game.player.takeDamage(chargeDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        this.chargeState = 'recoil';
+        this.chargeTimer = 0;
+        this.vx = -this.facing * speed * 3;
+        this.vy = -8;
+      } else {
+        game.player.vx = kbDir * 18;
+        game.player.vy = -9;
+        game.player.knockbackTimer = 12;
+        game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+      }
       this.hitCooldown = 45;
     }
   }
@@ -1703,6 +2106,17 @@ class Boss extends Enemy {
   }
 
   render(ctx, cam, game) {
+    // Charge dash trails
+    if (this.chargeTrails && this.chargeTrails.length) {
+      const trailColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
+      for (const t of this.chargeTrails) {
+        ctx.save();
+        ctx.globalAlpha = (t.life / 12) * 0.4;
+        ctx.fillStyle = trailColor;
+        ctx.fillRect(t.x - cam.x, t.y - cam.y, t.w, t.h);
+        ctx.restore();
+      }
+    }
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
@@ -1808,6 +2222,48 @@ class Boss extends Enemy {
         ctx.fillRect(shX + 2, sy + this.h / 2 - 5, 7, 10);
         ctx.globalAlpha = 1;
       }
+      // Boss protector charge indicators
+      if (this.shieldHp > 0) {
+        if (this.chargeState === 'prepare') {
+          const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = '#ff0';
+          ctx.font = 'bold 18px monospace';
+          ctx.fillText('!', sx + this.w / 2 - 5, sy - 20);
+          ctx.globalAlpha = 1;
+        } else if (this.chargeState === 'charging') {
+          // Windshield arc effect
+          const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
+          const ang = Math.atan2(this._chargeVy, this._chargeVx);
+          ctx.save();
+          ctx.translate(wcx, wcy);
+          ctx.rotate(ang);
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#4f8';
+          ctx.beginPath();
+          ctx.arc(this.w * 0.4, 0, this.h * 0.7, -Math.PI * 0.5, Math.PI * 0.5);
+          ctx.lineTo(this.w * 0.4, 0);
+          ctx.fill();
+          ctx.globalAlpha = 0.7 + 0.2 * Math.sin(this.chargeTimer * 0.8);
+          ctx.strokeStyle = '#afa';
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(this.w * 0.4, 0, this.h * 0.7, -Math.PI * 0.5, Math.PI * 0.5);
+          ctx.stroke();
+          ctx.globalAlpha = 0.5;
+          ctx.strokeStyle = '#dfd';
+          ctx.lineWidth = 2.5;
+          for (let i = -4; i <= 4; i++) {
+            const oy = i * 8;
+            ctx.beginPath();
+            ctx.moveTo(-this.w * 0.7, oy);
+            ctx.lineTo(this.w * 0.3, oy);
+            ctx.stroke();
+          }
+          ctx.restore();
+          ctx.globalAlpha = 1;
+        }
+      }
     } else if (this.bossType === 'deflector') {
       // Ronin samurai body
       ctx.fillStyle = bodyColor;
@@ -1876,6 +2332,22 @@ class Boss extends Enemy {
         ctx.fill();
         ctx.globalAlpha = 1;
       }
+      // Boss deflect flash — full body pulse when deflecting
+      if (this.deflectFlash > 0) {
+        this.deflectFlash--;
+        ctx.save();
+        const df = this.deflectFlash / 12;
+        ctx.globalAlpha = 0.6 * df;
+        ctx.fillStyle = '#aaf';
+        ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
+        ctx.globalAlpha = 0.5 * df;
+        ctx.strokeStyle = '#ccf';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * (1.5 - df), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     } else {
       // Default boss body (walker, shooter, jumper, bouncer, shielded, flyer, flyshooter)
       ctx.fillStyle = bodyColor;
@@ -1893,6 +2365,46 @@ class Boss extends Enemy {
         const shieldAlpha = 0.4 + 0.3 * (this.shieldHp / this.shieldMax);
         ctx.fillStyle = `rgba(100,220,255,${shieldAlpha})`;
         ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
+        // Shielded boss charge indicators
+        if (this.chargeState === 'prepare') {
+          const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = '#ff0';
+          ctx.font = 'bold 18px monospace';
+          ctx.fillText('!', sx + this.w / 2 - 5, sy - 14);
+          ctx.globalAlpha = 1;
+        } else if (this.chargeState === 'charging') {
+          // Windshield arc effect
+          const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
+          const ang = Math.atan2(this._chargeVy, this._chargeVx);
+          ctx.save();
+          ctx.translate(wcx, wcy);
+          ctx.rotate(ang);
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#5ff';
+          ctx.beginPath();
+          ctx.arc(this.w * 0.4, 0, this.h * 0.7, -Math.PI * 0.5, Math.PI * 0.5);
+          ctx.lineTo(this.w * 0.4, 0);
+          ctx.fill();
+          ctx.globalAlpha = 0.7 + 0.2 * Math.sin(this.chargeTimer * 0.8);
+          ctx.strokeStyle = '#aff';
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(this.w * 0.4, 0, this.h * 0.7, -Math.PI * 0.5, Math.PI * 0.5);
+          ctx.stroke();
+          ctx.globalAlpha = 0.5;
+          ctx.strokeStyle = '#dff';
+          ctx.lineWidth = 2.5;
+          for (let i = -4; i <= 4; i++) {
+            const oy = i * 8;
+            ctx.beginPath();
+            ctx.moveTo(-this.w * 0.7, oy);
+            ctx.lineTo(this.w * 0.3, oy);
+            ctx.stroke();
+          }
+          ctx.restore();
+          ctx.globalAlpha = 1;
+        }
       }
 
       // Eyes

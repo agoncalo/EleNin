@@ -2866,8 +2866,54 @@ class Player {
 
     // Fire armor glow
     if (this.fireArmor) {
-      ctx.fillStyle = 'rgba(255,150,50,0.35)';
-      ctx.fillRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      const tick = game ? game.tick : 0;
+      ctx.save();
+      // Outer heat shimmer
+      ctx.globalAlpha = 0.15 + 0.05 * Math.sin(tick * 0.15);
+      ctx.fillStyle = '#f40';
+      ctx.fillRect(sx - 5, sy - 5, this.w + 10, this.h + 10);
+      // Inner core glow
+      ctx.globalAlpha = 0.3 + 0.1 * Math.sin(tick * 0.2);
+      ctx.fillStyle = '#fa0';
+      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+      // Animated flame tongues
+      for (let i = 0; i < 6; i++) {
+        const fx = sx + (this.w * i / 5);
+        const fh = 4 + 6 * Math.sin(tick * 0.3 + i * 1.8);
+        const fw = 4 + 2 * Math.sin(tick * 0.25 + i);
+        ctx.globalAlpha = 0.5 + 0.2 * Math.sin(tick * 0.35 + i * 2);
+        ctx.fillStyle = i % 2 === 0 ? '#f80' : '#ff4';
+        ctx.beginPath();
+        ctx.moveTo(fx - fw / 2, sy);
+        ctx.quadraticCurveTo(fx, sy - fh, fx + fw / 2, sy);
+        ctx.fill();
+        // Bottom flames
+        const bh = 3 + 4 * Math.sin(tick * 0.28 + i * 1.5);
+        ctx.globalAlpha = 0.4 + 0.15 * Math.sin(tick * 0.3 + i);
+        ctx.fillStyle = i % 2 === 0 ? '#ff4' : '#f80';
+        ctx.beginPath();
+        ctx.moveTo(fx - fw / 2, sy + this.h);
+        ctx.quadraticCurveTo(fx, sy + this.h + bh, fx + fw / 2, sy + this.h);
+        ctx.fill();
+      }
+      // Side flame wisps
+      for (let i = 0; i < 3; i++) {
+        const fy = sy + (this.h * (i + 1) / 4);
+        const fLen = 3 + 4 * Math.sin(tick * 0.32 + i * 2.1);
+        ctx.globalAlpha = 0.35 + 0.15 * Math.sin(tick * 0.28 + i);
+        ctx.fillStyle = '#f60';
+        // Left
+        ctx.beginPath();
+        ctx.moveTo(sx, fy - 2);
+        ctx.quadraticCurveTo(sx - fLen, fy, sx, fy + 2);
+        ctx.fill();
+        // Right
+        ctx.beginPath();
+        ctx.moveTo(sx + this.w, fy - 2);
+        ctx.quadraticCurveTo(sx + this.w + fLen, fy, sx + this.w, fy + 2);
+        ctx.fill();
+      }
+      ctx.restore();
     }
 
     // Bubble buff glow
