@@ -70,8 +70,9 @@ class Game {
 
     this.buildLevel();
     this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
-    // Start phrase
-    this.phraseText = pickPhrase(START_PHRASES);
+    // Start phrase (character-specific)
+    const startPool = NINJA_START_PHRASES[this.player.ninjaType] || START_PHRASES;
+    this.phraseText = pickPhrase(startPool);
     this.phraseTimer = 100;
     this.phraseMaxTimer = 100;
     this.phraseColor = this.player.type.accentColor;
@@ -481,7 +482,8 @@ class Game {
     // Boss kill phrase (skip if player is dying)
     const isLastBoss = this.wave > TOTAL_WAVES;
     if (!isLastBoss && !this.gameOverDelay) {
-      this.phraseText = pickPhrase(BOSS_KILL_PHRASES);
+      const killPool = NEXT_WAVE_PHRASES[this.player.ninjaType] || BOSS_KILL_PHRASES;
+      this.phraseText = pickPhrase(Math.random() < 0.6 ? killPool : BOSS_KILL_PHRASES);
       this.phraseTimer = 90;
       this.phraseMaxTimer = 90;
       this.phraseColor = this.player.type.accentColor;

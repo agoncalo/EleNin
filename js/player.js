@@ -1225,10 +1225,16 @@ class Player {
       // Ground shockwave ring (SlamRing effect)
       game.effects.push(new SlamRing(slamCX, slamCY, slamColor, slamAccent));
 
-      // Earth: destroy existing constructs, then spawn ground spikes
+      // Earth: destroy nearby constructs, then spawn ground spikes
       if (this.ninjaType === 'earth') {
+        const slamRadius = 120;
         for (const b of game.stoneBlocks) {
-          if (!b.done) b.explode(game);
+          if (b.done) continue;
+          const bdx = (b.x + (b.w || TILE) / 2) - slamCX;
+          const bdy = (b.y + (b.h || TILE) / 2) - slamCY;
+          if (Math.sqrt(bdx * bdx + bdy * bdy) < slamRadius) {
+            b.explode(game);
+          }
         }
         const spikeCount = 3;
         for (let i = 0; i < spikeCount; i++) {

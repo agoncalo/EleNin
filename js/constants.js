@@ -863,6 +863,26 @@ const START_PHRASES = [
   "No holding back!", "One more time!", "Stay sharp.", "Into the fray!",
 ];
 
+const NINJA_START_PHRASES = {
+  fire:    ["Burn bright!", "Fire it up!", "Time to ignite!", "Let the flames roar!", "The inferno starts now!"],
+  earth:   ["Stand firm.", "Solid ground, solid mind.", "Unbreakable.", "Like a mountain.", "Foundations first."],
+  bubble:  ["Bubble time!", "Float like a dream~", "Pop pop pop!", "Light as air!", "Let's make a splash!"],
+  shadow:  ["From the shadows...", "They won't see me coming.", "Silent and deadly.", "Darkness falls.", "Unseen. Unstoppable."],
+  crystal: ["Refracted.", "Clear as crystal.", "Every angle, calculated.", "Shimmering start.", "Hard and brilliant."],
+  wind:    ["Feel the breeze...", "Swift as the gale!", "Chase the wind!", "Can't catch me!", "A storm is brewing~"],
+  storm:   ["Thunder rolls...", "Lightning never strikes twice? Watch me.", "The storm approaches.", "Charged up!", "Sky's fury, unleashed."],
+};
+
+const NEXT_WAVE_PHRASES = {
+  fire:    ["Still burning!", "More fuel for the fire!", "The flame grows!", "Heating up!", "Ashes to ashes!"],
+  earth:   ["Onward.", "Deeper we dig.", "Layer by layer.", "Steady progress.", "Bedrock holds."],
+  bubble:  ["More bubbles!", "Floating onward~", "That was bubbly!", "Pop and move!", "Wheee!"],
+  shadow:  ["Into the dark.", "Another shadow falls.", "Fading forward.", "Vanishing act.", "Silent advance."],
+  crystal: ["Next facet.", "Gleaming.", "Precisely cut.", "Another reflection.", "Brilliant."],
+  wind:    ["Onward, wind!", "A fresh breeze!", "Gust after gust!", "Can't slow down!", "Tailwind!"],
+  storm:   ["Thunder continues.", "Another strike!", "Rumbling on.", "No rest for the storm.", "Voltage rising!"],
+};
+
 const BOSS_KILL_PHRASES = [
   "Phew!", "That was close!", "Easy.", "Too easy.", "Next!",
   "Done.", "Got 'em!", "One down.", "Piece of cake!",
