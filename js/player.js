@@ -10,7 +10,7 @@ class Player {
     this.maxHp = 10;
     this.shield = 0;
     this.maxShield = 0;
-    this.ninjaType = 'fire';
+    this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
@@ -449,6 +449,7 @@ class Player {
     if (this.ninjaType === type) return;
     if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
     this.ninjaType = type;
+    try { localStorage.setItem('elenin_lastNinja', type); } catch(e) {}
     this.comboMeter = 0;
     this.comboTimer = 0;
     this.fireArmor = false;

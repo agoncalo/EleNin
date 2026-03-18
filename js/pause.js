@@ -327,6 +327,7 @@ function updatePopup() {
         localStorage.removeItem(ACHIEVEMENTS_KEY);
         localStorage.removeItem(BESTIARY_KEY);
         localStorage.removeItem(VAULT_KEY);
+        localStorage.removeItem('elenin_lastNinja');
         achievementData = {};
         bestiaryData = {};
         vaultData = {};
