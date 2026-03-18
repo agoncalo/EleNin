@@ -90,7 +90,7 @@ class Player {
     this.parryVisualTimer = 0;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
-    this.crystalClones = null;
+    this.crystalCastle = false;
     this.crystalShatter = 0;
     this.crystalShards = null;
 
@@ -331,9 +331,9 @@ class Player {
         SFX.backstab();
         break;
 
-      case 'crystal':
-        // Shatter glass effect + spawn two afterimage clones
-        this.ultimateTimer = 480; // 8 seconds of clone action
+      case 'crystal': {
+        // Shatter glass effect + summon ice/crystal castle
+        this.ultimateTimer = 240; // 4 seconds
         this.crystalShatter = 30; // 30 frames of shatter cutscene
         // Freeze all enemies during shatter
         for (const e of game.enemies) {
@@ -354,14 +354,21 @@ class Player {
             life: 30
           });
         }
-        // Spawn two afterimage clones (floating side by side)
-        this.crystalClones = [
-          { offsetX: -60, offsetY: -10, alpha: 0.6 },
-          { offsetX: 60, offsetY: -10, alpha: 0.6 }
-        ];
+        // Summon the crystal castle centered on player (fills the screen)
+        const castleW = 300, castleH = 600;
+        const castleX = this.x + this.w / 2 - castleW / 2;
+        const castleY = this.y + this.h - castleH;
+        this.crystalCastle = true;
+        game.crystalCastle = new CrystalCastle(
+          castleX, castleY, castleW, castleH,
+          this.type.attackDamage + this.bonusDamage, this.wave || 1
+        );
+        // Lock ninja to castle center
+        this.vx = 0; this.vy = 0;
         SFX.parry();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 25));
         break;
+      }
 
       case 'wind':
         // Giant bow fires 5 arrows upward, they crash down on enemies
@@ -417,7 +424,7 @@ class Player {
 
   switchNinja(type) {
     if (this.ninjaType === type) return;
-    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow) return; // Can't switch during ultimate cutscene, golem, bubble, or wind bow
+    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
     this.ninjaType = type;
     this.comboMeter = 0;
     this.comboTimer = 0;
@@ -430,7 +437,7 @@ class Player {
     this.parrying = false;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
-    this.crystalClones = null;
+    this.crystalCastle = false;
     this.crystalShatter = 0;
     this.crystalShards = null;
     this.windPower = 0;
@@ -874,6 +881,14 @@ class Player {
           this.shadowDarkness = 0;
           this.shadowEyesTimer = 0;
           this.stormRaindrops = [];
+          // Crystal castle cleanup
+          if (this.crystalCastle) {
+            if (game.crystalCastle && !game.crystalCastle.done) {
+              game.crystalCastle.explode(game);
+            }
+            game.crystalCastle = null;
+            this.crystalCastle = false;
+          }
         }
       }
     }
@@ -885,8 +900,8 @@ class Player {
       }
     }
 
-    // Skip normal movement if in earth golem or wind bow
-    if (this.earthGolem || this.windBow) {
+    // Skip normal movement if in earth golem, wind bow, or crystal castle
+    if (this.earthGolem || this.windBow || this.crystalCastle) {
       // Still allow invincibility, effects, etc. but skip movement/gravity/collision
       if (this.invincibleTimer > 0) this.invincibleTimer--;
       return;
@@ -1358,7 +1373,7 @@ class Player {
               dmg += 1;
             }
             if (this.ninjaType === 'crystal') {
-              dmg += this.crystalClones ? 2 : 0;
+              dmg += this.crystalCastle ? 2 : 0;
             }
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
@@ -1453,7 +1468,7 @@ class Player {
           }
           if (this.nextHitDouble) { dmg *= 2; this.nextHitDouble = false; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 8, 3, 10)); }
           if (this.bubbleBuffTimer > 0) dmg += 1;
-          if (this.ninjaType === 'crystal') dmg += this.crystalClones ? 2 : 0;
+          if (this.ninjaType === 'crystal') dmg += this.crystalCastle ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
           if (game.boss.dead) {
@@ -1832,46 +1847,22 @@ class Player {
           this.crystalShards = this.crystalShards.filter(s => s.life > 0);
         }
       }
-      // Clone attack mirroring — clones deal damage when player attacks
-      if (this.crystalClones && this.attacking && this.attackBox) {
-        for (const clone of this.crystalClones) {
-          const cloneX = this.x + clone.offsetX;
-          const cloneY = this.y + clone.offsetY;
-          const cloneBox = {
-            x: this.facing > 0 ? cloneX + this.w : cloneX - this.attackBox.w,
-            y: cloneY + 4,
-            w: this.attackBox.w,
-            h: this.attackBox.h
-          };
-          for (const e of game.enemies) {
-            if (!e.dead && e.hitCooldown <= 0 && rectOverlap(cloneBox, e)) {
-              const dmg = Math.floor((t.attackDamage + this.bonusDamage) * 0.6);
-              e.takeDamage(dmg, game, cloneX + this.w / 2);
-              e.hitCooldown = 15;
-              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 6, 3, 8));
-            }
-          }
-          if (game.boss && !game.boss.dead && rectOverlap(cloneBox, game.boss)) {
-            const dmg = Math.floor((t.attackDamage + this.bonusDamage) * 0.6);
-            game.boss.takeDamage(dmg, game, cloneX + this.w / 2);
-            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 8, 3, 10));
-          }
-        }
+      // Castle: lock player to center
+      if (this.crystalCastle && game.crystalCastle && !game.crystalCastle.done) {
+        // Lock player to castle center
+        const c = game.crystalCastle;
+        this.x = c.x + c.w / 2 - this.w / 2;
+        this.y = c.y + c.h - this.h - 8;
+        this.vx = 0; this.vy = 0;
+        this.invincibleTimer = 2;
       }
-      // Clone special mirroring — clones also spawn diamond shards
-      if (this.crystalClones && this._cloneSpecialTrigger) {
-        for (const clone of this.crystalClones) {
-          if (!game.diamondShards) game.diamondShards = [];
-          const sx = this.x + clone.offsetX + this.w / 2;
-          const sy = this.y + clone.offsetY + this.h / 2;
-          game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+      // End crystal castle when ultimate expires or castle is done
+      if (this.crystalCastle && (this.ultimateTimer <= 0 || !game.crystalCastle || game.crystalCastle.done)) {
+        if (game.crystalCastle && !game.crystalCastle.done) {
+          game.crystalCastle.explode(game);
         }
-        this._cloneSpecialTrigger = false;
-      }
-      // End clones when ultimate expires
-      if (this.crystalClones && this.ultimateTimer <= 0) {
-        this.crystalClones = null;
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 15, 5, 15));
+        game.crystalCastle = null;
+        this.crystalCastle = false;
       }
       if (this.parryComboTimer > 0) this.parryComboTimer--;
       else this.parryCombo = 0;
@@ -2199,8 +2190,6 @@ class Player {
         const sx = this.x + this.w / 2 + this.facing * 16;
         const sy = this.y + this.h / 2;
         game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
-        // Signal clones to also spawn shards
-        if (this.crystalClones) this._cloneSpecialTrigger = true;
         SFX.special();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
         break;
@@ -2270,6 +2259,7 @@ class Player {
   takeDamage(amount, game, element, killerInfo) {
     if (this.godMode) return;
     if (this.earthGolem) return;
+    if (this.crystalCastle) return;
     if (this.bubbleRide) {
       this.bubbleRide.hp -= amount;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
@@ -2774,8 +2764,8 @@ class Player {
       ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
     }
 
-    // Crystal glow (during clone ultimate)
-    if (this.ninjaType === 'crystal' && this.crystalClones) {
+    // Crystal glow (during flyshooter ultimate)
+    if (this.ninjaType === 'crystal' && this.ultimateTimer > 0) {
       const pulse = Math.sin(Date.now() * 0.006) * 0.2 + 0.4;
       ctx.strokeStyle = `rgba(170,255,255,${pulse})`;
       ctx.lineWidth = 2;
@@ -3000,6 +2990,504 @@ class Player {
       ctx.arc(0, 0, c.cutR - 1.5, c.startAngle, c.endAngle, false);
       ctx.stroke();
       ctx.restore();
+    }
+  }
+}
+
+// ── CrystalCastle — Disney-style ice/crystal castle summoned by Crystal ultimate ──
+class CrystalCastle {
+  constructor(x, y, w, h, baseDamage, wave) {
+    this.x = x; this.y = y;
+    this.w = w; this.h = h;
+    this.baseDamage = baseDamage;
+    this.wave = wave;
+    this.done = false;
+    this.timer = 210;
+    this.hitCooldowns = new Map();
+    this.snowflakes = [];
+    this.sparkles = [];
+    // Disney-style towers: {ox, oy, tw, th, roofH, roofW} — ox relative to castle x
+    this.towers = [
+      { ox: w * 0.5, oy: -200, tw: 40, th: 150, roofH: 80, roofW: 56 },  // grand center tower
+      { ox: w * 0.2, oy: -140, tw: 32, th: 110, roofH: 60, roofW: 44 },  // left-center
+      { ox: w * 0.8, oy: -140, tw: 32, th: 110, roofH: 60, roofW: 44 },  // right-center
+      { ox: w * 0.03, oy: -80, tw: 28, th: 90, roofH: 50, roofW: 38 },   // far left
+      { ox: w * 0.97, oy: -80, tw: 28, th: 90, roofH: 50, roofW: 38 },   // far right
+      { ox: w * 0.35, oy: -170, tw: 24, th: 80, roofH: 55, roofW: 34 },  // inner-left accent
+      { ox: w * 0.65, oy: -170, tw: 24, th: 80, roofH: 55, roofW: 34 },  // inner-right accent
+    ];
+    // Spire collision boxes (simplified from towers)
+    this.spires = this.towers.map(t => ({
+      ox: t.ox, oy: t.oy - t.roofH, hw: t.roofW / 2, hh: t.roofH + t.th
+    }));
+    // Flag positions (on top of some towers)
+    this.flags = [
+      { towerIdx: 0, color: '#aef' },
+      { towerIdx: 1, color: '#cff' },
+      { towerIdx: 2, color: '#cff' },
+    ];
+  }
+  update(game) {
+    if (this.done) return;
+    this.timer--;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    // Spawn snowflakes across the entire screen
+    const camX = game.camera ? game.camera.x : this.x;
+    const camY = game.camera ? game.camera.y : this.y - 200;
+    for (let i = 0; i < 3; i++) {
+      this.snowflakes.push({
+        x: camX + Math.random() * CANVAS_W,
+        y: camY - 10 - Math.random() * 30,
+        vx: (Math.random() - 0.5) * 1.2,
+        vy: 0.5 + Math.random() * 1.5,
+        size: 1.5 + Math.random() * 3,
+        life: 120 + randInt(0, 60)
+      });
+    }
+    for (const s of this.snowflakes) {
+      s.x += s.vx + Math.sin(s.life * 0.06) * 0.4;
+      s.y += s.vy;
+      s.life--;
+    }
+    this.snowflakes = this.snowflakes.filter(s => s.life > 0);
+
+    // Spawn sparkles on the castle
+    if (this.timer % 8 === 0) {
+      this.sparkles.push({
+        x: this.x + 10 + Math.random() * (this.w - 20),
+        y: this.y - 60 + Math.random() * (this.h + 40),
+        size: 1 + Math.random() * 3,
+        life: 20 + randInt(0, 15),
+        maxLife: 20 + randInt(0, 15)
+      });
+    }
+    this.sparkles = this.sparkles.filter(s => { s.life--; return s.life > 0; });
+
+    // Decrease hit cooldowns
+    for (const [e, cd] of this.hitCooldowns) {
+      if (cd <= 1) this.hitCooldowns.delete(e);
+      else this.hitCooldowns.set(e, cd - 1);
+    }
+
+    // Damage enemies touching castle body or towers
+    for (const e of game.enemies) {
+      if (e.dead) continue;
+      if (this.hitCooldowns.get(e) > 0) continue;
+      if (this._touchesCastle(e)) {
+        const dmg = Math.floor(this.baseDamage * 1.0);
+        e.takeDamage(dmg, game, cx);
+        e.freezeTimer = Math.max(e.freezeTimer || 0, 60);
+        const kx = (e.x + e.w / 2) - cx;
+        const ky = (e.y + e.h / 2) - cy;
+        const kd = Math.sqrt(kx * kx + ky * ky) || 1;
+        e.vx += (kx / kd) * 7;
+        e.vy += (ky / kd) * 3 - 3;
+        this.hitCooldowns.set(e, 15);
+        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 4, 12));
+        game.player.addUltimateCharge(1);
+      }
+    }
+    if (game.boss && !game.boss.dead) {
+      if (!(this.hitCooldowns.get(game.boss) > 0) && this._touchesCastle(game.boss)) {
+        const dmg = Math.floor(this.baseDamage * 0.4);
+        game.boss.takeDamage(dmg, game, cx);
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 30);
+        this.hitCooldowns.set(game.boss, 35);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
+        game.player.addUltimateCharge(2);
+      }
+    }
+
+    // Block enemy projectiles
+    for (const p of game.projectiles) {
+      if (p.done || p.owner === 'player') continue;
+      if (this._touchesCastleRect(p)) {
+        p.done = true;
+        game.effects.push(new Effect(p.x, p.y, '#aff', 5, 2, 8));
+      }
+    }
+
+    // Block enemies and boss from passing through the castle
+    const hb = this._getFullHitbox();
+    for (const e of game.enemies) {
+      if (e.dead) continue;
+      if (rectOverlap(e, hb)) {
+        const eCx = e.x + e.w / 2;
+        if (eCx < cx) {
+          e.x = hb.x - e.w;
+          if (e.vx > 0) e.vx = 0;
+        } else {
+          e.x = hb.x + hb.w;
+          if (e.vx < 0) e.vx = 0;
+        }
+      }
+    }
+    if (game.boss && !game.boss.dead) {
+      if (rectOverlap(game.boss, hb)) {
+        const bCx = game.boss.x + game.boss.w / 2;
+        if (bCx < cx) {
+          game.boss.x = hb.x - game.boss.w;
+          if (game.boss.vx > 0) game.boss.vx = 0;
+        } else {
+          game.boss.x = hb.x + hb.w;
+          if (game.boss.vx < 0) game.boss.vx = 0;
+        }
+      }
+    }
+
+    if (this.timer <= 0) this.explode(game);
+  }
+  _getFullHitbox() {
+    // Full column from far above castle to far below — matches visual
+    return { x: this.x, y: this.y - 400, w: this.w, h: this.h + 800 };
+  }
+  _touchesCastle(entity) {
+    return rectOverlap(entity, this._getFullHitbox());
+  }
+  _touchesCastleRect(entity) {
+    return rectOverlap(entity, this._getFullHitbox());
+  }
+  explode(game) {
+    if (this.done) return;
+    this.done = true;
+    const cx = this.x + this.w / 2;
+    // Three explosion origins at different heights (top, middle, bottom)
+    const camY = game.camera ? game.camera.y : this.y;
+    const heights = [
+      camY + CANVAS_H * 0.15,
+      camY + CANVAS_H * 0.5,
+      camY + CANVAS_H * 0.82
+    ];
+    if (!game.diamondShards) game.diamondShards = [];
+    const colors = ['#fff', '#aff', '#0ff', '#8ef', '#cef', '#dff'];
+    for (const ey of heights) {
+      // Spawn DiamondShards flying outward from this height
+      const shardCount = 14;
+      for (let i = 0; i < shardCount; i++) {
+        const angle = (i / shardCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+        const dist = 20 + Math.random() * 40;
+        const shard = new DiamondShard(
+          cx + Math.cos(angle) * dist,
+          ey + Math.sin(angle) * dist,
+          'player', game
+        );
+        shard.dirX = Math.cos(angle);
+        shard.dirY = Math.sin(angle);
+        shard.angle = angle + Math.PI / 2;
+        shard.speed = 4 + Math.random() * 3;
+        shard.maxSpeed = 9;
+        game.diamondShards.push(shard);
+      }
+      // Visual sparkle effects at this height
+      for (let i = 0; i < 15; i++) {
+        game.effects.push(new Effect(
+          cx + (Math.random() - 0.5) * this.w,
+          ey + (Math.random() - 0.5) * 80,
+          colors[i % colors.length],
+          4 + Math.random() * 14, 2 + Math.random() * 3, 15 + randInt(0, 10)
+        ));
+      }
+      game.effects.push(new Effect(cx, ey, '#fff', 40, 10, 20));
+    }
+    // Damage + freeze all enemies in a large radius
+    const explodeRadius = 500;
+    const cy = camY + CANVAS_H * 0.5;
+    for (const e of game.enemies) {
+      if (e.dead) continue;
+      const dx = (e.x + e.w / 2) - cx;
+      const dy = (e.y + e.h / 2) - cy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < explodeRadius) {
+        const falloff = 1 - (d / explodeRadius) * 0.5;
+        e.takeDamage(Math.floor(this.baseDamage * 1.5 * falloff), game, cx);
+        e.freezeTimer = Math.max(e.freezeTimer || 0, 150);
+        if (d > 0) { e.vx += (dx / d) * 10; e.vy += (dy / d) * 6 - 4; }
+      }
+    }
+    if (game.boss && !game.boss.dead) {
+      const dx = (game.boss.x + game.boss.w / 2) - cx;
+      const dy = (game.boss.y + game.boss.h / 2) - cy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < explodeRadius) {
+        game.boss.takeDamage(Math.floor(this.baseDamage * 1.2), game, cx);
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 90);
+      }
+    }
+    SFX.parry();
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const sx = this.x - cam.x;
+    const centerX = sx + this.w / 2;
+    const pulse = Math.sin(this.timer * 0.05) * 0.06 + 0.94;
+
+    // Always draw from screen top to screen bottom
+    const screenH = CANVAS_H;
+
+    // Snowflakes (behind castle)
+    for (const s of this.snowflakes) {
+      ctx.globalAlpha = Math.min(1, s.life / 20) * 0.6;
+      ctx.fillStyle = '#eef';
+      ctx.beginPath();
+      ctx.arc(s.x - cam.x, s.y - cam.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Soft glow behind whole castle
+    ctx.save();
+    ctx.globalAlpha = 0.12 + Math.sin(this.timer * 0.03) * 0.06;
+    const grd = ctx.createRadialGradient(centerX, screenH * 0.4, 10, centerX, screenH * 0.4, this.w * 1.5);
+    grd.addColorStop(0, '#aff');
+    grd.addColorStop(1, 'rgba(170,255,255,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(sx - this.w * 0.5, 0, this.w * 2, screenH);
+    ctx.restore();
+
+    // --- Main castle body (wall fills bottom ~65% of screen) ---
+    const wallTop = screenH * 0.35;
+    const wallBot = screenH;
+    const wallL = sx + 6;
+    const wallR = sx + this.w - 6;
+    const wallGrd = ctx.createLinearGradient(wallL, wallTop, wallL, wallBot);
+    wallGrd.addColorStop(0, `rgba(170,230,245,${0.9 * pulse})`);
+    wallGrd.addColorStop(0.5, `rgba(130,210,235,${0.85 * pulse})`);
+    wallGrd.addColorStop(1, `rgba(100,180,210,${0.8 * pulse})`);
+    ctx.fillStyle = wallGrd;
+    ctx.fillRect(wallL, wallTop, wallR - wallL, wallBot - wallTop);
+
+    // Brick pattern
+    ctx.strokeStyle = 'rgba(80,170,210,0.35)';
+    ctx.lineWidth = 0.5;
+    const brickH = (wallBot - wallTop) / 12;
+    for (let row = 0; row < 12; row++) {
+      const ry = wallTop + row * brickH;
+      ctx.beginPath(); ctx.moveTo(wallL, ry); ctx.lineTo(wallR, ry); ctx.stroke();
+      const offset = row % 2 === 0 ? 0 : 18;
+      for (let col = offset; col < wallR - wallL; col += 36) {
+        ctx.beginPath(); ctx.moveTo(wallL + col, ry); ctx.lineTo(wallL + col, ry + brickH); ctx.stroke();
+      }
+    }
+
+    // Battlements (crenellations)
+    const merW = 14, merH = 10, merGap = 8;
+    ctx.fillStyle = `rgba(160,235,250,${0.9 * pulse})`;
+    for (let bx = wallL; bx < wallR - merW; bx += merW + merGap) {
+      ctx.fillRect(bx, wallTop - merH, merW, merH);
+    }
+
+    // --- Grand entrance arch ---
+    const gateW = 44, gateH = 65;
+    const gateX = centerX - gateW / 2;
+    const gateY = wallBot - gateH;
+    ctx.fillStyle = 'rgba(30,80,110,0.9)';
+    ctx.fillRect(gateX, gateY, gateW, gateH);
+    ctx.beginPath();
+    ctx.arc(centerX, gateY, gateW / 2, Math.PI, 0);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,255,255,0.7)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(gateX, wallBot);
+    ctx.lineTo(gateX, gateY);
+    ctx.arc(centerX, gateY, gateW / 2, Math.PI, 0);
+    ctx.lineTo(gateX + gateW, wallBot);
+    ctx.stroke();
+    // Portcullis lines
+    ctx.strokeStyle = 'rgba(140,200,220,0.5)';
+    ctx.lineWidth = 1;
+    for (let gx = gateX + 6; gx < gateX + gateW; gx += 8) {
+      ctx.beginPath(); ctx.moveTo(gx, gateY - 6); ctx.lineTo(gx, wallBot); ctx.stroke();
+    }
+
+    // --- Balcony above gate ---
+    const balcW = 64, balcH = 5;
+    ctx.fillStyle = `rgba(180,240,255,${0.85 * pulse})`;
+    ctx.fillRect(centerX - balcW / 2, wallTop - 2, balcW, balcH);
+    ctx.strokeStyle = 'rgba(200,255,255,0.6)';
+    ctx.lineWidth = 1;
+    const railY = wallTop - 14;
+    ctx.beginPath(); ctx.moveTo(centerX - balcW / 2, railY); ctx.lineTo(centerX + balcW / 2, railY); ctx.stroke();
+    for (let rx = centerX - balcW / 2 + 6; rx < centerX + balcW / 2; rx += 10) {
+      ctx.beginPath(); ctx.moveTo(rx, railY); ctx.lineTo(rx, wallTop - 2); ctx.stroke();
+    }
+    // Balcony window (arched)
+    ctx.fillStyle = 'rgba(40,100,140,0.8)';
+    const bWinW = 16, bWinH = 22;
+    ctx.fillRect(centerX - bWinW / 2, wallTop - bWinH - 6, bWinW, bWinH);
+    ctx.beginPath();
+    ctx.arc(centerX, wallTop - bWinH - 6, bWinW / 2, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(170,255,255,0.3)';
+    ctx.fillRect(centerX - bWinW / 2 + 2, wallTop - bWinH - 4, bWinW - 4, bWinH - 2);
+
+    // --- Side windows (multiple rows for tall wall) ---
+    const winCols = [wallL + 18, wallR - 34];
+    for (let row = 0; row < 3; row++) {
+      for (const wx of winCols) {
+        const wy = wallTop + 25 + row * 55;
+        ctx.fillStyle = 'rgba(40,100,140,0.7)';
+        ctx.fillRect(wx, wy, 14, 20);
+        ctx.beginPath();
+        ctx.arc(wx + 7, wy, 7, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(170,255,255,0.25)';
+        ctx.fillRect(wx + 2, wy + 1, 10, 18);
+      }
+    }
+
+    // --- Towers with conical roofs (screen-space, fill top portion) ---
+    const towerDefs = [
+      { ox: 0.5,  topFrac: 0.0,  tw: 44, thFrac: 0.17, roofFrac: 0.16, roofW: 60 },  // grand center
+      { ox: 0.2,  topFrac: 0.05, tw: 36, thFrac: 0.14, roofFrac: 0.13, roofW: 50 },  // left-center
+      { ox: 0.8,  topFrac: 0.05, tw: 36, thFrac: 0.14, roofFrac: 0.13, roofW: 50 },  // right-center
+      { ox: 0.03, topFrac: 0.12, tw: 30, thFrac: 0.12, roofFrac: 0.10, roofW: 42 },  // far left
+      { ox: 0.97, topFrac: 0.12, tw: 30, thFrac: 0.12, roofFrac: 0.10, roofW: 42 },  // far right
+      { ox: 0.35, topFrac: 0.02, tw: 28, thFrac: 0.13, roofFrac: 0.14, roofW: 38 },  // inner-left
+      { ox: 0.65, topFrac: 0.02, tw: 28, thFrac: 0.13, roofFrac: 0.14, roofW: 38 },  // inner-right
+    ];
+    for (const t of towerDefs) {
+      const tx = sx + this.w * t.ox;
+      const roofH = wallTop * t.roofFrac;
+      const th = wallTop * t.thFrac;
+      const towerTop = wallTop * t.topFrac + roofH;
+      const towerBot = towerTop + th;
+      const halfTw = t.tw / 2;
+
+      // Tower body
+      const tGrd = ctx.createLinearGradient(tx - halfTw, towerTop, tx + halfTw, towerTop);
+      tGrd.addColorStop(0, `rgba(150,225,240,${0.88 * pulse})`);
+      tGrd.addColorStop(0.4, `rgba(180,245,255,${0.92 * pulse})`);
+      tGrd.addColorStop(1, `rgba(130,205,225,${0.85 * pulse})`);
+      ctx.fillStyle = tGrd;
+      ctx.fillRect(tx - halfTw, towerTop, t.tw, wallTop - towerTop);
+
+      // Tower window
+      if (th > 20) {
+        ctx.fillStyle = 'rgba(40,100,140,0.7)';
+        const twW = Math.max(5, t.tw * 0.35);
+        const twH = twW * 1.5;
+        const winY = towerTop + (wallTop - towerTop) * 0.3;
+        ctx.fillRect(tx - twW / 2, winY, twW, twH);
+        ctx.beginPath();
+        ctx.arc(tx, winY, twW / 2, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(170,255,255,0.3)';
+        ctx.fillRect(tx - twW / 2 + 1, winY + 1, twW - 2, twH - 2);
+      }
+
+      // Tower mini-battlements
+      const mbW = 5, mbH = 4, mbGap = 4;
+      ctx.fillStyle = `rgba(170,240,255,${0.85 * pulse})`;
+      for (let mbx = tx - halfTw; mbx < tx + halfTw - mbW; mbx += mbW + mbGap) {
+        ctx.fillRect(mbx, towerTop - mbH, mbW, mbH);
+      }
+
+      // Conical roof (pointy spire)
+      const roofTip = towerTop - roofH;
+      const halfRw = t.roofW / 2;
+      const rGrd = ctx.createLinearGradient(tx - halfRw, roofTip, tx + halfRw, towerTop);
+      rGrd.addColorStop(0, `rgba(200,255,255,${0.95 * pulse})`);
+      rGrd.addColorStop(0.5, `rgba(140,220,240,${0.9 * pulse})`);
+      rGrd.addColorStop(1, `rgba(120,200,225,${0.85 * pulse})`);
+      ctx.fillStyle = rGrd;
+      ctx.beginPath();
+      ctx.moveTo(tx, roofTip);
+      ctx.lineTo(tx - halfRw, towerTop - 2);
+      ctx.lineTo(tx + halfRw, towerTop - 2);
+      ctx.closePath();
+      ctx.fill();
+      // Roof highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(tx, roofTip);
+      ctx.lineTo(tx - halfRw * 0.25, towerTop - 4);
+      ctx.lineTo(tx + halfRw * 0.15, towerTop - roofH * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      // Roof edge
+      ctx.strokeStyle = 'rgba(200,255,255,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tx, roofTip);
+      ctx.lineTo(tx - halfRw, towerTop - 2);
+      ctx.moveTo(tx, roofTip);
+      ctx.lineTo(tx + halfRw, towerTop - 2);
+      ctx.stroke();
+    }
+
+    // --- Flags on top towers ---
+    const flagTowers = [
+      { idx: 0, color: '#aef' },
+      { idx: 1, color: '#cff' },
+      { idx: 2, color: '#cff' },
+    ];
+    for (const f of flagTowers) {
+      const t = towerDefs[f.idx];
+      const tx = sx + this.w * t.ox;
+      const roofTip = wallTop * t.topFrac;
+      // Flagpole
+      ctx.strokeStyle = 'rgba(220,255,255,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(tx, roofTip);
+      ctx.lineTo(tx, roofTip - 18);
+      ctx.stroke();
+      // Flag (waving)
+      const wave = Math.sin(this.timer * 0.08 + f.idx * 2) * 3;
+      ctx.fillStyle = f.color;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(tx, roofTip - 18);
+      ctx.lineTo(tx + 12 + wave, roofTip - 15);
+      ctx.lineTo(tx + 10 + wave * 0.5, roofTip - 10);
+      ctx.lineTo(tx, roofTip - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // --- Sparkles ---
+    for (const sp of this.sparkles) {
+      const alpha = Math.sin((sp.life / sp.maxLife) * Math.PI);
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.fillStyle = '#fff';
+      const ssz = sp.size;
+      const spx = sp.x - cam.x, spy = sp.y - cam.y;
+      ctx.beginPath();
+      ctx.moveTo(spx, spy - ssz);
+      ctx.lineTo(spx + ssz * 0.3, spy);
+      ctx.lineTo(spx, spy + ssz);
+      ctx.lineTo(spx - ssz * 0.3, spy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(spx - ssz, spy);
+      ctx.lineTo(spx, spy + ssz * 0.3);
+      ctx.lineTo(spx + ssz, spy);
+      ctx.lineTo(spx, spy - ssz * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Ice shimmer
+    ctx.globalAlpha = 0.05 + Math.sin(this.timer * 0.08) * 0.03;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(wallL, wallTop, this.w - 12, wallBot - wallTop);
+    ctx.globalAlpha = 1;
+
+    // Explosion warning: flicker near end
+    if (this.timer < 60) {
+      const freq = this.timer < 20 ? 0.8 : 0.4;
+      const flicker = Math.sin(this.timer * freq) * 0.3 + 0.3;
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx - 4, 0, this.w + 8, screenH);
+      ctx.globalAlpha = 1;
     }
   }
 }

@@ -16,6 +16,7 @@ class Game {
     this.spikes = [];
     this.trimerangs = [];
     this.diamondShards = [];
+    this.crystalCastle = null;
     this.deaths = 0;
     this.lives = 3;
     this.gameOver = false;
@@ -612,6 +613,10 @@ class Game {
       for (const d of this.diamondShards) d.update(this);
       this.diamondShards = this.diamondShards.filter(d => !d.done);
     }
+    if (this.crystalCastle) {
+      this.crystalCastle.update(this);
+      if (this.crystalCastle.done) this.crystalCastle = null;
+    }
     for (const e of this.effects) e.update();
     for (const b of this.stoneBlocks) b.update(this);
     for (const b of this.bubbles) b.update(this);
@@ -774,6 +779,7 @@ class Game {
     for (const b of this.stoneBlocks) b.render(ctx, cam);
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
+    if (this.crystalCastle) this.crystalCastle.render(ctx, cam);
     this.player.render(ctx, cam);
 
     // Shadow ultimate: darken everything except enemies
@@ -1193,40 +1199,7 @@ class Game {
       ctx.restore();
     }
 
-    // Crystal ultimate: afterimage clones
-    if (this.player.crystalClones) {
-      const pl = this.player;
-      for (const clone of pl.crystalClones) {
-        const cx = pl.x + clone.offsetX - cam.x;
-        const cy = pl.y + clone.offsetY - cam.y;
-        ctx.save();
-        ctx.globalAlpha = clone.alpha;
-        // Clone body
-        ctx.fillStyle = pl.type.color;
-        ctx.fillRect(cx, cy, pl.w, pl.h);
-        // Tint overlay
-        ctx.fillStyle = 'rgba(170,255,255,0.25)';
-        ctx.fillRect(cx, cy, pl.w, pl.h);
-        // Eyes
-        ctx.fillStyle = '#fff';
-        const eyeX = pl.facing > 0 ? cx + 14 : cx + 4;
-        ctx.fillRect(eyeX, cy + 8, 6, 6);
-        ctx.fillStyle = '#0ff';
-        ctx.fillRect(pl.facing > 0 ? eyeX + 3 : eyeX, cy + 10, 3, 3);
-        // Headband
-        ctx.fillStyle = pl.type.accentColor;
-        ctx.fillRect(cx, cy + 5, pl.w, 3);
-        // Clone attack slash
-        if (pl.attacking && pl.attackBox) {
-          ctx.globalAlpha = clone.alpha * 0.4;
-          const reach = pl.attackBox.w;
-          const slashX = pl.facing > 0 ? cx + pl.w : cx - reach;
-          ctx.fillStyle = '#aff';
-          ctx.fillRect(slashX, cy + 4, reach, pl.h - 8);
-        }
-        ctx.restore();
-      }
-    }
+
 
     for (const e of this.effects) e.render(ctx, cam);
 
@@ -1304,7 +1277,7 @@ class Game {
     } else if (pl.ninjaType === 'shadow') {
       elemBarVal = pl.shadowStealth; elemBarMax = 300; elemBarColor = '#a4e'; elemBarGlow = pl.backstabReady; elemBarLabel = 'Stealth';
     } else if (pl.ninjaType === 'crystal') {
-      elemBarVal = this.diamondShards ? this.diamondShards.length : 0; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = pl.crystalClones != null; elemBarLabel = 'Crystal';
+      elemBarVal = this.diamondShards ? this.diamondShards.length : 0; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = this.crystalCastle != null; elemBarLabel = 'Crystal';
     } else if (pl.ninjaType === 'wind') {
       elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
     } else if (pl.ninjaType === 'earth') {
