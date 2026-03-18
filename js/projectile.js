@@ -398,8 +398,8 @@ class Projectile {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
 
-          // Shielded: block projectiles from the front (shield is indestructible, stops even piercing)
-          if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
+          // Shielded/Protector: block projectiles from the front (shield stops even piercing)
+          if ((e.type === 'shielded' || e.type === 'protector') && e.shieldHp > 0 && hitFromFront) {
             e.flashTimer = 4;
             game.effects.push(new Effect(
               e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
@@ -483,6 +483,17 @@ class Projectile {
       }
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
+        const bossHitFromFront = (this.x + this.w / 2 > game.boss.x + game.boss.w / 2) === (game.boss.facing === 1);
+        // Shielded/Protector boss: block projectiles from the front
+        if ((game.boss.bossType === 'shielded' || game.boss.bossType === 'protector') && game.boss.shieldHp > 0 && bossHitFromFront) {
+          game.boss.flashTimer = 4;
+          const shieldColor = game.boss.bossType === 'protector' ? '#4f8' : '#5ff';
+          game.effects.push(new Effect(
+            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, shieldColor, 8, 3, 10
+          ));
+          this.done = true;
+          return;
+        }
         // Deflector boss: deflect projectiles back when ready
         if (game.boss.bossType === 'deflector' && game.boss.deflectReady && !game.boss.freezeTimer) {
           game.boss.deflectReady = false;

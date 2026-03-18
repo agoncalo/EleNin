@@ -12,6 +12,7 @@ class Player {
     this.maxShield = 0;
     this.ninjaType = 'fire';
     this.invincibleTimer = 90;
+    this.knockbackTimer = 0;
     this.bonusDamage = 0;
     this.bonusSpeed = 0;
     this.bonusReach = 0;
@@ -993,7 +994,8 @@ class Player {
       if (this.statusBurn > 0) {
         this.statusBurn--;
         if (this.statusBurn % 30 === 0 && this.statusBurn > 0) {
-          this.hp -= 1;
+          const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+          this.hp -= burnDmg;
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         }
       }
@@ -1023,9 +1025,14 @@ class Player {
     if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
 
     if (!this.windDashing && !this.fireDashing) {
-      const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
-      const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
-      this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult;
+      if (this.knockbackTimer > 0) {
+        this.knockbackTimer--;
+        this.vx *= 0.88;
+      } else {
+        const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
+        const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
+        this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult;
+      }
       if (moveX !== 0) this.facing = moveX;
     }
 
@@ -1353,7 +1360,8 @@ class Player {
     // Spike collision
     for (const s of game.spikes) {
       if (rectOverlap(this, s)) {
-        this.takeDamage(2, game, 'spike', { type: 'spike' });
+        const spikeDmg = Math.max(1, Math.round(this.maxHp * 0.2));
+        this.takeDamage(spikeDmg, game, 'spike', { type: 'spike' });
         this.vy = -8;
         break;
       }
@@ -1384,7 +1392,8 @@ class Player {
     if (this.statusBurn > 0) {
       this.statusBurn--;
       if (this.statusBurn % 30 === 0) {
-        this.hp -= 1;
+        const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        this.hp -= burnDmg;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         if (this.hp <= 0) {
           this.deathTimer = 180;
@@ -1659,7 +1668,10 @@ class Player {
       if (this.statusParalyse > 0) {
         this.statusStun = 30;
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
+        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        this.hp -= paraDmg;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
         SFX.play(200, 'square', 0.2, 0.15, 0);
       } else {
         this.shadowAttackHit = false;
@@ -1684,7 +1696,10 @@ class Player {
       if (this.statusParalyse > 0) {
         this.statusStun = 30;
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
+        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        this.hp -= paraDmg;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
         SFX.play(200, 'square', 0.2, 0.15, 0);
       } else {
       SFX.shuriken();
@@ -2501,6 +2516,7 @@ class Player {
     if (!this._pendingDamage) return;
     let amount = this._pendingDamage.amount;
     const element = this._pendingDamage.element;
+    const killerInfo = this._pendingDamage.killerInfo;
     this._pendingDamage = null;
 
     if (this.ninjaType === 'wind' && this.windPower >= 10 && (this.windFirstDodge || Math.random() < 0.5)) {
@@ -2523,14 +2539,18 @@ class Player {
       amount -= absorbed;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 10));
       if (amount <= 0) {
+        this.lastDamageAmount = absorbed;
         this.invincibleTimer = 45;
         this.lastDamageTick = game.tick;
         this.windPower = 0;
-        triggerHitstop(4);
+        SFX.playerHurt();
+        triggerHitstop(6);
+        this.applyElementalStatus(element, game);
         return;
       }
     }
-    amount = Math.max(1, amount - this.bonusArmor);
+    const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
+    if (!bypassArmor) amount = Math.max(1, amount - this.bonusArmor);
     this.hp -= amount;
     this.lastDamageAmount = amount;
     this.invincibleTimer = 45;
@@ -2878,38 +2898,39 @@ class Player {
       ctx.restore();
     }
     if (this.statusFloat > 0) {
+      // Green wind bubble around player
       ctx.save();
-      ctx.globalAlpha = 0.2 + 0.08 * Math.sin(this.statusFloat * 0.15);
-      ctx.fillStyle = '#8f8';
-      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
-      // Swirl lines
-      ctx.globalAlpha = 0.4;
-      ctx.strokeStyle = '#bfb';
-      ctx.lineWidth = 1;
-      const angle = this.statusFloat * 0.1;
+      const bTick = this.statusFloat * 0.08;
+      ctx.globalAlpha = 0.25 + 0.1 * Math.sin(bTick);
+      ctx.strokeStyle = '#6d4';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.7, angle, angle + 2);
+      ctx.ellipse(sx + this.w / 2, sy + this.h / 2, this.w * 1.1 + Math.sin(bTick) * 3, this.h * 0.95 + Math.cos(bTick) * 3, 0, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.globalAlpha = 0.08 + 0.04 * Math.sin(bTick);
+      ctx.fillStyle = '#8f8';
+      ctx.fill();
       ctx.restore();
     }
     if (this.statusParalyse > 0) {
+      // Shock bolts around player
       ctx.save();
-      ctx.globalAlpha = 0.2 + 0.1 * Math.sin(this.statusParalyse * 0.4);
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
-      // Spark bolts
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(this.statusParalyse * 0.5);
       ctx.strokeStyle = '#ff0';
-      ctx.lineWidth = 1;
-      const t1 = this.statusParalyse * 0.2;
+      ctx.lineWidth = 1.5;
+      const st = this.statusParalyse * 0.25;
+      // Left bolt
       ctx.beginPath();
-      ctx.moveTo(sx + 4, sy + Math.sin(t1) * 6 + 10);
-      ctx.lineTo(sx + 10, sy + Math.sin(t1 + 1) * 4 + 16);
-      ctx.lineTo(sx + 6, sy + Math.sin(t1 + 2) * 5 + 22);
+      ctx.moveTo(sx - 4, sy + 4 + Math.sin(st) * 3);
+      ctx.lineTo(sx + 2, sy + 10 + Math.sin(st + 1) * 2);
+      ctx.lineTo(sx - 2, sy + 16 + Math.sin(st + 2) * 3);
+      ctx.lineTo(sx + 4, sy + 22 + Math.sin(st + 3) * 2);
       ctx.stroke();
+      // Right bolt
       ctx.beginPath();
-      ctx.moveTo(sx + this.w - 4, sy + Math.cos(t1) * 5 + 8);
-      ctx.lineTo(sx + this.w - 10, sy + Math.cos(t1 + 1) * 4 + 14);
+      ctx.moveTo(sx + this.w + 4, sy + 6 + Math.cos(st) * 3);
+      ctx.lineTo(sx + this.w - 2, sy + 12 + Math.cos(st + 1) * 2);
+      ctx.lineTo(sx + this.w + 2, sy + 18 + Math.cos(st + 2) * 3);
       ctx.stroke();
       ctx.restore();
     }
@@ -2932,34 +2953,10 @@ class Player {
       ctx.restore();
     }
     if (this.statusHeavy > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.25 + 0.1 * Math.sin(this.statusHeavy * 0.15);
-      ctx.fillStyle = '#a84';
-      ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
-      // Down arrows
-      ctx.globalAlpha = 0.6;
-      ctx.fillStyle = '#862';
-      ctx.font = '10px monospace';
-      const hOff = this.statusHeavy % 20;
-      ctx.fillText('v', sx + 2, sy + this.h + 4 + hOff * 0.3);
-      ctx.fillText('v', sx + this.w - 6, sy + this.h + 4 + hOff * 0.3);
-      ctx.restore();
+      // Body color override handled below (dark lead)
     }
     if (this.statusSteel > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.35 + 0.1 * Math.sin(this.statusSteel * 0.2);
-      ctx.fillStyle = '#bbb';
-      ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
-      // Metallic shine line
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      const shineY = sy + (this.statusSteel % 30) * (this.h / 30);
-      ctx.beginPath();
-      ctx.moveTo(sx - 2, shineY);
-      ctx.lineTo(sx + this.w + 2, shineY - 4);
-      ctx.stroke();
-      ctx.restore();
+      // Body color override handled below (grey)
     }
 
     // Special ready indicator
@@ -2969,8 +2966,11 @@ class Player {
       ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
     }
 
-    // Body
-    ctx.fillStyle = t.color;
+    // Body — color changes for steel (grey) and heavy (dark lead)
+    let bodyColor = t.color;
+    if (this.statusSteel > 0) bodyColor = '#aaa';
+    else if (this.statusHeavy > 0) bodyColor = '#556';
+    ctx.fillStyle = bodyColor;
     ctx.fillRect(sx, sy, this.w, this.h);
 
     // Eyes

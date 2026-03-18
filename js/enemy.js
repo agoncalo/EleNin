@@ -9,7 +9,7 @@ class Enemy {
     this.h = big ? 42 : 28;
     this.x = x; this.y = y;
     this.vx = 0; this.vy = 0;
-    this.hp = (big ? base.hp * 2 : base.hp) * this.wave;
+    this.hp = (big ? base.hp * 4 : base.hp) * this.wave;
     this.maxHp = this.hp;
     this.contactDmg = Math.round((big ? base.dmg + 2 : base.dmg) * (1 + this.wave * 0.1875));
     this.color = base.color;
@@ -26,9 +26,11 @@ class Enemy {
     this.burnTimer = 0;
     this.soakTimer = 0;
     this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
-    this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : 0;
+    this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : (type === 'protector') ? (big ? 10 : 8) : 0;
     this.shieldMax = this.shieldHp;
     this.hoverPhase = Math.random() * Math.PI * 2;
+    // Per-instance preferred range offset so ranged enemies spread out
+    this.rangeOffset = (type === 'shooter' || type === 'bouncer') ? Math.floor(Math.random() * 80) - 40 : 0;
     this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
@@ -117,6 +119,14 @@ class Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
+      // Paralysis DOT — 15% maxHp every 30 ticks
+      if (this.paralyseTimer % 30 === 0) {
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        this.hp -= pdmg;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
+        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+      }
       return;
     }
     // Purple paralysis (shadow ultimate) — affects ALL enemies including lightning
@@ -168,7 +178,8 @@ class Enemy {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
       }
       if (this.burnTimer % 30 === 0) {
-        this.hp -= 1;
+        const bdmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        this.hp -= bdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) {
@@ -214,13 +225,43 @@ class Enemy {
     switch (this.type) {
       case 'walker':
         this.vx = this.facing * speed * windResist;
-        if (this.x <= this.patrolLeft) this.facing = 1;
-        if (this.x >= this.patrolRight) this.facing = -1;
+        if (this.vy >= 0 && this.vy < 1) {
+          if (this.x <= this.patrolLeft) this.facing = 1;
+          if (this.x >= this.patrolRight) this.facing = -1;
+        }
+        // Lunge at player if facing them and close (not in tower)
+        if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
+          const wDist = Math.abs(px - cx);
+          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+          if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
+            this.vy = -8;
+            this.vx = this.facing * speed * 2.5;
+          }
+        }
         break;
-      case 'shooter':
-        this.vx = this.facing * speed * 0.5 * windResist;
-        if (this.x <= this.patrolLeft) this.facing = 1;
-        if (this.x >= this.patrolRight) this.facing = -1;
+      case 'shooter': {
+        const sDist = Math.abs(px - cx);
+        this.facing = px > cx ? 1 : -1;
+        const sRetreat = 160 + this.rangeOffset;
+        const sComfort = 250 + this.rangeOffset;
+        const sBuf = 20;
+        if (!this._rangeState) this._rangeState = 'comfort';
+        if (this._rangeState === 'comfort') {
+          if (sDist < sRetreat - sBuf) this._rangeState = 'retreat';
+          else if (sDist > sComfort + sBuf) this._rangeState = 'approach';
+        } else if (this._rangeState === 'retreat') {
+          if (sDist > sRetreat + sBuf) this._rangeState = 'comfort';
+        } else {
+          if (sDist < sComfort - sBuf) this._rangeState = 'comfort';
+        }
+        if (this._rangeState === 'retreat') {
+          this.vx = -this.facing * speed * 0.9 * windResist;
+        } else if (this._rangeState === 'comfort') {
+          const tick = game ? game.tick : 0;
+          this.vx = Math.sin((tick + this.rangeOffset * 10) * 0.04) * speed * 0.3 * windResist;
+        } else {
+          this.vx = this.facing * speed * 0.5 * windResist;
+        }
         this.shootTimer++;
         if (this.shootTimer >= (this.big ? 70 : 90)) {
           this.shootTimer = 0;
@@ -233,20 +274,42 @@ class Enemy {
           }
         }
         break;
+      }
       case 'jumper':
         this.vx = this.facing * speed * 1.2 * windResist;
-        if (this.x <= this.patrolLeft) this.facing = 1;
-        if (this.x >= this.patrolRight) this.facing = -1;
+        if (this.vy >= 0 && this.vy < 1) {
+          if (this.x <= this.patrolLeft) this.facing = 1;
+          if (this.x >= this.patrolRight) this.facing = -1;
+        }
         this.jumpTimer++;
         if (this.jumpTimer >= (this.big ? 55 : 75) && this.vy < 1) {
           this.vy = this.big ? -11 : -9;
           this.jumpTimer = 0;
         }
         break;
-      case 'bouncer':
-        this.vx = this.facing * speed * 0.6 * windResist;
-        if (this.x <= this.patrolLeft) this.facing = 1;
-        if (this.x >= this.patrolRight) this.facing = -1;
+      case 'bouncer': {
+        const bDist = Math.abs(px - cx);
+        this.facing = px > cx ? 1 : -1;
+        const bRetreat = 180 + this.rangeOffset;
+        const bComfort = 280 + this.rangeOffset;
+        const bBuf = 20;
+        if (!this._rangeState) this._rangeState = 'comfort';
+        if (this._rangeState === 'comfort') {
+          if (bDist < bRetreat - bBuf) this._rangeState = 'retreat';
+          else if (bDist > bComfort + bBuf) this._rangeState = 'approach';
+        } else if (this._rangeState === 'retreat') {
+          if (bDist > bRetreat + bBuf) this._rangeState = 'comfort';
+        } else {
+          if (bDist < bComfort - bBuf) this._rangeState = 'comfort';
+        }
+        if (this._rangeState === 'retreat') {
+          this.vx = -this.facing * speed * 0.85 * windResist;
+        } else if (this._rangeState === 'comfort') {
+          const tick = game ? game.tick : 0;
+          this.vx = Math.sin((tick + this.rangeOffset * 10) * 0.04) * speed * 0.3 * windResist;
+        } else {
+          this.vx = this.facing * speed * 0.6 * windResist;
+        }
         this.shootTimer++;
         if (this.shootTimer >= (this.big ? 60 : 80)) {
           this.shootTimer = 0;
@@ -272,10 +335,19 @@ class Enemy {
           }
         }
         break;
+      }
       case 'shielded': {
         this.facing = px > cx ? 1 : -1;
         // Walk toward the player, shield first
         this.vx = this.facing * speed * 0.7 * windResist;
+        // Lunge at player if close (not in tower)
+        if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
+          const shDist = Math.abs(px - cx);
+          if (shDist < 80 && Math.abs(py - cy) < 40) {
+            this.vy = -8;
+            this.vx = this.facing * speed * 2.5;
+          }
+        }
         break;
       }
       case 'deflector': {
@@ -437,10 +509,49 @@ class Enemy {
       }
       if (this.edgeAware && this.onPlatform && this.onPlatform.w >= 80) {
         const p = this.onPlatform;
+        const isRanged = (this.type === 'shooter' || this.type === 'bouncer');
+        const retreating = isRanged && Math.sign(this.vx) !== this.facing && Math.abs(this.vx) > 0.1;
         if (this.type === 'shielded') {
-          // Stop at edges but keep facing player
-          if (this.x + this.w / 2 < p.x + 8) { this.x = p.x + 8 - this.w / 2; this.vx = Math.max(0, this.vx); }
-          if (this.x + this.w / 2 > p.x + p.w - 8) { this.x = p.x + p.w - 8 - this.w / 2; this.vx = Math.min(0, this.vx); }
+          // Shielded: jump off ledge toward player (not in tower), stop otherwise
+          const atLeftEdge = this.x + this.w / 2 < p.x + 8;
+          const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
+          if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
+            if (game.levelType !== 'tower' && this.vy >= 0 && this.vy < 1) {
+              this.vy = -8;
+              this.vx = this.facing * speed * 2.5;
+            } else {
+              this.vx = 0;
+            }
+          }
+        } else if (isRanged) {
+          // Ranged: always face player; stop at forward edge, jump off backward edge when retreating (bouncer only)
+          const atLeftEdge = this.x + this.w / 2 < p.x + 10;
+          const atRightEdge = this.x + this.w / 2 > p.x + p.w - 10;
+          if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
+            if (retreating && this.type === 'bouncer' && this.vy >= 0 && this.vy < 1) {
+              // Bouncer: jump backward off ledge
+              this.vy = -7;
+              this.vx = -this.facing * speed * 1.5;
+            } else {
+              // Stop and clamp position at edge
+              this.vx = 0;
+              if (atLeftEdge) this.x = p.x + 10 - this.w / 2;
+              if (atRightEdge) this.x = p.x + p.w - 10 - this.w / 2;
+            }
+          }
+        } else if (this.type === 'walker') {
+          // Walkers: jump off ledge toward player instead of turning (not in tower)
+          const atLeftEdge = this.x + this.w / 2 < p.x + 8;
+          const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
+          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+          if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
+            if (game.levelType !== 'tower' && facingPlayer && this.vy >= 0 && this.vy < 1) {
+              this.vy = -8;
+              this.vx = this.facing * speed * 2.5;
+            } else {
+              this.facing = -this.facing;
+            }
+          }
         } else {
           if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
           if (this.x + this.w / 2 > p.x + p.w - 8) this.facing = -1;
@@ -500,17 +611,21 @@ class Enemy {
         }
       }
     }
-    // Shielded: frontal hits absorbed by shield
+    // Shielded / Protector: frontal hits lose 1 shield pip + 75% damage reduction
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
       if (hitFromFront) {
-        this.shieldHp -= amount;
+        this.shieldHp--;
         this.flashTimer = 4;
+        const shieldColor = this.type === 'protector' ? '#4f8' : '#5ff';
         game.effects.push(new Effect(
-          this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, '#5ff', 5, 2, 8
+          this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 5, 2, 8
         ));
-        if (this.shieldHp < 0) this.shieldHp = 0;
-        return;
+        if (this.shieldHp <= 0) {
+          this.shieldHp = 0;
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
+        }
+        amount = Math.max(1, Math.round(amount * 0.25));
       }
     }
     // Elemental interaction — derive attack element if not passed
@@ -663,84 +778,9 @@ class Enemy {
       ctx.fillRect(sx, sy, this.w, this.h);
     }
 
-    // Freeze effect overlay
-    if (this.freezeTimer > 0) {
-      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.freezeTimer * 0.2);
-      ctx.fillStyle = '#aaf';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-    }
-
-    // Paralyse effect overlay (electric)
-    if (this.paralyseTimer > 0) {
-      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.paralyseTimer * 0.4);
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-      // Lightning bolt arcs
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
-      for (let i = 0; i < 2; i++) {
-        ctx.beginPath();
-        let bx = sx + Math.random() * this.w;
-        let by = sy;
-        ctx.moveTo(bx, by);
-        for (let j = 0; j < 3; j++) {
-          bx += (Math.random() - 0.5) * 10;
-          by += this.h / 3;
-          ctx.lineTo(bx, by);
-        }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-    }
-
-    // Purple paralysis effect overlay (shadow ultimate)
-    if (this.purpleParalyseTimer > 0) {
-      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.purpleParalyseTimer * 0.4);
-      ctx.fillStyle = '#a040ff';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-      // Purple lightning bolt arcs
-      ctx.strokeStyle = '#d0a0ff';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
-      for (let i = 0; i < 2; i++) {
-        ctx.beginPath();
-        let bx = sx + Math.random() * this.w;
-        let by = sy;
-        ctx.moveTo(bx, by);
-        for (let j = 0; j < 3; j++) {
-          bx += (Math.random() - 0.5) * 10;
-          by += this.h / 3;
-          ctx.lineTo(bx, by);
-        }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-    }
-
-    // Burn effect overlay
-    if (this.burnTimer > 0) {
-      ctx.globalAlpha = 0.3 + 0.15 * Math.sin(this.burnTimer * 0.3);
-      ctx.fillStyle = '#f93';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-    }
-
-    // Soak effect overlay
-    if (this.soakTimer > 0) {
-      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.soakTimer * 0.15);
-      ctx.fillStyle = '#48f';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-      // Drip particles
-      if (Math.random() < 0.15) {
-        game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
-      }
+    // Soak drip particles
+    if (this.soakTimer > 0 && Math.random() < 0.15) {
+      game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
     }
 
     // Elemental aura
@@ -981,22 +1021,34 @@ class Enemy {
 
         // Large tower shield in facing direction
         const shX = this.facing > 0 ? sx + this.w - 2 : sx - 7;
-        ctx.fillStyle = '#3b7';
-        ctx.fillRect(shX, sy - 6, 9, this.h + 12);
-        // Shield border
-        ctx.strokeStyle = '#2a5';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(shX + 0.5, sy - 5.5, 8, this.h + 11);
-        // Shield emblem (cross)
-        ctx.fillStyle = '#8d8';
-        ctx.fillRect(shX + 3, sy + 2, 3, this.h - 2);
-        ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 7, 3);
-        // Shield rivets
-        ctx.fillStyle = '#5a7';
-        ctx.fillRect(shX + 1, sy - 2, 2, 2);
-        ctx.fillRect(shX + 6, sy - 2, 2, 2);
-        ctx.fillRect(shX + 1, sy + this.h + 2, 2, 2);
-        ctx.fillRect(shX + 6, sy + this.h + 2, 2, 2);
+        if (this.shieldHp > 0) {
+          const shieldAlpha = 0.5 + 0.5 * (this.shieldHp / this.shieldMax);
+          ctx.save();
+          ctx.globalAlpha = shieldAlpha;
+          ctx.fillStyle = '#3b7';
+          ctx.fillRect(shX, sy - 6, 9, this.h + 12);
+          // Shield border
+          ctx.strokeStyle = '#2a5';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(shX + 0.5, sy - 5.5, 8, this.h + 11);
+          // Shield emblem (cross)
+          ctx.fillStyle = '#8d8';
+          ctx.fillRect(shX + 3, sy + 2, 3, this.h - 2);
+          ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 7, 3);
+          // Shield rivets
+          ctx.fillStyle = '#5a7';
+          ctx.fillRect(shX + 1, sy - 2, 2, 2);
+          ctx.fillRect(shX + 6, sy - 2, 2, 2);
+          ctx.fillRect(shX + 1, sy + this.h + 2, 2, 2);
+          ctx.fillRect(shX + 6, sy + this.h + 2, 2, 2);
+          ctx.restore();
+        } else {
+          // Broken shield — just a stub
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#2a5';
+          ctx.fillRect(shX + 1, sy + this.h / 2 - 4, 7, 8);
+          ctx.globalAlpha = 1;
+        }
 
         // Aura circle
         if (this.auraRadius > 0) {
@@ -1053,10 +1105,15 @@ class Enemy {
     }
 
     // Shield pips
-    if (this.type === 'shielded' && this.shieldMax > 0) {
+    if ((this.type === 'shielded' || this.type === 'protector') && this.shieldMax > 0) {
+      const pipColor = this.type === 'protector' ? '#4f8' : '#5ff';
+      const pipW = this.type === 'protector' ? 3 : 5;
+      const pipGap = this.type === 'protector' ? 5 : 7;
+      const totalW = this.shieldMax * pipGap;
+      const pipStartX = sx + this.w / 2 - totalW / 2;
       for (let i = 0; i < this.shieldMax; i++) {
-        ctx.fillStyle = i < this.shieldHp ? '#5ff' : '#234';
-        ctx.fillRect(sx + i * 7 + 2, sy - 14, 5, 3);
+        ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
+        ctx.fillRect(pipStartX + i * pipGap, sy - 14, pipW, 3);
       }
     }
 
@@ -1103,7 +1160,7 @@ class Boss extends Enemy {
     this.stateTimer = 0;
     this.grounded = false;
     this.hoverPhase = 0;
-    this.shieldHp = (bossType === 'shielded') ? 6 : 0;
+    this.shieldHp = (bossType === 'shielded') ? 12 : (bossType === 'protector') ? 15 : 0;
     this.shieldMax = this.shieldHp;
     this.stuckTimer = 0;
     this.phaseThrough = 0;
@@ -1193,6 +1250,14 @@ class Boss extends Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
+      // Paralysis DOT — 15% maxHp every 30 ticks
+      if (this.paralyseTimer % 30 === 0) {
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        this.hp -= pdmg;
+        this.flashTimer = 4;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
+        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+      }
       return;
     }
     // Purple paralysis (shadow ultimate) — affects ALL bosses including lightning
@@ -1241,7 +1306,8 @@ class Boss extends Enemy {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
       }
       if (this.burnTimer % 30 === 0) {
-        this.hp -= 1;
+        const bdmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        this.hp -= bdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
@@ -1438,8 +1504,9 @@ class Boss extends Enemy {
             game.effects.push(new Effect(cx, this.y + this.h, '#4a6', 18, 5, 18));
             if (Math.abs(dx) < 100 && Math.abs(dy) < 70) {
               const kbDir = Math.sign(game.player.x - cx) || 1;
-              game.player.vx = kbDir * 12;
-              game.player.vy = -6;
+              game.player.vx = kbDir * 20;
+              game.player.vy = -10;
+              game.player.knockbackTimer = 14;
               if (!game.player.slamming) game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
@@ -1448,8 +1515,17 @@ class Boss extends Enemy {
       } else {
         // Default ground boss AI (walker, shooter, jumper, bouncer, shielded)
       switch (this.state) {
-        case 'chase':
-          this.vx = this.facing * speed;
+        case 'chase': {
+          const absDist = Math.abs(dx);
+          if (canShoot && absDist < 120) {
+            // Ranged boss: retreat when player is close
+            this.vx = -this.facing * speed * 0.8;
+          } else if (canShoot && absDist < 200) {
+            // Comfortable range — slow down
+            this.vx = this.facing * speed * 0.3;
+          } else {
+            this.vx = this.facing * speed;
+          }
           if (this.actionTimer > (isJumpy ? 60 : 110) && this.grounded) {
             const r = Math.random();
             if (canShoot && r < 0.4) this.state = 'shoot';
@@ -1457,6 +1533,7 @@ class Boss extends Enemy {
             this.stateTimer = 0; this.actionTimer = 0;
           }
           break;
+        }
         case 'jump':
           if (this.stateTimer === 1) {
             this.vy = isJumpy ? -14 : -12;
@@ -1466,8 +1543,9 @@ class Boss extends Enemy {
             game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
             if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
               const kbDir = Math.sign(game.player.x - cx) || 1;
-              game.player.vx = kbDir * 10;
-              game.player.vy = -5;
+              game.player.vx = kbDir * 18;
+              game.player.vy = -9;
+              game.player.knockbackTimer = 12;
               if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
@@ -1561,8 +1639,9 @@ class Boss extends Enemy {
     // Contact damage
     if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
-      game.player.vx = kbDir * 10;
-      game.player.vy = -5;
+      game.player.vx = kbDir * 18;
+      game.player.vy = -9;
+      game.player.knockbackTimer = 12;
       game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       this.hitCooldown = 45;
     }
@@ -1577,15 +1656,19 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
       return;
     }
-    // Shield check
+    // Shield check — hit-based pips + 75% damage reduction
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
       if (hitFromFront) {
-        this.shieldHp -= amount;
+        this.shieldHp--;
         this.flashTimer = 4;
-        game.effects.push(new Effect(this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, '#5ff', 6, 3, 10));
-        if (this.shieldHp < 0) this.shieldHp = 0;
-        return;
+        const shieldColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
+        game.effects.push(new Effect(this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 6, 3, 10));
+        if (this.shieldHp <= 0) {
+          this.shieldHp = 0;
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
+        }
+        amount = Math.max(1, Math.round(amount * 0.25));
       }
     }
     this.hp -= amount;
@@ -1705,14 +1788,26 @@ class Boss extends Enemy {
       ctx.fillRect(sx + this.w / 2 + 2, sy + this.h - 11, this.w / 2 - 5, 11);
       // Tower shield
       const shX = this.facing > 0 ? sx + this.w - 2 : sx - 9;
-      ctx.fillStyle = '#3b7';
-      ctx.fillRect(shX, sy - 8, 11, this.h + 16);
-      ctx.strokeStyle = '#2a5';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(shX + 0.5, sy - 7.5, 10, this.h + 15);
-      ctx.fillStyle = '#8d8';
-      ctx.fillRect(shX + 4, sy + 2, 3, this.h - 2);
-      ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 9, 3);
+      if (this.shieldHp > 0) {
+        const shieldAlpha = 0.5 + 0.5 * (this.shieldHp / this.shieldMax);
+        ctx.save();
+        ctx.globalAlpha = shieldAlpha;
+        ctx.fillStyle = '#3b7';
+        ctx.fillRect(shX, sy - 8, 11, this.h + 16);
+        ctx.strokeStyle = '#2a5';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(shX + 0.5, sy - 7.5, 10, this.h + 15);
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(shX + 4, sy + 2, 3, this.h - 2);
+        ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 9, 3);
+        ctx.restore();
+      } else {
+        // Broken shield stub
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#2a5';
+        ctx.fillRect(shX + 2, sy + this.h / 2 - 5, 7, 10);
+        ctx.globalAlpha = 1;
+      }
     } else if (this.bossType === 'deflector') {
       // Ronin samurai body
       ctx.fillStyle = bodyColor;
@@ -1795,7 +1890,8 @@ class Boss extends Enemy {
 
       // Shield
       if (this.shieldHp > 0) {
-        ctx.fillStyle = `rgba(100,220,255,${0.5 + 0.2 * (this.shieldHp / this.shieldMax)})`;
+        const shieldAlpha = 0.4 + 0.3 * (this.shieldHp / this.shieldMax);
+        ctx.fillStyle = `rgba(100,220,255,${shieldAlpha})`;
         ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
       }
 
@@ -1815,70 +1911,9 @@ class Boss extends Enemy {
       ctx.fillRect(sx + this.w / 2 - 3, sy - 10, 6, 12);
     }
 
-    // Freeze effect overlay
-    if (this.freezeTimer > 0) {
-      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.freezeTimer * 0.2);
-      ctx.fillStyle = '#aaf';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-    }
-
-    // Paralyse effect overlay (electric)
-    if (this.paralyseTimer > 0) {
-      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.paralyseTimer * 0.4);
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
-      for (let i = 0; i < 2; i++) {
-        ctx.beginPath();
-        let bx = sx + Math.random() * this.w;
-        let by = sy;
-        ctx.moveTo(bx, by);
-        for (let j = 0; j < 3; j++) {
-          bx += (Math.random() - 0.5) * 10;
-          by += this.h / 3;
-          ctx.lineTo(bx, by);
-        }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-    }
-
-    // Purple paralysis effect overlay (shadow ultimate)
-    if (this.purpleParalyseTimer > 0) {
-      ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.purpleParalyseTimer * 0.4);
-      ctx.fillStyle = '#a040ff';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = '#d0a0ff';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6 + 0.4 * Math.random();
-      for (let i = 0; i < 2; i++) {
-        ctx.beginPath();
-        let bx = sx + Math.random() * this.w;
-        let by = sy;
-        ctx.moveTo(bx, by);
-        for (let j = 0; j < 3; j++) {
-          bx += (Math.random() - 0.5) * 10;
-          by += this.h / 3;
-          ctx.lineTo(bx, by);
-        }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-    }
-
-    // Soak effect overlay
-    if (this.soakTimer > 0) {
-      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.soakTimer * 0.15);
-      ctx.fillStyle = '#48f';
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.globalAlpha = 1;
+    // Soak drip particles
+    if (this.soakTimer > 0 && Math.random() < 0.15) {
+      game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
     }
 
     if (this.phase === 2) {
@@ -1912,6 +1947,19 @@ class Boss extends Enemy {
       ctx.fillRect(swordX, swordY, sl, sw);
       ctx.fillStyle = this.color;
       ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, swordY - 3, 4, sw + 6);
+    }
+
+    // Shield pips for boss
+    if (this.shieldMax > 0) {
+      const pipColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
+      const pipW = 2;
+      const pipGap = 4;
+      const totalW = this.shieldMax * pipGap;
+      const pipStartX = sx + this.w / 2 - totalW / 2;
+      for (let i = 0; i < this.shieldMax; i++) {
+        ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
+        ctx.fillRect(pipStartX + i * pipGap, sy - 18, pipW, 3);
+      }
     }
 
     // Protector boss: healing aura ring

@@ -247,9 +247,10 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
       { type: 'flyer', weight: 2 },
+      { type: 'shielded', weight: 4 },
       { type: 'bouncer', weight: 1, big: true },
-      { type: 'walker', weight: 1, big: true },
-      { type: 'deflector', weight: 1, big: true }
+      { type: 'deflector', weight: 1, big: true },
+      { type: 'shielded', weight: 1, big: true },
     ]
   },
 
