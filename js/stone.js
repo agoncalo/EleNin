@@ -249,7 +249,7 @@ class StoneShooter extends StoneConstruct {
         const dy = (nearest.y + nearest.h / 2) - cy;
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d > 0) {
-          const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#8d8', (3 * this.wave), 'player');
+          const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#b8864e', (3 * this.wave), 'player');
           p.w = 6; p.h = 6; p.life = 90;
           game.projectiles.push(p);
         }
@@ -259,14 +259,20 @@ class StoneShooter extends StoneConstruct {
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
     // Body
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#8b5e3c';
     ctx.fillRect(sx, sy, this.w, this.h);
+    // Top highlight
+    ctx.fillStyle = '#c8a878';
+    ctx.fillRect(sx, sy, this.w, 4);
     // Barrel
-    ctx.fillStyle = '#225522';
+    ctx.fillStyle = '#5a3a1a';
     const bx = this.facing > 0 ? sx + this.w - 2 : sx - 6;
     ctx.fillRect(bx, sy + this.h / 2 - 3, 8, 6);
+    // Barrel accent
+    ctx.fillStyle = '#b8864e';
+    ctx.fillRect(bx + 1, sy + this.h / 2 - 1, 6, 2);
     // Eye
-    ctx.fillStyle = '#aee6a3';
+    ctx.fillStyle = '#2e9e2e';
     ctx.fillRect(sx + (this.facing > 0 ? 12 : 6), sy + 8, 6, 6);
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
@@ -318,14 +324,14 @@ class StoneFlyer extends StoneConstruct {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage((3 * this.wave), game, this.x + this.w / 2);
         this.takeDamage(1);
-        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8d8', 8, 2, 10));
+        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#b8864e', 8, 2, 10));
         game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage((1 * this.wave), game);
       this.takeDamage(1);
-      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8d8', 10, 3, 12));
+      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#b8864e', 10, 3, 12));
       game.player.addUltimateCharge(2);
     }
     if (this.y > CANVAS_H + 100 || this.y < -400) this.done = true;
@@ -334,14 +340,21 @@ class StoneFlyer extends StoneConstruct {
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
     // Body
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#8b5e3c';
     ctx.fillRect(sx + 4, sy + 4, this.w - 8, this.h - 8);
+    // Highlight
+    ctx.fillStyle = '#c8a878';
+    ctx.fillRect(sx + 4, sy + 4, this.w - 8, 3);
     // Wings
-    ctx.fillStyle = '#6cb86c';
+    ctx.fillStyle = '#a0622a';
     ctx.fillRect(sx - 4, sy + 8, 6, this.h - 16);
     ctx.fillRect(sx + this.w - 2, sy + 8, 6, this.h - 16);
+    // Wing accents
+    ctx.fillStyle = '#b8864e';
+    ctx.fillRect(sx - 3, sy + 9, 4, 3);
+    ctx.fillRect(sx + this.w - 1, sy + 9, 4, 3);
     // Eye
-    ctx.fillStyle = '#aee6a3';
+    ctx.fillStyle = '#2e9e2e';
     ctx.fillRect(sx + this.w / 2 - 3, sy + 8, 6, 6);
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
@@ -386,7 +399,7 @@ class StoneDeflector extends StoneConstruct {
           p.owner = 'player';
           p.reflected = true;
           p.damage = Math.max(p.damage, (4 * this.wave));
-          game.effects.push(new Effect(p.x, p.y, '#8df', 8, 2, 10));
+          game.effects.push(new Effect(p.x, p.y, '#c8a878', 8, 2, 10));
         }
       }
     }
@@ -394,21 +407,27 @@ class StoneDeflector extends StoneConstruct {
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage((4 * this.wave), game, this.x + this.w / 2);
-        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8df', 10, 3, 12));
+        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#c8a878', 10, 3, 12));
         game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage((4 * this.wave), game);
-      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8df', 12, 3, 14));
+      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#c8a878', 12, 3, 14));
       game.player.addUltimateCharge(2);
     }
   }
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
     // Body
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#8b5e3c';
     ctx.fillRect(sx, sy, this.w, this.h);
+    // Top highlight
+    ctx.fillStyle = '#c8a878';
+    ctx.fillRect(sx, sy, this.w, 4);
+    // Bottom shadow
+    ctx.fillStyle = '#5a3a1a';
+    ctx.fillRect(sx, sy + this.h - 4, this.w, 4);
     // Katana
     ctx.save();
     const gx = this.facing > 0 ? sx + this.w - 2 : sx + 2;
@@ -419,24 +438,24 @@ class StoneDeflector extends StoneConstruct {
     ctx.fillRect(4, -1.5, 20, 3);
     ctx.fillStyle = '#aa8';
     ctx.fillRect(2, -3, 3, 6);
-    ctx.fillStyle = '#6cb86c';
+    ctx.fillStyle = '#b8864e';
     ctx.fillRect(-3, -2, 6, 4);
     ctx.restore();
     // Kasa hat
-    ctx.fillStyle = '#6cb86c';
+    ctx.fillStyle = '#2e9e2e';
     ctx.beginPath();
     ctx.moveTo(sx - 4, sy + 2);
     ctx.lineTo(sx + this.w / 2, sy - 10);
     ctx.lineTo(sx + this.w + 4, sy + 2);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#4a8a4a';
+    ctx.fillStyle = '#a0622a';
     ctx.fillRect(sx - 4, sy, this.w + 8, 2);
     // Deflect ready glow
     if (this.deflectReady) {
       ctx.save();
       ctx.globalAlpha = 0.2 + 0.1 * Math.sin(Date.now() * 0.008);
-      ctx.fillStyle = '#8df';
+      ctx.fillStyle = '#b8864e';
       ctx.beginPath();
       ctx.arc(gx, gy - 8, 12, 0, Math.PI * 2);
       ctx.fill();

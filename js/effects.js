@@ -288,16 +288,35 @@ class KanjiEffect {
     const alpha = this.life < 30 ? this.life / 30 : 1;
     const cx = this.sx;
     const cy = this.sy - progress * 20;
+
+    // Dark background overlay for contrast
+    const overlayAlpha = alpha * 0.4;
+    ctx.save();
+    ctx.globalAlpha = overlayAlpha;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - 80, cy - 60, 160, 120);
+    ctx.restore();
+
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = `bold ${Math.floor(60 * scale)}px serif`;
+    const fontSize = Math.floor(60 * scale);
+    ctx.font = `bold ${fontSize}px serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // Outer glow
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 25 + 10 * Math.sin(Date.now() * 0.01);
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.strokeText('死', cx, cy);
     ctx.fillStyle = this.color;
     ctx.fillText('死', cx, cy);
+    // Second pass for extra glow intensity
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.shadowBlur = 40;
+    ctx.fillText('死', cx, cy);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }
@@ -535,6 +554,190 @@ class SlamRing {
     ctx.beginPath();
     ctx.ellipse(sx, sy, this.radius * 0.7, this.radius * 0.25, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── SpinningScythe (orbiting scythe during shadow chain strike) ──
+class SpinningScythe {
+  constructor(owner, isUlt, game) {
+    this.owner = owner;
+    this.game = game;
+    this.sc = isUlt ? 1.5 : 1.2;
+    this.damage = owner.type.attackDamage + owner.bonusDamage;
+    // World position — starts offset from owner
+    const angle = Math.random() * Math.PI * 2;
+    this.x = owner.x + owner.w / 2 + Math.cos(angle) * 60;
+    this.y = owner.y + owner.h / 2 + Math.sin(angle) * 40;
+    // Hitbox size for collision
+    this.w = 48 * this.sc;
+    this.h = 48 * this.sc;
+    // Drift velocity — wanders on its own
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = (Math.random() - 0.5) * 1.5;
+    this.driftTimer = 0;
+    this.spinAngle = 0;
+    this.spinSpeed = 0.3;
+    this.done = false;
+    this.fadeAlpha = 1;
+    this.life = 180; // minimum 3 seconds at 60fps
+    this.chaining = true; // extends life while true
+    this.returning = false;
+    this.returnTimer = 0;
+    this.hitCooldowns = new Map(); // target -> frames until can hit again
+  }
+  recall() {
+    this.chaining = false;
+    // Don't start fading until minimum life expires
+  }
+  update() {
+    // While chaining, reset life to at least 180 so it persists
+    if (this.chaining) {
+      this.life = Math.max(this.life, 180);
+    } else {
+      this.life--;
+    }
+    // Start return fade in last 25 frames
+    if (!this.chaining && this.life <= 25) {
+      this.returning = true;
+      this.returnTimer = this.life;
+      this.fadeAlpha = Math.max(0, this.life / 25);
+      this.spinSpeed = 0.45;
+    }
+    if (this.life <= 0) { this.done = true; return; }
+
+    // Wander — change drift direction periodically
+    this.driftTimer--;
+    if (this.driftTimer <= 0) {
+      this.driftTimer = 30 + Math.random() * 40;
+      this.vx = (Math.random() - 0.5) * 3;
+      this.vy = (Math.random() - 0.5) * 2;
+    }
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Soft leash — gently pulled toward owner if too far
+    const ox = this.owner.x + this.owner.w / 2;
+    const oy = this.owner.y + this.owner.h / 2;
+    const dx = ox - this.x, dy = oy - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const leashDist = this.chaining ? 120 : 80;
+    if (dist > leashDist) {
+      const pull = 0.03 * (dist - leashDist) / dist;
+      this.vx += dx * pull;
+      this.vy += dy * pull;
+    }
+    // Dampen velocity
+    this.vx *= 0.97;
+    this.vy *= 0.97;
+
+    // Bob up and down slowly
+    this.y += Math.sin(Date.now() * 0.004) * 0.3;
+
+    this.spinAngle += this.spinSpeed;
+
+    // Hit detection — damage enemies and boss
+    // Hitbox centered on scythe position
+    const hb = { x: this.x - this.w / 2, y: this.y - this.h / 2, w: this.w, h: this.h };
+    // Tick down cooldowns
+    for (const [target, cd] of this.hitCooldowns) {
+      if (cd <= 1) this.hitCooldowns.delete(target);
+      else this.hitCooldowns.set(target, cd - 1);
+    }
+    const game = this.game;
+    if (game) {
+      for (const e of game.enemies) {
+        if (!e.dead && !this.hitCooldowns.has(e) && rectOverlap(hb, e)) {
+          e.takeDamage(this.damage, game, this.x);
+          this.hitCooldowns.set(e, 20);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 8, 3, 10));
+          triggerHitstop(2);
+        }
+      }
+      if (game.boss && !game.boss.dead && !this.hitCooldowns.has(game.boss) && rectOverlap(hb, game.boss)) {
+        game.boss.takeDamage(this.damage, game, this.x);
+        this.hitCooldowns.set(game.boss, 20);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', 10, 4, 12));
+        triggerHitstop(2);
+      }
+    }
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const px = this.x - cam.x;
+    const py = this.y - cam.y;
+    const sc = this.sc;
+    const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.008);
+    ctx.save();
+    ctx.globalAlpha = 0.9 * this.fadeAlpha;
+    ctx.translate(px, py);
+    ctx.rotate(this.spinAngle);
+    // Purple spin trail
+    ctx.globalAlpha = 0.12 * this.fadeAlpha;
+    ctx.fillStyle = '#a040ff';
+    ctx.shadowColor = '#c060ff';
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(0, 0, 30 * sc, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.9 * this.fadeAlpha;
+    // Handle
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath();
+    ctx.moveTo(-20 * sc, -2);
+    ctx.lineTo(20 * sc, -1);
+    ctx.lineTo(20 * sc, 1);
+    ctx.lineTo(-20 * sc, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Grip wraps
+    ctx.fillStyle = '#6a2a8a';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-14 + i * 9, -2.5, 4, 5);
+    }
+    // Blade 1
+    ctx.fillStyle = '#ddd';
+    ctx.shadowColor = '#a040ff';
+    ctx.shadowBlur = 14 * pulse;
+    ctx.beginPath();
+    ctx.moveTo(18 * sc, -2);
+    ctx.bezierCurveTo(28 * sc, -10 * sc, 32 * sc, -24 * sc, 20 * sc, -36 * sc);
+    ctx.bezierCurveTo(16 * sc, -22 * sc, 18 * sc, -11 * sc, 18 * sc, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(160,64,255,0.35)';
+    ctx.fill();
+    // Blade 2 (opposite)
+    ctx.fillStyle = '#ddd';
+    ctx.beginPath();
+    ctx.moveTo(-18 * sc, 2);
+    ctx.bezierCurveTo(-28 * sc, 10 * sc, -32 * sc, 24 * sc, -20 * sc, 36 * sc);
+    ctx.bezierCurveTo(-16 * sc, 22 * sc, -18 * sc, 11 * sc, -18 * sc, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(160,64,255,0.35)';
+    ctx.fill();
+    // Edge glow
+    ctx.strokeStyle = '#c080ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(18 * sc, -2);
+    ctx.bezierCurveTo(28 * sc, -10 * sc, 32 * sc, -24 * sc, 20 * sc, -36 * sc);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-18 * sc, 2);
+    ctx.bezierCurveTo(-28 * sc, 10 * sc, -32 * sc, 24 * sc, -20 * sc, 36 * sc);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Center gem
+    ctx.fillStyle = '#c060ff';
+    ctx.shadowColor = '#e080ff';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.5 * sc, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }

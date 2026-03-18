@@ -796,22 +796,40 @@ class Game {
 
     // ── Ultimate cutscene / active rendering ──
 
-    // Storm lightning flash (end of chain)
+    // Storm lightning flash (end of chain or sheath finisher)
     if (this.player.stormLightningFlash > 0) {
       this.player.stormLightningFlash--;
       const f = this.player.stormLightningFlash;
-      if (f >= 30 && f <= 33) {
-        ctx.save();
-        ctx.globalAlpha = 0.15;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.restore();
-      } else if (f >= 1 && f <= 22) {
-        ctx.save();
-        ctx.globalAlpha = 0.15 * (f / 22);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.restore();
+      const isFinisher = this.player.stormSheathFinisher > 0;
+      if (isFinisher) {
+        // Big finisher flash
+        if (f > 45) {
+          ctx.save();
+          ctx.globalAlpha = Math.min(0.6, (f - 45) / 15 * 0.6);
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          ctx.restore();
+        } else if (f > 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.3 * (f / 45);
+          ctx.fillStyle = '#ffa';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          ctx.restore();
+        }
+      } else {
+        if (f >= 30 && f <= 33) {
+          ctx.save();
+          ctx.globalAlpha = 0.15;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          ctx.restore();
+        } else if (f >= 1 && f <= 22) {
+          ctx.save();
+          ctx.globalAlpha = 0.15 * (f / 22);
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          ctx.restore();
+        }
       }
     }
 
@@ -1252,6 +1270,166 @@ class Game {
       ctx.globalAlpha = 0.08 + 0.04 * Math.sin(pl.statusSteel * 0.15);
       ctx.fillStyle = '#999';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+
+    // Storm: sheathing sword during ult chain strike
+    if (pl.stormSheathActive || pl.stormSheathFinisher > 0) {
+      const hits = pl.stormSheathHits;
+      const maxHits = 20;
+      // sheathProgress: 0 = fully drawn, 1 = fully sheathed
+      const sheathProgress = pl.stormSheathFinisher > 0 ? 1 : Math.min(hits / maxHits, 0.95);
+      const finisher = pl.stormSheathFinisher;
+
+      ctx.save();
+
+      // Sword position — right side of screen
+      const swordX = CANVAS_W - 120;
+      const swordY = CANVAS_H / 2 - 80;
+      const swordLen = 240;
+      const sheathLen = 200;
+
+      // Dim background slightly during sheath
+      if (pl.stormSheathActive) {
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = '#001';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      }
+
+      // Finisher: bright flash + full dark overlay
+      if (finisher > 0) {
+        const fProg = finisher / 90;
+        // Dark overlay
+        ctx.globalAlpha = 0.6 * fProg;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        // White lightning flash at start
+        if (finisher > 70) {
+          ctx.globalAlpha = (finisher - 70) / 20;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
+      }
+
+      ctx.globalAlpha = pl.stormSheathFinisher > 0 ? Math.min(1, pl.stormSheathFinisher / 15) : 0.9;
+
+      // Scabbard (always visible)
+      ctx.save();
+      ctx.translate(swordX, swordY);
+      ctx.rotate(0.2); // slight tilt
+      // Scabbard body
+      const grad = ctx.createLinearGradient(0, 0, 0, sheathLen);
+      grad.addColorStop(0, '#1a1a3a');
+      grad.addColorStop(0.5, '#2a2a5a');
+      grad.addColorStop(1, '#1a1a3a');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(-10, 40, 20, sheathLen, 4);
+      ctx.fill();
+      // Scabbard mouth (koiguchi)
+      ctx.fillStyle = '#fd0';
+      ctx.fillRect(-12, 36, 24, 8);
+      // Scabbard tip (kojiri)
+      ctx.fillStyle = '#fd0';
+      ctx.beginPath();
+      ctx.arc(0, 40 + sheathLen, 8, 0, Math.PI);
+      ctx.fill();
+      // Gold bands
+      ctx.fillStyle = '#ca0';
+      ctx.fillRect(-11, 80, 22, 4);
+      ctx.fillRect(-11, 160, 22, 4);
+
+      // Blade — slides into scabbard based on progress
+      const bladeOut = swordLen * (1 - sheathProgress); // how much sticks out
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(-20, -swordLen + (swordLen - bladeOut) - 5, 40, bladeOut + 50);
+      ctx.clip();
+
+      // Blade
+      const pulseGlow = 0.6 + 0.4 * Math.sin(Date.now() * 0.01);
+      ctx.shadowColor = '#4af';
+      ctx.shadowBlur = 12 * pulseGlow;
+      const bladeGrad = ctx.createLinearGradient(0, -swordLen + 40, 0, 40);
+      bladeGrad.addColorStop(0, '#eef');
+      bladeGrad.addColorStop(0.3, '#cde');
+      bladeGrad.addColorStop(1, '#aac');
+      ctx.fillStyle = bladeGrad;
+      ctx.beginPath();
+      ctx.moveTo(-1, -swordLen + 40); // tip
+      ctx.lineTo(-7, -swordLen + 70);
+      ctx.lineTo(-7, 36);
+      ctx.lineTo(7, 36);
+      ctx.lineTo(7, -swordLen + 70);
+      ctx.lineTo(1, -swordLen + 40);
+      ctx.closePath();
+      ctx.fill();
+      // Edge highlight
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(0, -swordLen + 42);
+      ctx.lineTo(-6, -swordLen + 70);
+      ctx.lineTo(-6, 34);
+      ctx.stroke();
+      ctx.globalAlpha = pl.stormSheathFinisher > 0 ? Math.min(1, pl.stormSheathFinisher / 15) : 0.9;
+      // Lightning crackling along blade
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#ff0';
+      ctx.shadowBlur = 8;
+      ctx.globalAlpha = 0.7 * pulseGlow;
+      ctx.beginPath();
+      let ly = -swordLen + 60;
+      ctx.moveTo(0, ly);
+      while (ly < 30) {
+        ly += 8 + Math.random() * 12;
+        const lx = (Math.random() - 0.5) * 10;
+        ctx.lineTo(lx, Math.min(ly, 30));
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore(); // clip restore
+
+      // Tsuba (guard) — sits at sheath mouth
+      ctx.globalAlpha = pl.stormSheathFinisher > 0 ? Math.min(1, pl.stormSheathFinisher / 15) : 0.9;
+      ctx.fillStyle = '#fd0';
+      ctx.shadowColor = '#ff0';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(-16, 30, 32, 6);
+      ctx.shadowBlur = 0;
+
+      // Handle (tsuka) — above guard
+      ctx.fillStyle = '#24c';
+      ctx.fillRect(-8, 0, 16, 32);
+      // Wrap pattern
+      ctx.fillStyle = '#fd0';
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(-7, 2 + i * 6, 14, 2);
+      }
+      // Pommel (kashira)
+      ctx.fillStyle = '#fd0';
+      ctx.beginPath();
+      ctx.arc(0, -2, 9, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore(); // translate restore
+
+      // Hit counter
+      if (pl.stormSheathActive) {
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.font = 'bold 20px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = hits >= 20 ? '#fd0' : '#4af';
+        ctx.shadowColor = hits >= 20 ? '#fd0' : '#4af';
+        ctx.shadowBlur = 10;
+        ctx.fillText(`${hits}/${maxHits}`, swordX, swordY + sheathLen + 80);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
       ctx.restore();
     }
 

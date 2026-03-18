@@ -79,6 +79,7 @@ class Player {
     this.wasInAir = false;
     this.shadowLandTimer = 0;
     this.chainStriking = false;
+    this._spinScythe = null;
     this.chainTargets = [];
     this.chainTimer = 0;
     this.chainLastHit = null;
@@ -113,6 +114,9 @@ class Player {
     this.stormAfterimages = [];
     this.stormRaindrops = []; // rain visual during ultimate
     this.stormLightningFlash = 0;
+    this.stormSheathHits = 0;     // chain hit counter during ult
+    this.stormSheathActive = false; // sheathing sword visible
+    this.stormSheathFinisher = 0;  // finisher animation timer
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -439,6 +443,7 @@ class Player {
     this.backstabReady = false;
     this.shadowStealth = 0;
     this.chainStriking = false;
+    if (this._spinScythe) { this._spinScythe.recall(); this._spinScythe = null; }
     this.parrying = false;
     this.parryCombo = 0;
     this.parryComboTimer = 0;
@@ -1196,8 +1201,11 @@ class Player {
       // Ground shockwave ring (SlamRing effect)
       game.effects.push(new SlamRing(slamCX, slamCY, slamColor, slamAccent));
 
-      // Earth: spawn ground spikes around slam point
+      // Earth: destroy existing constructs, then spawn ground spikes
       if (this.ninjaType === 'earth') {
+        for (const b of game.stoneBlocks) {
+          if (!b.done) b.explode(game);
+        }
         const spikeCount = 3;
         for (let i = 0; i < spikeCount; i++) {
           const offset = (i - Math.floor(spikeCount / 2)) * TILE;
@@ -1465,6 +1473,8 @@ class Player {
                   this.chainStriking = true;
                   this.chainTimer = 6;
                   this.chainLastHit = e;
+                  this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
+                  game.effects.push(this._spinScythe);
                 }
                 this.backstabReady = false;
                 this.shadowStealth = 0;
@@ -1511,6 +1521,10 @@ class Player {
               this.stormChainTimer = 4;
               this.stormChainHit = new Set();
               this.stormChainHit.add(e);
+              if (this.ultimateActive) {
+                this.stormSheathActive = true;
+                this.stormSheathHits = 1;
+              }
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 15, 5, 15));
               SFX.backstab();
             }
@@ -1570,6 +1584,8 @@ class Player {
               this.chainStriking = true;
               this.chainTimer = 6;
               this.chainLastHit = game.boss;
+              this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
+              game.effects.push(this._spinScythe);
             }
             this.backstabReady = false;
             this.shadowStealth = 0;
@@ -1602,6 +1618,10 @@ class Player {
             this.stormChainTimer = 4;
             this.stormChainHit = new Set();
             this.stormChainHit.add(game.boss);
+            if (this.ultimateActive) {
+              this.stormSheathActive = true;
+              this.stormSheathHits = 1;
+            }
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 15, 5, 15));
             SFX.backstab();
           }
@@ -1722,6 +1742,7 @@ class Player {
               game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.chainStriking = false;
+              if (this._spinScythe) { this._spinScythe.recall(); this._spinScythe = null; }
               for (const a of this.afterimages) { if (a.chain) a.life = 20; }
               this.backstabReady = false;
               this.shadowStealth = 0;
@@ -1756,6 +1777,7 @@ class Player {
           // Already stopped by resist
         } else {
           this.chainStriking = false;
+          if (this._spinScythe) { this._spinScythe.recall(); this._spinScythe = null; }
           // Start fading chain afterimages now
           for (const a of this.afterimages) { if (a.chain) a.life = 20; }
           this.backstabReady = false;
@@ -1820,6 +1842,13 @@ class Player {
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
           this.stormChainTimer = 4;
+          // Storm ult sheath tracking
+          if (this.ultimateActive && this.stormSheathActive) {
+            this.stormSheathHits++;
+            if (this.stormSheathHits >= 20) {
+              this._stormSheathFinisher(game);
+            }
+          }
         } else if (!this.stormChaining) {
           // Already stopped by resist
         } else {
@@ -1875,6 +1904,13 @@ class Player {
             triggerHitstop(3);
             this.invincibleTimer = Math.max(this.invincibleTimer, 8);
             this.stormChainTimer = 4;
+            // Storm ult sheath tracking
+            if (this.ultimateActive && this.stormSheathActive) {
+              this.stormSheathHits++;
+              if (this.stormSheathHits >= 20) {
+                this._stormSheathFinisher(game);
+              }
+            }
           } else if (!this.stormChaining) {
             // Already stopped by resist
           } else {
@@ -1892,6 +1928,13 @@ class Player {
         a.life--;
         return a.life > 0;
       });
+      // Storm sheath finisher animation timer
+      if (this.stormSheathFinisher > 0) this.stormSheathFinisher--;
+      // Reset sheath when chain ends without finishing
+      if (!this.stormChaining && this.stormSheathActive) {
+        this.stormSheathActive = false;
+        this.stormSheathHits = 0;
+      }
     }
 
     // Shadow ninja: stealth accumulation
@@ -2126,16 +2169,18 @@ class Player {
 
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
+    this._scytheAttack = shadowFullStealth || shadowUltBonus; // remember for render
     const stormReach = this.ninjaType === 'storm' ? 40 : 0;
-    const reach = stormReach || (shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 36));
-    const vertExtra = shadowUltBonus ? 20 : (shadowFullStealth ? 10 : (stormReach ? 6 : 0));
-    const upReach = reach * 0.6; // arc covers above the player too
-    // Hitbox starts at the player's front edge, matching the sword arc, extends above
+    const reach = stormReach || (shadowUltBonus ? 95 : (shadowFullStealth ? 68 : 36));
+    const vertExtra = shadowUltBonus ? 28 : (shadowFullStealth ? 18 : (stormReach ? 6 : 0));
+    const upReach = reach * (this._scytheAttack ? 0.75 : 0.6); // scythe arc curves higher
+    const downReach = reach * (this._scytheAttack ? 0.4 : 0.3); // scythe sweeps lower too
+    // Hitbox starts at the player's front edge, matching the sword arc, extends above and below
     this.attackBox = {
       x: this.facing > 0 ? this.x : this.x - reach,
       y: this.y - upReach - vertExtra,
       w: reach + this.w,
-      h: this.h + upReach + vertExtra
+      h: this.h + upReach + vertExtra + downReach
     };
     game.effects.push(new Effect(
       this.attackBox.x + (this.facing > 0 ? reach / 2 : reach / 2),
@@ -2166,6 +2211,31 @@ class Player {
         color: this.type.accentColor
       });
     }
+  }
+
+  _stormSheathFinisher(game) {
+    this.stormSheathActive = false;
+    this.stormSheathFinisher = 90; // 1.5 second finisher animation
+    this.stormChaining = false;
+    for (const a of this.stormAfterimages) a.life = 15;
+    this.stormLightningFlash = 60;
+    SFX.bossSpawn();
+    triggerHitstop(12);
+    // Kill all enemies on screen
+    for (const e of game.enemies) {
+      if (!e.dead) {
+        e.takeDamage(99999, game, e.x + e.w / 2);
+        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 20, 6, 18));
+      }
+    }
+    // Hit boss for massive damage
+    if (game.boss && !game.boss.dead) {
+      game.boss.takeDamage(99999, game, game.boss.x + game.boss.w / 2);
+      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 30, 8, 25));
+    }
+    // Single centered gold kanji
+    game.effects.push(new KanjiEffect(this.x + this.w / 2, this.y + this.h / 2, '#fd0', game.camera));
+    this.invincibleTimer = Math.max(this.invincibleTimer, 90);
   }
 
   _launchFireball(game) {
@@ -2622,6 +2692,44 @@ class Player {
       if (this.shadowLandTimer > 0) {
         shadowAlpha = Math.max(shadowAlpha, 0.25 * (this.shadowLandTimer / 12));
       }
+
+      // Gradual eye glow — scales with stealth level
+      if (stealthRatio > 0.15) {
+        const glowStr = Math.min((stealthRatio - 0.15) / 0.85, 1); // 0→1 from 15%→100% stealth
+        const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.006);
+        const pulse2 = 0.6 + 0.4 * Math.sin(Date.now() * 0.009 + 1);
+        const eyeX = this.facing > 0 ? sx + 14 : sx + 4;
+        ctx.save();
+        // Outer eye glow halo
+        ctx.globalAlpha = pulse * 0.3 * glowStr;
+        ctx.fillStyle = '#a040ff';
+        ctx.shadowColor = '#c060ff';
+        ctx.shadowBlur = 20 * pulse * glowStr;
+        ctx.beginPath();
+        ctx.arc(eyeX + 3, sy + 10.5, 4 + 2 * glowStr, 0, Math.PI * 2);
+        ctx.fill();
+        // Main eye
+        ctx.globalAlpha = pulse * glowStr;
+        ctx.shadowBlur = 14 * pulse * glowStr;
+        ctx.fillStyle = '#e080ff';
+        ctx.fillRect(eyeX, sy + 8, 6, 5);
+        // Inner glow (only at higher stealth)
+        if (glowStr > 0.5) {
+          ctx.globalAlpha = pulse2 * 0.6 * glowStr;
+          ctx.fillStyle = '#d060ff';
+          ctx.shadowBlur = 8 * glowStr;
+          ctx.fillRect(eyeX + 1, sy + 9, 4, 3);
+        }
+        // Bright pupil
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = pulse * 0.95 * glowStr;
+        ctx.shadowColor = '#fff';
+        ctx.shadowBlur = 4 * glowStr;
+        ctx.fillRect(this.facing > 0 ? eyeX + 2 : eyeX + 1, sy + 9, 3, 3);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
       if (shadowAlpha <= 0.01) {
         ctx.globalAlpha = 1;
         if (this.backstabReady) {
@@ -2629,15 +2737,55 @@ class Player {
           ctx.font = '10px monospace';
           ctx.fillText('BACKSTAB!', sx - 8, sy - 8);
         }
-        if (this.attacking && this.attackBox) {
-          ctx.globalAlpha = 0.3;
-          ctx.fillStyle = this.type.accentColor;
-          ctx.fillRect(this.attackBox.x - cam.x, this.attackBox.y - cam.y, this.attackBox.w, this.attackBox.h);
-          ctx.globalAlpha = 1;
+        // Faint scythe silhouette when backstab ready (not attacking)
+        if (this.backstabReady && !this.attacking) {
+          const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.006);
+          const pulse2 = 0.6 + 0.4 * Math.sin(Date.now() * 0.009 + 1);
+          ctx.save();
+          ctx.globalAlpha = 0.25 * pulse;
+          ctx.translate(sx + this.w / 2, sy + this.h / 2);
+          if (this.facing < 0) ctx.scale(-1, 1);
+          ctx.rotate(0.15);
+          ctx.strokeStyle = '#c060ff';
+          ctx.lineWidth = 1.5;
+          ctx.shadowColor = '#a040ff';
+          ctx.shadowBlur = 10 * pulse;
+          ctx.beginPath();
+          ctx.moveTo(-8, -1);
+          ctx.lineTo(42, 3);
+          ctx.stroke();
+          ctx.fillStyle = '#c060ff';
+          ctx.globalAlpha = 0.15 * pulse2;
+          for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc(6 + i * 14, 0.5 + i * 0.4, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 0.25 * pulse;
+          ctx.strokeStyle = '#d080ff';
+          ctx.lineWidth = 2;
+          ctx.shadowBlur = 12 * pulse;
+          ctx.beginPath();
+          ctx.moveTo(40, 1);
+          ctx.bezierCurveTo(52, -10, 56, -24, 44, -38);
+          ctx.stroke();
+          ctx.strokeStyle = '#e0a0ff';
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.15 * pulse2;
+          ctx.beginPath();
+          ctx.moveTo(38, -1);
+          ctx.bezierCurveTo(46, -10, 48, -20, 40, -32);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.restore();
         }
-        return;
+        // When attacking or chain striking while fully stealthed, don't return — let weapon rendering happen below
+        if (!this.attacking && !this.chainStriking) return;
+        // Set low alpha for body but weapon will render at full
+        ctx.globalAlpha = 0.05;
+      } else {
+        ctx.globalAlpha = shadowAlpha;
       }
-      ctx.globalAlpha = shadowAlpha;
     }
 
     // Blink when invincible
@@ -2908,83 +3056,163 @@ class Player {
 
     ctx.globalAlpha = 1;
 
-    // Attack — katana moon slash
+    // Attack — katana moon slash (or shadow scythe in stealth)
     if (this.attacking && this.attackBox) {
       const slashProgress = 1 - this.attackTimer / 12;
       const cx = sx + this.w / 2;
       const cy = sy + this.h / 2;
       const dir = this.facing;
+      const isScythe = !!this._scytheAttack;
+      const isShadowUlt = this.ninjaType === 'shadow' && this.shadowUltBuff;
 
-      // Katana blade swinging
+      // Weapon swinging
       ctx.save();
       ctx.translate(cx, cy);
       if (dir < 0) ctx.scale(-1, 1);
-      const startA = -Math.PI * 0.65;
-      const sweep = Math.PI * 1.0;
+      const startA = isScythe ? -Math.PI * 0.8 : -Math.PI * 0.65;
+      const sweep = isScythe ? Math.PI * 1.4 : Math.PI * 1.0;
       const curA = startA + sweep * slashProgress;
       ctx.rotate(curA);
 
-      // Blade
-      const isLightning = this.ninjaType === 'storm';
-      ctx.fillStyle = isLightning ? '#ff0' : '#dde';
-      if (isLightning) { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 8; }
-      ctx.beginPath();
-      ctx.moveTo(6, -1.5);
-      ctx.lineTo(32, -0.8);
-      ctx.lineTo(36, 0);
-      ctx.lineTo(32, 0.8);
-      ctx.lineTo(6, 1.5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = isLightning ? '#ff8' : '#fff';
-      ctx.lineWidth = 0.7;
-      ctx.beginPath();
-      ctx.moveTo(8, -1);
-      ctx.lineTo(34, 0);
-      ctx.stroke();
-      if (isLightning) ctx.shadowBlur = 0;
-      // Tsuba
-      ctx.fillStyle = '#aa8';
-      ctx.fillRect(4, -3.5, 3, 7);
-      // Handle
-      ctx.fillStyle = t.accentColor;
-      ctx.fillRect(-5, -2, 10, 4);
-      ctx.fillStyle = '#222';
-      for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 3, -2, 1, 4);
+      if (isScythe) {
+        // Scythe weapon — large, visible
+        const sc = isShadowUlt ? 1.5 : 1.2;
+        // Long handle (thick, visible)
+        ctx.fillStyle = '#2a2a2a';
+        ctx.beginPath();
+        ctx.moveTo(-8, -2.5);
+        ctx.lineTo(40 * sc, -1.5);
+        ctx.lineTo(40 * sc, 1.5);
+        ctx.lineTo(-8, 2.5);
+        ctx.closePath();
+        ctx.fill();
+        // Handle highlight
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.moveTo(-8, -2.5);
+        ctx.lineTo(40 * sc, -1.5);
+        ctx.lineTo(40 * sc, 0);
+        ctx.lineTo(-8, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Purple grip wraps
+        ctx.fillStyle = '#a4e';
+        for (let i = 0; i < 4; i++) {
+          ctx.fillRect(1 + i * 9, -3, 5, 6);
+        }
+        ctx.fillStyle = '#726';
+        for (let i = 0; i < 4; i++) {
+          ctx.fillRect(2 + i * 9, -2.5, 3, 5);
+        }
+        // Blade — big crescent scythe head
+        ctx.save();
+        ctx.translate(38 * sc, 0);
+        // Outer blade shape (large curved blade)
+        ctx.beginPath();
+        ctx.moveTo(2, -3);
+        ctx.bezierCurveTo(16 * sc, -10 * sc, 20 * sc, -24 * sc, 6 * sc, -38 * sc);
+        ctx.lineTo(2 * sc, -36 * sc);
+        ctx.bezierCurveTo(12 * sc, -22 * sc, 10 * sc, -10 * sc, -2, -5);
+        ctx.closePath();
+        ctx.fillStyle = '#e0d0f8';
+        ctx.shadowColor = '#c060ff';
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        // Inner blade darker fill for depth
+        ctx.beginPath();
+        ctx.moveTo(0, -4);
+        ctx.bezierCurveTo(10 * sc, -12 * sc, 14 * sc, -22 * sc, 4 * sc, -34 * sc);
+        ctx.lineTo(3 * sc, -32 * sc);
+        ctx.bezierCurveTo(10 * sc, -20 * sc, 8 * sc, -12 * sc, -1, -6);
+        ctx.closePath();
+        ctx.fillStyle = '#b898d8';
+        ctx.fill();
+        // Sharp edge highlight
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.9;
+        ctx.beginPath();
+        ctx.moveTo(2, -3);
+        ctx.bezierCurveTo(16 * sc, -10 * sc, 20 * sc, -24 * sc, 6 * sc, -38 * sc);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Pommel gem
+        ctx.fillStyle = '#c060ff';
+        ctx.shadowColor = '#a040ff';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(-8, 0, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else {
+        // Katana blade
+        const isLightning = this.ninjaType === 'storm';
+        ctx.fillStyle = isLightning ? '#ff0' : '#dde';
+        if (isLightning) { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 8; }
+        ctx.beginPath();
+        ctx.moveTo(6, -1.5);
+        ctx.lineTo(32, -0.8);
+        ctx.lineTo(36, 0);
+        ctx.lineTo(32, 0.8);
+        ctx.lineTo(6, 1.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = isLightning ? '#ff8' : '#fff';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(8, -1);
+        ctx.lineTo(34, 0);
+        ctx.stroke();
+        if (isLightning) ctx.shadowBlur = 0;
+        // Tsuba
+        ctx.fillStyle = '#aa8';
+        ctx.fillRect(4, -3.5, 3, 7);
+        // Handle
+        ctx.fillStyle = t.accentColor;
+        ctx.fillRect(-5, -2, 10, 4);
+        ctx.fillStyle = '#222';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 3, -2, 1, 4);
+      }
       ctx.restore();
 
-      // Moon / crescent slash trail — sized to attack hitbox
+      // Moon / crescent slash trail — sized to attack hitbox (bigger for scythe)
       ctx.save();
       ctx.translate(cx, cy);
       if (dir < 0) ctx.scale(-1, 1);
       const abW = this.attackBox.w;
       const abH = this.attackBox.h;
-      const outerR = Math.max(abW, abH / 2) + 8;
-      const innerR = outerR - 10 - abW * 0.15;
+      const scytheBonus = isScythe ? (isShadowUlt ? 20 : 12) : 0;
+      const outerR = Math.max(abW, abH / 2) + 8 + scytheBonus;
+      const innerR = outerR - (isScythe ? 16 : 10) - abW * 0.15;
       const offsetX = -outerR * 0.2;
       const offsetY = -outerR * 0.1;
       const aStart = startA + sweep * Math.max(0, slashProgress - 0.5);
       const aEnd = startA + sweep * slashProgress;
       // Glow layer
-      ctx.globalAlpha = 0.25 * (1 - slashProgress * 0.6);
+      ctx.globalAlpha = (isScythe ? 0.35 : 0.25) * (1 - slashProgress * 0.6);
       ctx.beginPath();
       ctx.arc(0, 0, outerR + 4, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, Math.max(innerR - 4, 6), aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = t.color;
+      ctx.fillStyle = isScythe ? '#a040ff' : t.color;
       ctx.fill();
       // Main crescent
-      const moonAlpha = 0.6 * (1 - slashProgress * 0.6);
+      const moonAlpha = (isScythe ? 0.7 : 0.6) * (1 - slashProgress * 0.6);
       ctx.globalAlpha = moonAlpha;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, innerR, aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = t.accentColor;
+      ctx.fillStyle = isScythe ? '#c8a0ff' : t.accentColor;
       ctx.fill();
       // Bright edge on the outer rim
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = isScythe ? '#e8d8ff' : '#fff';
+      ctx.lineWidth = isScythe ? 2 : 1.5;
       ctx.globalAlpha = moonAlpha * 0.8;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
