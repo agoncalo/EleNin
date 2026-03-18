@@ -891,61 +891,286 @@ class Game {
       }
     }
 
-    // Earth ultimate: render golem mecha
+    // Earth ultimate: render golem mecha — LoL silhouette (big shoulders + huge L-forearms, small body)
     if (this.player.earthGolem) {
       const g = this.player.earthGolem;
       const gx = g.x - cam.x;
       const gy = g.y - cam.y;
-      // Hover glow
+      const t = this.tick || 0;
+      const facing = g.facing;
+      const cx = gx + g.w / 2;
+      const cy = gy + g.h / 2;
+      // Shading palette
+      const li = '#c8a878';
+      const mi = '#8b6340';
+      const dk = '#5a3a1a';
+      const vdk = '#3a200e';
+
+      const bevel = (bx, by, bw, bh, col, bs) => {
+        bs = bs || 2;
+        ctx.fillStyle = col || mi;
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = li; ctx.globalAlpha = 0.4;
+        ctx.fillRect(bx, by, bw, bs);
+        ctx.fillRect(bx, by, bs, bh);
+        ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+        ctx.fillRect(bx, by + bh - bs, bw, bs);
+        ctx.fillRect(bx + bw - bs, by, bs, bh);
+        ctx.globalAlpha = 1;
+      };
+
+      // === HOVER SHADOW ===
       ctx.save();
-      ctx.globalAlpha = 0.2;
-      ctx.fillStyle = '#a87040';
-      ctx.fillRect(gx - 4, gy + g.h - 6, g.w + 8, 8);
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.ellipse(cx, gy + g.h + 4, g.w * 0.7, 6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#2a1508';
+      ctx.fill();
       ctx.restore();
-      // Body
-      ctx.fillStyle = '#6b4226';
-      ctx.fillRect(gx + 8, gy + 20, g.w - 16, g.h - 24);
-      // Shoulders
-      ctx.fillStyle = '#8b5e3c';
-      ctx.fillRect(gx, gy + 16, g.w, 20);
-      // Head
-      ctx.fillStyle = '#9a6e4c';
-      ctx.fillRect(gx + 18, gy, 28, 20);
-      // Eyes
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(gx + 22 + (g.facing > 0 ? 8 : 0), gy + 6, 6, 6);
-      ctx.fillRect(gx + 32 + (g.facing > 0 ? 4 : -4), gy + 6, 6, 6);
-      // Arms
-      ctx.fillStyle = '#8b5e3c';
-      const armOffsetX = g.punchTimer > 0 ? g.facing * 20 : 0;
-      const armLx = gx - 12 + (g.facing < 0 ? armOffsetX : 0);
-      const armRx = gx + g.w + (g.facing > 0 ? armOffsetX : 0);
-      ctx.fillRect(armLx, gy + 24, 14, 28);
-      ctx.fillRect(armRx, gy + 24, 14, 28);
+
+      // === THRUSTER GLOW (at waist level) ===
+      const waistY = gy + g.h * 0.55;
+      ctx.save();
+      ctx.globalAlpha = 0.4 + Math.sin(t * 0.15) * 0.12;
+      const thrG = ctx.createRadialGradient(cx, waistY, 4, cx, waistY, 30);
+      thrG.addColorStop(0, '#ff8');
+      thrG.addColorStop(0.4, '#f80');
+      thrG.addColorStop(1, 'transparent');
+      ctx.fillStyle = thrG;
+      ctx.fillRect(cx - 24, waistY - 8, 48, 20);
+      for (let i = 0; i < 4; i++) {
+        ctx.globalAlpha = 0.25 + Math.random() * 0.25;
+        ctx.fillStyle = i % 2 ? '#ff6' : '#f84';
+        ctx.fillRect(cx - 16 + Math.random() * 32, waistY + Math.random() * 10, 2 + Math.random() * 3, 2 + Math.random() * 4);
+      }
+      ctx.restore();
+
+      // === TORSO — compact "o" body ===
+      const tW = 40, tH = 50;
+      const tX = cx - tW / 2;
+      const tY = gy + 22;
+      // Main body
+      const bodyG = ctx.createLinearGradient(tX, tY, tX + tW, tY + tH);
+      bodyG.addColorStop(0, '#8b6340');
+      bodyG.addColorStop(0.5, '#6b4226');
+      bodyG.addColorStop(1, '#4a2e14');
+      ctx.fillStyle = bodyG;
+      ctx.fillRect(tX, tY, tW, tH);
+      // Bevels
+      ctx.fillStyle = li; ctx.globalAlpha = 0.4;
+      ctx.fillRect(tX, tY, tW, 2);
+      ctx.fillRect(tX, tY, 2, tH);
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+      ctx.fillRect(tX, tY + tH - 2, tW, 2);
+      ctx.fillRect(tX + tW - 2, tY, 2, tH);
+      ctx.globalAlpha = 1;
+      // Chest plate
+      bevel(tX + 5, tY + 4, tW - 10, 20, '#9a7050', 2);
+      // Center ridge
+      ctx.fillStyle = li; ctx.globalAlpha = 0.35;
+      ctx.fillRect(cx - 1, tY + 5, 2, 18);
+      ctx.globalAlpha = 1;
+      // Chest vents
+      ctx.fillStyle = vdk;
+      ctx.fillRect(tX + 7, tY + 8, 5, 10);
+      ctx.fillRect(tX + tW - 12, tY + 8, 5, 10);
+      ctx.fillStyle = '#2a8';
+      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 8;
+      ctx.fillRect(tX + 8, tY + 9, 3, 8);
+      ctx.fillRect(tX + tW - 11, tY + 9, 3, 8);
+      ctx.shadowBlur = 0;
+      // Armor seams
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+      ctx.fillRect(tX + 2, tY + 26, tW - 4, 1);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.25;
+      ctx.fillRect(tX + 2, tY + 27, tW - 4, 1);
+      ctx.globalAlpha = 1;
+      // Bottom plate
+      bevel(tX + 2, tY + tH - 10, tW - 4, 10, '#7a5a3a', 2);
+      // Thruster vents
+      ctx.fillStyle = vdk;
+      ctx.fillRect(tX + 8, tY + tH - 6, 7, 4);
+      ctx.fillRect(tX + tW - 15, tY + tH - 6, 7, 4);
+      ctx.fillStyle = '#f80'; ctx.globalAlpha = 0.35 + Math.sin(t * 0.2) * 0.1;
+      ctx.fillRect(tX + 9, tY + tH - 5, 5, 2);
+      ctx.fillRect(tX + tW - 14, tY + tH - 5, 5, 2);
+      ctx.globalAlpha = 1;
+
+      // === SHOULDERS — massive, wider than body ===
+      const shW = 32, shH = 22;
+      const shY = gy + 12;
+      // Left shoulder
+      const lshX = tX - shW + 4;
+      bevel(lshX, shY, shW, shH, '#8b5e3c', 2);
+      // Shoulder plate ridge
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(lshX + 4, shY + 4, shW - 8, 3);
+      ctx.globalAlpha = 1;
+      // AO under shoulder
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.35;
+      ctx.fillRect(lshX + 2, shY + shH, shW - 4, 3);
+      ctx.globalAlpha = 1;
+      // Shoulder gem
+      ctx.fillStyle = vdk;
+      ctx.fillRect(lshX + shW / 2 - 5, shY + 6, 10, 10);
+      ctx.fillStyle = '#3c4';
+      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 6;
+      ctx.fillRect(lshX + shW / 2 - 4, shY + 7, 8, 8);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#afa'; ctx.globalAlpha = 0.6;
+      ctx.fillRect(lshX + shW / 2 - 2, shY + 8, 3, 3);
+      ctx.globalAlpha = 1;
+
+      // Right shoulder
+      const rshX = tX + tW - 4;
+      bevel(rshX, shY, shW, shH, '#8b5e3c', 2);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(rshX + 4, shY + 4, shW - 8, 3);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.35;
+      ctx.fillRect(rshX + 2, shY + shH, shW - 4, 3);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = vdk;
+      ctx.fillRect(rshX + shW / 2 - 5, shY + 6, 10, 10);
+      ctx.fillStyle = '#3c4';
+      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 6;
+      ctx.fillRect(rshX + shW / 2 - 4, shY + 7, 8, 8);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#afa'; ctx.globalAlpha = 0.6;
+      ctx.fillRect(rshX + shW / 2 - 2, shY + 8, 3, 3);
+      ctx.globalAlpha = 1;
+
+      // === ARMS — L-shape: thin upper arm going down, then HUGE forearm extending out ===
+      const punchExt = g.punchTimer > 0 ? facing * 28 : 0;
+      // Upper arm: thin vertical segment
+      const uaW = 14, uaH = 28;
+      // Forearm: massive horizontal block
+      const faW = 30, faH = 22;
+
+      // -- Left arm --
+      const luaX = lshX + shW / 2 - uaW / 2;
+      const luaY = shY + shH + 2;
+      // Upper arm
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.25;
+      ctx.fillRect(luaX + 2, luaY - 2, uaW - 4, 3);
+      ctx.globalAlpha = 1;
+      bevel(luaX, luaY, uaW, uaH, '#7a5a3a', 2);
+      // Elbow joint
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+      ctx.fillRect(luaX + 1, luaY + uaH - 2, uaW - 2, 2);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(luaX + 1, luaY + uaH, uaW - 2, 1);
+      ctx.globalAlpha = 1;
+      // Forearm — huge block extending LEFT (outward) + punch offset
+      const lfaX = luaX + uaW / 2 - faW + (facing < 0 ? punchExt : 0);
+      const lfaY = luaY + uaH;
+      bevel(lfaX, lfaY, faW, faH, '#8b5e3c', 2);
+      // Forearm plating highlight
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(lfaX + 3, lfaY + 3, faW - 6, 4);
+      ctx.globalAlpha = 1;
+      // Forearm armor segments
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
+      ctx.fillRect(lfaX + 3, lfaY + faH / 2, faW - 6, 1);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(lfaX + 3, lfaY + faH / 2 + 1, faW - 6, 1);
+      ctx.globalAlpha = 1;
+      // Fist at end of forearm (left side)
+      bevel(lfaX - 4, lfaY + 2, 8, faH - 4, '#9a7050', 2);
+      // Knuckle lines
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
+      ctx.fillRect(lfaX - 3, lfaY + 5, 6, 1);
+      ctx.fillRect(lfaX - 3, lfaY + faH - 6, 6, 1);
+      ctx.globalAlpha = 1;
+
+      // -- Right arm --
+      const ruaX = rshX + shW / 2 - uaW / 2;
+      const ruaY = shY + shH + 2;
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.25;
+      ctx.fillRect(ruaX + 2, ruaY - 2, uaW - 4, 3);
+      ctx.globalAlpha = 1;
+      bevel(ruaX, ruaY, uaW, uaH, '#7a5a3a', 2);
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.5;
+      ctx.fillRect(ruaX + 1, ruaY + uaH - 2, uaW - 2, 2);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(ruaX + 1, ruaY + uaH, uaW - 2, 1);
+      ctx.globalAlpha = 1;
+      // Forearm — huge block extending RIGHT (outward) + punch offset
+      const rfaX = ruaX + uaW / 2 + (facing > 0 ? punchExt : 0);
+      const rfaY = ruaY + uaH;
+      bevel(rfaX, rfaY, faW, faH, '#8b5e3c', 2);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(rfaX + 3, rfaY + 3, faW - 6, 4);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
+      ctx.fillRect(rfaX + 3, rfaY + faH / 2, faW - 6, 1);
+      ctx.fillStyle = li; ctx.globalAlpha = 0.2;
+      ctx.fillRect(rfaX + 3, rfaY + faH / 2 + 1, faW - 6, 1);
+      ctx.globalAlpha = 1;
+      // Fist at end of forearm (right side)
+      bevel(rfaX + faW - 4, rfaY + 2, 8, faH - 4, '#9a7050', 2);
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.4;
+      ctx.fillRect(rfaX + faW - 3, rfaY + 5, 6, 1);
+      ctx.fillRect(rfaX + faW - 3, rfaY + faH - 6, 6, 1);
+      ctx.globalAlpha = 1;
+
       // Fist glow on punch
       if (g.punchTimer > 0) {
-        const fistX = g.facing > 0 ? armRx + 4 : armLx - 4;
-        ctx.fillStyle = '#ff4';
+        const fistCX = facing > 0 ? rfaX + faW : lfaX - 2;
+        const fistCY = (facing > 0 ? rfaY : lfaY) + faH / 2;
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        const pG = ctx.createRadialGradient(fistCX, fistCY, 2, fistCX, fistCY, 18);
+        pG.addColorStop(0, '#fff');
+        pG.addColorStop(0.3, '#ff4');
+        pG.addColorStop(1, 'transparent');
+        ctx.fillStyle = pG;
         ctx.beginPath();
-        ctx.arc(fistX + 7, gy + 42, 10, 0, Math.PI * 2);
+        ctx.arc(fistCX, fistCY, 18, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
-      // Legs
-      ctx.fillStyle = '#5a3a1a';
-      ctx.fillRect(gx + 14, gy + g.h - 8, 12, 8);
-      ctx.fillRect(gx + g.w - 26, gy + g.h - 8, 12, 8);
+
+      // === HEAD — small, compact ===
+      const headW = 24, headH = 18;
+      const headX = cx - headW / 2;
+      const headY = gy + 2;
+      bevel(headX, headY, headW, headH, mi, 2);
+      // Visor recess
+      ctx.fillStyle = vdk;
+      ctx.fillRect(headX + 3, headY + 7, headW - 6, 6);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(headX + 4, headY + 8, headW - 8, 4);
+      ctx.fillStyle = '#000'; ctx.globalAlpha = 0.4;
+      ctx.fillRect(headX + 4, headY + 8, headW - 8, 1);
+      ctx.fillStyle = '#555'; ctx.globalAlpha = 0.3;
+      ctx.fillRect(headX + 4, headY + 11, headW - 8, 1);
+      ctx.globalAlpha = 1;
+      // Glowing eyes
+      ctx.fillStyle = '#ff0';
+      ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6;
+      const eyeOff = facing > 0 ? 3 : 0;
+      ctx.fillRect(headX + 5 + eyeOff, headY + 9, 3, 2);
+      ctx.fillRect(headX + 12 + eyeOff, headY + 9, 3, 2);
+      ctx.shadowBlur = 0;
+      // Horn crest
+      bevel(cx - 3, headY - 5, 6, 7, '#b8864e', 1);
+      ctx.fillStyle = '#2e9e2e';
+      ctx.shadowColor = '#2e9e2e'; ctx.shadowBlur = 3;
+      ctx.fillRect(cx - 1, headY - 4, 2, 5);
+      ctx.shadowBlur = 0;
+      // Neck shadow
+      ctx.fillStyle = vdk; ctx.globalAlpha = 0.3;
+      ctx.fillRect(headX + 2, headY + headH, headW - 4, 4);
+      ctx.globalAlpha = 1;
+
       // HP bar
       if (g.hp < g.maxHp) {
         ctx.fillStyle = '#400';
-        ctx.fillRect(gx, gy - 8, g.w, 4);
+        ctx.fillRect(gx, gy - 10, g.w, 4);
         ctx.fillStyle = '#4a7a3a';
-        ctx.fillRect(gx, gy - 8, g.w * (g.hp / g.maxHp), 4);
+        ctx.fillRect(gx, gy - 10, g.w * (g.hp / g.maxHp), 4);
       }
-      // Timer bar
-      ctx.fillStyle = '#222';
-      ctx.fillRect(gx, gy - 4, g.w, 2);
-      ctx.fillStyle = '#a87040';
-      ctx.fillRect(gx, gy - 4, g.w * (g.timer / 480), 2);
     }
 
     // Bubble ultimate: underwater overlay + bubbles on enemies

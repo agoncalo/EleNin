@@ -273,10 +273,10 @@ class Player {
           shootTimer: 0,
           shootCooldown: 0,
           contactCd: 0,
-          x: this.x - 20,
-          y: this.y - 32,
-          w: 64,
-          h: 80,
+          x: this.x - 48,
+          y: this.y - 72,
+          w: 120,
+          h: 128,
           hp: 50,
           maxHp: 50,
           hovering: true,
@@ -1218,7 +1218,8 @@ class Player {
               break;
             }
           }
-          const spike = new StoneSpike(spX, spY, game.wave || 1);
+          const spike = new StoneSpike(spX, spY - 40 - i * 12, game.wave || 1);
+          spike.vy = -4 - i * 1.5;  // launch upward, gravity will pull them down to bounce
           game.stoneBlocks.push(spike);
           game.effects.push(new Effect(spX + TILE / 2, spY + TILE, slamColor, 6, 3, 10));
         }
@@ -2562,6 +2563,8 @@ class Player {
   render(ctx, cam) {
     // Hide player during death delay
     if (this.deathTimer > 0) return;
+    // Hide player inside golem mecha
+    if (this.earthGolem) return;
 
     const t = this.type;
     let sx = this.x - cam.x;
@@ -3347,6 +3350,7 @@ class CrystalCastle {
     this.done = false;
     this.timer = 210;
     this.hitCooldowns = new Map();
+    this.trapped = new Set();  // enemies trapped inside the castle
     this.snowflakes = [];
     this.sparkles = [];
     // Disney-style towers: {ox, oy, tw, th, roofH, roofW} — ox relative to castle x
@@ -3376,6 +3380,15 @@ class CrystalCastle {
 
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
+
+    // First frame: trap any enemies already inside the castle
+    if (this.timer === 209) {
+      const hb = this._getFullHitbox();
+      for (const e of game.enemies) {
+        if (!e.dead && rectOverlap(e, hb)) this.trapped.add(e);
+      }
+      if (game.boss && !game.boss.dead && rectOverlap(game.boss, hb)) this.trapped.add(game.boss);
+    }
 
     // Spawn snowflakes across the entire screen
     const camX = game.camera ? game.camera.x : this.x;
@@ -3415,32 +3428,32 @@ class CrystalCastle {
       else this.hitCooldowns.set(e, cd - 1);
     }
 
-    // Damage enemies touching castle body or towers
+    // Damage enemies touching castle — trap them inside
     for (const e of game.enemies) {
-      if (e.dead) continue;
-      if (this.hitCooldowns.get(e) > 0) continue;
+      if (e.dead) { this.trapped.delete(e); continue; }
       if (this._touchesCastle(e)) {
-        const dmg = Math.floor(this.baseDamage * 1.0);
-        e.takeDamage(dmg, game, cx);
-        e.freezeTimer = Math.max(e.freezeTimer || 0, 60);
-        const kx = (e.x + e.w / 2) - cx;
-        const ky = (e.y + e.h / 2) - cy;
-        const kd = Math.sqrt(kx * kx + ky * ky) || 1;
-        e.vx += (kx / kd) * 7;
-        e.vy += (ky / kd) * 3 - 3;
-        this.hitCooldowns.set(e, 15);
-        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 4, 12));
-        game.player.addUltimateCharge(1);
+        this.trapped.add(e);
+        if (!(this.hitCooldowns.get(e) > 0)) {
+          const dmg = Math.floor(this.baseDamage * 1.2);
+          e.takeDamage(dmg, game, cx);
+          e.freezeTimer = Math.max(e.freezeTimer || 0, 90);
+          this.hitCooldowns.set(e, 8);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#8ff', 10, 4, 12));
+          game.player.addUltimateCharge(1);
+        }
       }
     }
     if (game.boss && !game.boss.dead) {
-      if (!(this.hitCooldowns.get(game.boss) > 0) && this._touchesCastle(game.boss)) {
-        const dmg = Math.floor(this.baseDamage * 0.4);
-        game.boss.takeDamage(dmg, game, cx);
-        game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 30);
-        this.hitCooldowns.set(game.boss, 35);
-        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
-        game.player.addUltimateCharge(2);
+      if (this._touchesCastle(game.boss)) {
+        this.trapped.add(game.boss);
+        if (!(this.hitCooldowns.get(game.boss) > 0)) {
+          const dmg = Math.floor(this.baseDamage * 0.6);
+          game.boss.takeDamage(dmg, game, cx);
+          game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 50);
+          this.hitCooldowns.set(game.boss, 18);
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#8ff', 12, 4, 14));
+          game.player.addUltimateCharge(2);
+        }
       }
     }
 
@@ -3453,11 +3466,23 @@ class CrystalCastle {
       }
     }
 
-    // Block enemies and boss from passing through the castle
+    // Contain trapped enemies inside the castle / block others from entering
     const hb = this._getFullHitbox();
+    const margin = 4; // small inset so they don't sit exactly on the wall edge
     for (const e of game.enemies) {
       if (e.dead) continue;
-      if (rectOverlap(e, hb)) {
+      if (this.trapped.has(e)) {
+        // Keep trapped enemies contained inside
+        if (e.x < hb.x + margin) { e.x = hb.x + margin; e.vx = Math.abs(e.vx) * 0.3; }
+        if (e.x + e.w > hb.x + hb.w - margin) { e.x = hb.x + hb.w - margin - e.w; e.vx = -Math.abs(e.vx) * 0.3; }
+        // Dampen horizontal movement so they stay centered-ish
+        e.vx *= 0.85;
+        // Ice particle on walls when they bump
+        if (this.timer % 12 === 0) {
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aef', 4, 2, 8));
+        }
+      } else if (rectOverlap(e, hb)) {
+        // Non-trapped: push out
         const eCx = e.x + e.w / 2;
         if (eCx < cx) {
           e.x = hb.x - e.w;
@@ -3469,7 +3494,15 @@ class CrystalCastle {
       }
     }
     if (game.boss && !game.boss.dead) {
-      if (rectOverlap(game.boss, hb)) {
+      if (this.trapped.has(game.boss)) {
+        // Keep trapped boss contained inside
+        if (game.boss.x < hb.x + margin) { game.boss.x = hb.x + margin; game.boss.vx = Math.abs(game.boss.vx) * 0.2; }
+        if (game.boss.x + game.boss.w > hb.x + hb.w - margin) { game.boss.x = hb.x + hb.w - margin - game.boss.w; game.boss.vx = -Math.abs(game.boss.vx) * 0.2; }
+        game.boss.vx *= 0.8;
+        if (this.timer % 12 === 0) {
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aef', 5, 2, 10));
+        }
+      } else if (rectOverlap(game.boss, hb)) {
         const bCx = game.boss.x + game.boss.w / 2;
         if (bCx < cx) {
           game.boss.x = hb.x - game.boss.w;

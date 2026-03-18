@@ -289,12 +289,12 @@ class KanjiEffect {
     const cx = this.sx;
     const cy = this.sy - progress * 20;
 
-    // Dark background overlay for contrast
+    // Full-screen dark overlay for dramatic contrast
     const overlayAlpha = alpha * 0.4;
     ctx.save();
     ctx.globalAlpha = overlayAlpha;
     ctx.fillStyle = '#000';
-    ctx.fillRect(cx - 80, cy - 60, 160, 120);
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.restore();
 
     ctx.save();
