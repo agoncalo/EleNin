@@ -1268,6 +1268,62 @@ class Game {
     const ninjaBarY = CANVAS_H - 36;
     const gap = 6;
 
+    // Attack power display (below death panel)
+    const baseAtk = pl.type.attackDamage;
+    const bonusAtk = pl.bonusDamage;
+    const totalAtk = baseAtk + bonusAtk;
+    const atkPanelX = 8, atkPanelY = 36;
+    const atkPanelW = bonusAtk > 0 ? 88 : 66, atkPanelH = 28;
+    // Panel background
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.moveTo(atkPanelX + 4, atkPanelY);
+    ctx.lineTo(atkPanelX + atkPanelW - 4, atkPanelY);
+    ctx.quadraticCurveTo(atkPanelX + atkPanelW, atkPanelY, atkPanelX + atkPanelW, atkPanelY + 4);
+    ctx.lineTo(atkPanelX + atkPanelW, atkPanelY + atkPanelH - 4);
+    ctx.quadraticCurveTo(atkPanelX + atkPanelW, atkPanelY + atkPanelH, atkPanelX + atkPanelW - 4, atkPanelY + atkPanelH);
+    ctx.lineTo(atkPanelX + 4, atkPanelY + atkPanelH);
+    ctx.quadraticCurveTo(atkPanelX, atkPanelY + atkPanelH, atkPanelX, atkPanelY + atkPanelH - 4);
+    ctx.lineTo(atkPanelX, atkPanelY + 4);
+    ctx.quadraticCurveTo(atkPanelX, atkPanelY, atkPanelX + 4, atkPanelY);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Border in ninja color
+    ctx.strokeStyle = t.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+    // Sword icon
+    const ix = atkPanelX + 7, iy = atkPanelY + 6;
+    ctx.save();
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ix, iy + 14); ctx.lineTo(ix + 10, iy); ctx.stroke();
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(ix - 1, iy + 10); ctx.lineTo(ix + 5, iy + 8); ctx.stroke();
+    ctx.fillStyle = '#a86';
+    ctx.fillRect(ix - 1, iy + 13, 4, 3);
+    ctx.restore();
+    // Total damage number
+    const numX = atkPanelX + 22;
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(totalAtk, numX, atkPanelY + 20);
+    // Base + bonus breakdown
+    if (bonusAtk > 0) {
+      const totalW = ctx.measureText(String(totalAtk)).width;
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(`${baseAtk}`, numX + totalW + 5, atkPanelY + 14);
+      ctx.fillStyle = '#5f5';
+      ctx.fillText(`+${bonusAtk}`, numX + totalW + 5 + ctx.measureText(`${baseAtk}`).width + 1, atkPanelY + 14);
+    }
+
     // Element bar
     let elemBarW = 140, elemBarVal = 0, elemBarMax = 1, elemBarColor = '#aaa', elemBarGlow = false, elemBarLabel = '';
     if (pl.ninjaType === 'fire') {

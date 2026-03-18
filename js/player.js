@@ -153,6 +153,11 @@ class Player {
     this.defeatedDeflector = false;
   }
 
+  // Hurtbox is slightly smaller than the rendered sprite
+  getHurtbox() {
+    return { x: this.x + 3, y: this.y + 3, w: this.w - 6, h: this.h - 4 };
+  }
+
   get type() { return NINJA_TYPES[this.ninjaType]; }
 
   // Ultimate activation — starts the Rondo-of-Blood-style cutscene float
@@ -1179,42 +1184,150 @@ class Player {
         }
       }
       let slamDmg = t.attackDamage + this.bonusDamage + 2;
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#fa0', 16, 5, 18));
+      const slamCX = this.x + this.w / 2;
+      const slamCY = this.y + this.h;
+      const slamColor = t.color;
+      const slamAccent = t.accentColor;
 
-      // Damage nearby enemies
+      // Main slam burst in ninja's color
+      game.effects.push(new Effect(slamCX, slamCY, slamColor, 16, 5, 18));
+      game.effects.push(new Effect(slamCX, slamCY, slamAccent, 10, 4, 14));
+
+      // Ground shockwave ring (SlamRing effect)
+      game.effects.push(new SlamRing(slamCX, slamCY, slamColor, slamAccent));
+
+      // Earth: spawn ground spikes around slam point
+      if (this.ninjaType === 'earth') {
+        const spikeCount = 3;
+        for (let i = 0; i < spikeCount; i++) {
+          const offset = (i - Math.floor(spikeCount / 2)) * TILE;
+          const spX = slamCX - TILE / 2 + offset;
+          // Find ground level at this X by checking platforms
+          let spY = slamCY - TILE;
+          for (const p of game.platforms) {
+            if (spX + TILE > p.x && spX < p.x + p.w && Math.abs(p.y - slamCY) < TILE * 2) {
+              spY = p.y - TILE;
+              break;
+            }
+          }
+          const spike = new StoneSpike(spX, spY, game.wave || 1);
+          game.stoneBlocks.push(spike);
+          game.effects.push(new Effect(spX + TILE / 2, spY + TILE, slamColor, 6, 3, 10));
+        }
+      }
+
+      // Damage nearby enemies + apply ninja-specific effects
       for (const e of game.enemies) {
         if (e.dead) continue;
-        const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
+        const dx = (e.x + e.w / 2) - slamCX;
         const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
-          e.takeDamage(slamDmg, game, this.x + this.w / 2, 'physical');
+          e.takeDamage(slamDmg, game, slamCX, 'physical');
           e.vy = -5;
           e.vx = Math.sign(dx) * 4;
-          if (this.ninjaType === 'fire') {
-            e.burnTimer = 150;
-          }
-          if (this.ninjaType === 'fire') {
-            this.comboMeter = Math.min(this.comboMeter + 1, 10);
-            this.comboTimer = 180;
-            if (this.comboMeter >= 10) {
+
+          // Per-ninja slam effects
+          switch (this.ninjaType) {
+            case 'fire':
               e.burnTimer = 150;
-            }
-            if (this.comboMeter >= 8 && !this.fireArmor) {
-              this.fireArmor = true;
-              this.fireArmorTimer = 300;
-              SFX.armor();
-              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 15, 4, 20));
-            }
+              this.comboMeter = Math.min(this.comboMeter + 1, 10);
+              this.comboTimer = 180;
+              if (this.comboMeter >= 10) e.burnTimer = 150;
+              if (this.comboMeter >= 8 && !this.fireArmor) {
+                this.fireArmor = true;
+                this.fireArmorTimer = 300;
+                SFX.armor();
+                game.effects.push(new Effect(slamCX, this.y + this.h / 2, '#f93', 15, 4, 20));
+              }
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f80', 8, 3, 12));
+              break;
+            case 'bubble':
+              // Float enemies upward
+              e.vy = -8;
+              e.vx = Math.sign(dx) * 2;
+              e.freezeTimer = Math.max(e.freezeTimer, 40);
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#4af', 10, 3, 16));
+              game.effects.push(new Effect(e.x + e.w / 2, e.y, '#8cf', 6, 2, 12));
+              break;
+            case 'earth':
+              // Extra knockback + stun
+              e.vx = Math.sign(dx) * 6;
+              e.vy = -3;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h, '#a67540', 8, 3, 10));
+              break;
+            case 'crystal':
+              // Freeze enemies
+              e.freezeTimer = Math.max(e.freezeTimer, 60);
+              e.vx = 0;
+              e.vy = 0;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 3, 14));
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#0ff', 6, 2, 10));
+              break;
+            case 'shadow':
+              // Paralyze enemies
+              e.purpleParalyseTimer = Math.max(e.purpleParalyseTimer, 60);
+              e.vx = 0;
+              e.vy = 0;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a040ff', 10, 3, 14));
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 6, 2, 10));
+              break;
+            case 'storm':
+              // Soak enemies
+              e.soakTimer = Math.max(e.soakTimer, 300);
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#48f', 10, 3, 14));
+              game.effects.push(new Effect(e.x + e.w / 2, e.y, '#fd0', 4, 5, 8));
+              break;
+            case 'wind':
+              // Strong push away
+              e.vx = Math.sign(dx) * 12;
+              e.vy = -6;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 14));
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#9e9', 6, 3, 10));
+              break;
           }
         }
         slamDmg *= 0.9;
       }
-      // Damage boss
+      // Damage boss + apply ninja-specific effects
       if (game.boss && !game.boss.dead) {
-        const dx = (game.boss.x + game.boss.w / 2) - (this.x + this.w / 2);
+        const dx = (game.boss.x + game.boss.w / 2) - slamCX;
         const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
-          game.boss.takeDamage(slamDmg, game, this.x + this.w / 2, 'physical');
+          game.boss.takeDamage(slamDmg, game, slamCX, 'physical');
+          switch (this.ninjaType) {
+            case 'fire':
+              game.boss.burnTimer = 150;
+              this.comboMeter = Math.min(this.comboMeter + 1, 10);
+              this.comboTimer = 180;
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f80', 10, 4, 14));
+              break;
+            case 'bubble':
+              game.boss.vy = -4;
+              game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 25);
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#4af', 12, 3, 16));
+              break;
+            case 'crystal':
+              game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 40);
+              game.boss.vx = 0;
+              game.boss.vy = 0;
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
+              break;
+            case 'shadow':
+              game.boss.purpleParalyseTimer = Math.max(game.boss.purpleParalyseTimer, 40);
+              game.boss.vx = 0;
+              game.boss.vy = 0;
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a040ff', 12, 4, 14));
+              break;
+            case 'storm':
+              game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 12, 4, 14));
+              break;
+            case 'wind':
+              game.boss.vx = Math.sign(dx) * 8;
+              game.boss.vy = -4;
+              game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#bfb', 12, 4, 14));
+              break;
+          }
         }
       }
     }
@@ -2014,13 +2127,15 @@ class Player {
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
     const stormReach = this.ninjaType === 'storm' ? 40 : 0;
-    const reach = stormReach || (shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 30));
+    const reach = stormReach || (shadowUltBonus ? 80 : (shadowFullStealth ? 50 : 36));
     const vertExtra = shadowUltBonus ? 20 : (shadowFullStealth ? 10 : (stormReach ? 6 : 0));
+    const upReach = reach * 0.6; // arc covers above the player too
+    // Hitbox starts at the player's front edge, matching the sword arc, extends above
     this.attackBox = {
-      x: this.facing > 0 ? this.x + this.w : this.x - reach,
-      y: this.y + 4 - vertExtra,
-      w: reach,
-      h: this.h - 8 + vertExtra * 2
+      x: this.facing > 0 ? this.x : this.x - reach,
+      y: this.y - upReach - vertExtra,
+      w: reach + this.w,
+      h: this.h + upReach + vertExtra
     };
     game.effects.push(new Effect(
       this.attackBox.x + (this.facing > 0 ? reach / 2 : reach / 2),

@@ -496,3 +496,45 @@ class Orb {
     ctx.fillText(icons[this.type], sx + 1, sy + 9);
   }
 }
+
+// ── SlamRing (ground slam shockwave) ─────────────────────────
+class SlamRing {
+  constructor(x, y, color, accentColor) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.accentColor = accentColor;
+    this.radius = 8;
+    this.maxRadius = 100;
+    this.life = 20;
+    this.maxLife = 20;
+    this.done = false;
+  }
+  update() {
+    this.life--;
+    this.radius += (this.maxRadius - 8) / this.maxLife;
+    if (this.life <= 0) this.done = true;
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const alpha = this.life / this.maxLife;
+    // Outer ring
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, this.radius, this.radius * 0.35, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner ring
+    ctx.globalAlpha = alpha * 0.4;
+    ctx.strokeStyle = this.accentColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, this.radius * 0.7, this.radius * 0.25, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}

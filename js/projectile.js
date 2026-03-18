@@ -541,7 +541,7 @@ class Projectile {
       }
     } else {
       const pl = game.player;
-      if (rectOverlap(this, pl)) {
+      if (rectOverlap(this, pl.getHurtbox())) {
         const isBoss = this.owner === 'boss';
         let srcType = this.sourceType || null;
         if (!srcType && isBoss && game.boss) srcType = game.boss.bossType;

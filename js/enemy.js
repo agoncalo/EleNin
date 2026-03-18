@@ -468,7 +468,7 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player) && !this.slamming && !game.player.slamming) {
+    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const kbStr = this.big ? 9 : 5;
       game.player.vx = kbDir * kbStr;
@@ -1551,7 +1551,7 @@ class Boss extends Enemy {
     if (this.y > 700) { this.y = -40; this.vy = 0; }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player)) {
+    if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       game.player.vx = kbDir * 10;
       game.player.vy = -5;
