@@ -2173,15 +2173,32 @@ class Player {
     this._scytheAttack = shadowFullStealth || shadowUltBonus; // remember for render
     const stormReach = this.ninjaType === 'storm' ? 40 : 0;
     const reach = stormReach || (shadowUltBonus ? 95 : (shadowFullStealth ? 68 : 36));
-    const vertExtra = shadowUltBonus ? 28 : (shadowFullStealth ? 18 : (stormReach ? 6 : 0));
-    const upReach = reach * (this._scytheAttack ? 0.75 : 0.6); // scythe arc curves higher
-    const downReach = reach * (this._scytheAttack ? 0.4 : 0.3); // scythe sweeps lower too
-    // Hitbox starts at the player's front edge, matching the sword arc, extends above and below
+    const isScythe = this._scytheAttack;
+    // Derive hitbox from the crescent arc geometry
+    const scytheBonus = isScythe ? (shadowUltBonus ? 20 : 12) : 0;
+    const arcR = reach + this.w / 2 + 12 + scytheBonus;
+    const startA = isScythe ? -Math.PI * 0.8 : -Math.PI * 0.65;
+    const endA = startA + (isScythe ? Math.PI * 1.4 : Math.PI * 1.0);
+    // Bounding box of the outer arc (check endpoints + cardinal crossings)
+    let minX = Math.min(Math.cos(startA), Math.cos(endA)) * arcR;
+    let maxX = Math.max(Math.cos(startA), Math.cos(endA)) * arcR;
+    let minY = Math.min(Math.sin(startA), Math.sin(endA)) * arcR;
+    let maxY = Math.max(Math.sin(startA), Math.sin(endA)) * arcR;
+    // Arc crosses right (0): both katana and scythe
+    maxX = arcR;
+    // Arc crosses straight up (-π/2): both
+    minY = -arcR;
+    // Arc crosses straight down (π/2): only scythe (sweep > π)
+    if (isScythe) maxY = arcR;
+    // Generous padding
+    const pad = 6;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
     this.attackBox = {
-      x: this.facing > 0 ? this.x : this.x - reach,
-      y: this.y - upReach - vertExtra,
-      w: reach + this.w,
-      h: this.h + upReach + vertExtra + downReach
+      x: cx + (this.facing > 0 ? minX : -maxX) - pad,
+      y: cy + minY - pad,
+      w: (maxX - minX) + pad * 2,
+      h: (maxY - minY) + pad * 2
     };
     game.effects.push(new Effect(
       this.attackBox.x + (this.facing > 0 ? reach / 2 : reach / 2),
@@ -3183,15 +3200,15 @@ class Player {
       }
       ctx.restore();
 
-      // Moon / crescent slash trail — sized to attack hitbox (bigger for scythe)
+      // Moon / crescent slash trail — sized to match the hitbox
       ctx.save();
       ctx.translate(cx, cy);
       if (dir < 0) ctx.scale(-1, 1);
       const abW = this.attackBox.w;
       const abH = this.attackBox.h;
       const scytheBonus = isScythe ? (isShadowUlt ? 20 : 12) : 0;
-      const outerR = Math.max(abW, abH / 2) + 8 + scytheBonus;
-      const innerR = outerR - (isScythe ? 16 : 10) - abW * 0.15;
+      const outerR = Math.max(abW, abH) / 2 + scytheBonus;
+      const innerR = outerR - (isScythe ? 16 : 10) - outerR * 0.15;
       const offsetX = -outerR * 0.2;
       const offsetY = -outerR * 0.1;
       const aStart = startA + sweep * Math.max(0, slashProgress - 0.5);
