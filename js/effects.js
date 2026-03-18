@@ -364,7 +364,8 @@ class Orb {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
-    let attracted = dist < 64;
+    const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
+    let attracted = dist < magnetRange;
     if (!attracted) {
       // Chain strikes auto-grab
       if (pl.chainStriking || pl.stormChaining) {
@@ -372,16 +373,17 @@ class Orb {
           this.done = true;
           SFX.pickup();
           if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(5);
+          const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
           switch (this.type) {
-            case 'heal': pl.hp = Math.min(pl.hp + 3, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
-            case 'maxhp': pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
-            case 'damage': pl.bonusDamage += 1; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
-            case 'shield': pl.maxShield += 2; pl.shield = Math.min(pl.shield + 3, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
-            case 'shuriken': pl.maxShurikens += 1; pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
-            case 'speed': pl.bonusSpeed += 1; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
-            case 'reach': pl.bonusReach += 1; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
-            case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50); game.effects.push(new Effect(ox, oy, '#ff0', 8, 3, 12)); break;
-            case 'armor': pl.bonusArmor += 1; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
+            case 'heal': pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
+            case 'maxhp': pl.maxHp += 1 * _m; pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
+            case 'damage': pl.bonusDamage += 1 * _m; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
+            case 'shield': pl.maxShield += 2 * _m; pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
+            case 'shuriken': pl.maxShurikens += 1 * _m; pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
+            case 'speed': pl.bonusSpeed += 1 * _m; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
+            case 'reach': pl.bonusReach += 1 * _m; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
+            case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m); game.effects.push(new Effect(ox, oy, '#ff0', 8, 3, 12)); break;
+            case 'armor': pl.bonusArmor += 1 * _m; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
           }
           return;
         }
@@ -410,44 +412,45 @@ class Orb {
       if (!pl.ultimateReady && !pl.ultimateActive) {
         pl.addUltimateCharge(5);
       }
+      const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
       switch (this.type) {
         case 'heal':
-          pl.hp = Math.min(pl.hp + 3, pl.maxHp);
+          pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f44', 6, 2, 10));
           break;
         case 'maxhp':
-          pl.maxHp += 1;
-          pl.hp = Math.min(pl.hp + 1, pl.maxHp);
+          pl.maxHp += 1 * _m;
+          pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4f4', 8, 3, 12));
           break;
         case 'damage':
-          pl.bonusDamage += 1;
+          pl.bonusDamage += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f80', 8, 3, 12));
           break;
         case 'shield':
-          pl.maxShield += 2;
-          pl.shield = Math.min(pl.shield + 3, pl.maxShield);
+          pl.maxShield += 2 * _m;
+          pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
           break;
         case 'shuriken':
-          pl.maxShurikens += 1;
-          pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
+          pl.maxShurikens += 1 * _m;
+          pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ccc', 6, 2, 10));
           break;
         case 'speed':
-          pl.bonusSpeed += 1;
+          pl.bonusSpeed += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#0f0', 8, 3, 12));
           break;
         case 'reach':
-          pl.bonusReach += 1;
+          pl.bonusReach += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#fa0', 8, 3, 12));
           break;
         case 'ultcharge':
-          if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50);
+          if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ff0', 8, 3, 12));
           break;
         case 'armor':
-          pl.bonusArmor += 1;
+          pl.bonusArmor += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#88f', 8, 3, 12));
           break;
       }
@@ -549,6 +552,118 @@ class Orb {
     ctx.font = 'bold 8px monospace';
     const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■' };
     ctx.fillText(icons[this.type], sx + 1, sy + 9);
+  }
+}
+
+// ── BossItem (boss drop pickup) ──────────────────────────────
+class BossItem {
+  constructor(x, y, itemId) {
+    this.x = x; this.y = y;
+    this.w = 16; this.h = 16;
+    this.vy = -4;
+    this.vx = 0;
+    this.itemId = itemId;
+    this.def = BOSS_ITEMS[itemId];
+    this.life = 9999; // doesn't expire
+    this.done = false;
+    this.grounded = false;
+    this.bobTimer = 0;
+  }
+  update(game) {
+    if (this.done) return;
+    this.bobTimer++;
+    // Gravity until grounded
+    if (!this.grounded) {
+      this.vy += 0.3;
+      this.y += this.vy;
+      this.x += this.vx;
+      for (const p of game.platforms) {
+        if (this.vy > 0 && this.y + this.h > p.y && this.y + this.h - this.vy <= p.y &&
+            this.x + this.w > p.x && this.x < p.x + p.w) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          break;
+        }
+      }
+    }
+    // Attraction to player
+    const pl = game.player;
+    const px = pl.x + pl.w / 2, py = pl.y + pl.h / 2;
+    const ox = this.x + this.w / 2, oy = this.y + this.h / 2;
+    const dx = px - ox, dy = py - oy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 80) {
+      const s = 1.2;
+      this.x += (dx / dist) * s;
+      this.y += (dy / dist) * s;
+    }
+    // Pickup
+    if (rectOverlap(this, pl)) {
+      this.done = true;
+      SFX.victory();
+      triggerHitstop(8);
+      pl.items[this.itemId] = true;
+      if (this.itemId === 'deathsKey') pl.deathsKeyUsed = false;
+      // A Friend's Letter: if RONIN boss is active, make it friendly (fade handled in boss update)
+      if (this.itemId === 'friendsLetter' && game.boss && !game.boss.dead && game.boss.bossType === 'deflector') {
+        game.boss.friendly = true;
+        game.boss.friendlyFade = 120;
+        game.boss.vx = 0;
+        game.effects.push(new TextEffect(game.boss.x + game.boss.w / 2, game.boss.y - 20, 'FRIEND!', '#fda'));
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#fda', 25, 6, 25));
+        recordBestiaryKill(game.boss.bossType, false, true);
+      }
+      game.itemPickupOverlay = { itemId: this.itemId, timer: 180 };
+      game.effects.push(new Effect(ox, oy, this.def.color, 20, 5, 25));
+      game.effects.push(new Effect(ox, oy, '#fff', 12, 3, 20));
+      // Record vault discovery
+      recordItemFound(this.itemId);
+    }
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y + Math.sin(this.bobTimer * 0.06) * 4;
+    const cx = sx + this.w / 2, cy = sy + this.h / 2;
+    // Outer glow ring
+    const glowA = 0.25 + Math.sin(this.bobTimer * 0.08) * 0.15;
+    ctx.globalAlpha = glowA;
+    const rGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 22);
+    rGrad.addColorStop(0, this.def.color);
+    rGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.fill();
+    // Rotating sparkle rays
+    ctx.globalAlpha = glowA * 0.6;
+    ctx.strokeStyle = this.def.color;
+    ctx.lineWidth = 1;
+    const angle = this.bobTimer * 0.04;
+    for (let i = 0; i < 4; i++) {
+      const a = angle + i * Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * 10, cy + Math.sin(a) * 10);
+      ctx.lineTo(cx + Math.cos(a) * 18, cy + Math.sin(a) * 18);
+      ctx.stroke();
+    }
+    // Box with gradient
+    ctx.globalAlpha = 1;
+    const bGrad = ctx.createLinearGradient(sx, sy, sx, sy + this.h);
+    bGrad.addColorStop(0, '#333');
+    bGrad.addColorStop(1, '#111');
+    ctx.fillStyle = bGrad;
+    ctx.fillRect(sx, sy, this.w, this.h);
+    ctx.strokeStyle = this.def.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy, this.w, this.h);
+    // Icon
+    ctx.shadowColor = this.def.color;
+    ctx.shadowBlur = 6;
+    drawItemIcon(ctx, this.itemId, cx, cy, this.w * 0.8, this.def.color);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
   }
 }
 

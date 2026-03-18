@@ -12,6 +12,7 @@ class Game {
     this.stonePillars = [];
     this.bubbles = [];
     this.orbs = [];
+    this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
     this.trimerangs = [];
@@ -39,6 +40,7 @@ class Game {
     this.waveMessage = '';
     this.waveMessageTimer = 0;
     this.gameWon = false;
+    this.itemPickupOverlay = null; // { itemId, timer }
 
     // Phrase system
     this.phraseText = '';
@@ -573,6 +575,16 @@ class Game {
         pl.ultimateCharge = 0;
         pl.ultimateReady = false;
       }
+      // Give a random uncollected item
+      const allItemKeys = Object.keys(BOSS_ITEMS);
+      const uncollected = allItemKeys.filter(k => !this.player.items[k]);
+      if (uncollected.length > 0) {
+        const rItem = uncollected[Math.floor(Math.random() * uncollected.length)];
+        this.player.items[rItem] = true;
+        if (rItem === 'deathsKey') this.player.deathsKeyUsed = false;
+        this.itemPickupOverlay = { itemId: rItem, timer: 180 };
+        recordItemFound(rItem);
+      }
       this.advanceWave();
     }
     // Cheat: 0 to toggle god mode
@@ -661,6 +673,7 @@ class Game {
     for (const b of this.stoneBlocks) b.update(this);
     for (const b of this.bubbles) b.update(this);
     for (const o of this.orbs) o.update(this);
+    for (const bi of this.bossItems) bi.update(this);
 
     // Fire trail update
     if (this.player.ninjaType === 'fire' && this.player.grounded && Math.abs(this.player.vx) > 1) {
@@ -729,6 +742,10 @@ class Game {
       }
     }
     if (this.killPhraseTimer > 0) this.killPhraseTimer--;
+    if (this.itemPickupOverlay) {
+      this.itemPickupOverlay.timer--;
+      if (this.itemPickupOverlay.timer <= 0) this.itemPickupOverlay = null;
+    }
 
     // Cleanup
     this.enemies = this.enemies.filter(e => !e.dead);
@@ -737,6 +754,7 @@ class Game {
     this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
     this.bubbles = this.bubbles.filter(b => !b.done);
     this.orbs = this.orbs.filter(o => !o.done);
+    this.bossItems = this.bossItems.filter(bi => !bi.done);
 
     // Camera follows player (smooth)
     const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
@@ -819,6 +837,7 @@ class Game {
     for (const b of this.stoneBlocks) b.render(ctx, cam);
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
+    for (const bi of this.bossItems) bi.render(ctx, cam);
     if (this.crystalCastle) this.crystalCastle.render(ctx, cam);
     this.player.render(ctx, cam);
 
@@ -1707,8 +1726,8 @@ class Game {
     const t = pl.type;
     const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
-    // Bottom UI layout (stacked upward from ninja bar)
-    const ninjaBarY = CANVAS_H - 36;
+    // Ninja bar at top, status bars stacked up from bottom
+    const ninjaBarY = 4;
     const gap = 6;
 
     // Element bar
@@ -1733,7 +1752,7 @@ class Game {
       elemBarVal = soakedCount; elemBarMax = 10; elemBarColor = '#48f'; elemBarGlow = soakedCount >= 3; elemBarLabel = 'Soaked';
     }
     const elemBarH = 10;
-    const elemBarY = ninjaBarY - elemBarH - gap;
+    const elemBarY = CANVAS_H - elemBarH - gap;
     const elemBarX = CANVAS_W / 2 - elemBarW / 2;
     ctx.save();
     if (elemBarGlow) { ctx.shadowColor = elemBarColor; ctx.shadowBlur = 14; }
@@ -1900,59 +1919,127 @@ class Game {
       ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, ninjaBarY + 23);
     }
 
-    // Shuriken display
+    // Shuriken display (canvas-drawn, below progress bar)
     if (typeof window !== 'undefined' && document.getElementById('shuriken-bar')) {
-      const shurikenBar = document.getElementById('shuriken-bar');
-      shurikenBar.innerHTML = '';
-      shurikenBar.style.marginTop = '38px';
-      shurikenBar.style.marginBottom = '0px';
-      shurikenBar.style.height = 'auto';
-      shurikenBar.style.display = 'flex';
-      shurikenBar.style.flexWrap = 'wrap';
-      shurikenBar.style.justifyContent = 'center';
-      shurikenBar.style.alignItems = 'center';
-      shurikenBar.style.maxWidth = CANVAS_W + 'px';
+      document.getElementById('shuriken-bar').innerHTML = '';
+      document.getElementById('shuriken-bar').style.display = 'none';
+    }
+    {
+      const sSize = 12;
+      const sPad = 3;
+      const totalSW = pl.maxShurikens * sSize + (pl.maxShurikens - 1) * sPad;
+      const sStartX = CANVAS_W / 2 - totalSW / 2;
+      const sY = 58;
       for (let i = 0; i < pl.maxShurikens; i++) {
-        const span = document.createElement('span');
-        span.style.display = 'inline-block';
-        span.style.width = '28px';
-        span.style.height = '28px';
-        span.style.margin = '0 4px';
-        span.style.opacity = i < pl.shurikens ? '1' : '0.25';
-        span.style.verticalAlign = 'middle';
-        span.innerHTML = '<svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,3 16,12 25,14 16,16 14,25 12,16 3,14 12,12" fill="#ccc"/></svg>';
-        shurikenBar.appendChild(span);
+        const sx = sStartX + i * (sSize + sPad) + sSize / 2;
+        const sy = sY + sSize / 2;
+        const available = i < pl.shurikens;
+        ctx.globalAlpha = available ? 1 : 0.25;
+        if (i === 0 && pl.items.theKunai) {
+          // Kunai icon
+          ctx.fillStyle = '#f66';
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - sSize / 2);
+          ctx.lineTo(sx + sSize * 0.12, sy);
+          ctx.lineTo(sx, sy + sSize / 2);
+          ctx.lineTo(sx - sSize * 0.12, sy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#a44';
+          ctx.fillRect(sx - 2, sy + sSize * 0.25, 4, sSize * 0.2);
+          ctx.strokeStyle = '#f66';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy + sSize * 0.45, sSize * 0.15, sSize * 0.1, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          // Shuriken star
+          ctx.fillStyle = '#ccc';
+          ctx.beginPath();
+          const r = sSize / 2;
+          for (let p = 0; p < 4; p++) {
+            const angle = (p / 4) * Math.PI * 2 - Math.PI / 2;
+            const tipX = sx + Math.cos(angle) * r;
+            const tipY = sy + Math.sin(angle) * r;
+            const innerAngle = angle + Math.PI / 4;
+            const innerR = r * 0.35;
+            const inX = sx + Math.cos(innerAngle) * innerR;
+            const inY = sy + Math.sin(innerAngle) * innerR;
+            if (p === 0) ctx.moveTo(tipX, tipY);
+            else ctx.lineTo(tipX, tipY);
+            ctx.lineTo(inX, inY);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
     }
 
-    // Death counter (top left)
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(8, 8, 90, 24);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(8, 8, 90, 24);
-    ctx.fillStyle = '#f66';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText(`Deaths: ${this.deaths}`, 16, 25);
+    // Boss Items display (left side, vertically centered)
+    {
+      const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
+      if (itemKeys.length > 0) {
+        const iconSize = 30;
+        const pad = 4;
+        const totalH = itemKeys.length * iconSize + (itemKeys.length - 1) * pad;
+        let iy = Math.round((CANVAS_H - totalH) / 2);
+        for (const key of itemKeys) {
+          const def = BOSS_ITEMS[key];
+          if (!def) continue;
+          const icx = 8, icy = iy;
+          // Grey out used Death's Key
+          const dimmed = key === 'deathsKey' && pl.deathsKeyUsed;
+          if (dimmed) ctx.globalAlpha = 0.3;
+          // Outer glow
+          ctx.shadowColor = def.color;
+          ctx.shadowBlur = 8;
+          // Background gradient
+          const grad = ctx.createLinearGradient(icx, icy, icx, icy + iconSize);
+          grad.addColorStop(0, 'rgba(40,40,50,0.85)');
+          grad.addColorStop(1, 'rgba(15,15,20,0.95)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(icx, icy, iconSize, iconSize);
+          // Colored inner border
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = def.color;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(icx + 1, icy + 1, iconSize - 2, iconSize - 2);
+          // Corner highlights
+          ctx.fillStyle = def.color;
+          ctx.globalAlpha = dimmed ? 0.15 : 0.5;
+          ctx.fillRect(icx + 1, icy + 1, 4, 1);
+          ctx.fillRect(icx + 1, icy + 1, 1, 4);
+          ctx.fillRect(icx + iconSize - 5, icy + iconSize - 2, 4, 1);
+          ctx.fillRect(icx + iconSize - 2, icy + iconSize - 5, 1, 4);
+          ctx.globalAlpha = dimmed ? 0.3 : 1;
+          // Canvas-drawn icon
+          drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
+          ctx.globalAlpha = 1;
+          ctx.shadowBlur = 0;
+          iy += iconSize + pad;
+        }
+      }
+    }
 
-    // Wave info panel (top right)
+    // Wave info panel (top right, below ninja bar)
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(CANVAS_W - 175, 8, 167, 36);
+    ctx.fillRect(CANVAS_W - 175, 36, 167, 36);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(CANVAS_W - 175, 8, 167, 36);
+    ctx.strokeRect(CANVAS_W - 175, 36, 167, 36);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText(`Wave ${this.wave}/${TOTAL_WAVES}`, CANVAS_W - 167, 24);
+    ctx.fillText(`Wave ${this.wave}/${TOTAL_WAVES}`, CANVAS_W - 167, 52);
     ctx.font = '10px monospace';
     ctx.fillStyle = '#ccc';
-    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 38);
+    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
 
     // Progress bar (top center)
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
       const pbW = 400, pbH = 18;
       const pbX = CANVAS_W / 2 - pbW / 2;
-      const pbY = 10;
+      const pbY = 38;
       const waveDef = WAVE_DEFS[this.wave - 1];
       const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / waveDef.killsForBoss);
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -1979,19 +2066,19 @@ class Game {
       const bw = 300;
       const bx = CANVAS_W / 2 - bw / 2;
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(bx - 4, 6, bw + 8, 24);
+      ctx.fillRect(bx - 4, 34, bw + 8, 24);
       ctx.fillStyle = '#f44';
       ctx.font = 'bold 12px monospace';
       const bossLabel = `${this.boss.name} [${this.wave}/${TOTAL_WAVES}]`;
-      ctx.fillText(bossLabel, bx, 20);
+      ctx.fillText(bossLabel, bx, 48);
       const labelW = ctx.measureText(bossLabel).width + 8;
       ctx.fillStyle = '#400';
-      ctx.fillRect(bx + labelW, 10, bw - labelW, 14);
+      ctx.fillRect(bx + labelW, 38, bw - labelW, 14);
       ctx.fillStyle = this.boss.phase === 2 ? '#f22' : '#e44';
-      ctx.fillRect(bx + labelW, 10, (bw - labelW) * (this.boss.hp / this.boss.maxHp), 14);
+      ctx.fillRect(bx + labelW, 38, (bw - labelW) * (this.boss.hp / this.boss.maxHp), 14);
       ctx.fillStyle = '#fff';
       ctx.font = '10px monospace';
-      ctx.fillText(`${Math.round(this.boss.hp)}/${Math.round(this.boss.maxHp)}`, bx + bw - 55, 21);
+      ctx.fillText(`${Math.round(this.boss.hp)}/${Math.round(this.boss.maxHp)}`, bx + bw - 55, 49);
     }
 
     // Map transition overlay
@@ -2142,6 +2229,53 @@ class Game {
       const rt = 'Press R to restart';
       const rtw = ctx.measureText(rt).width;
       ctx.fillText(rt, CANVAS_W / 2 - rtw / 2, CANVAS_H / 2 + 40);
+    }
+
+    // Item pickup overlay
+    if (this.itemPickupOverlay) {
+      const ipo = this.itemPickupOverlay;
+      const def = BOSS_ITEMS[ipo.itemId];
+      if (def) {
+        const fade = Math.min(1, ipo.timer / 20, (180 - ipo.timer + 1) / 20);
+        ctx.globalAlpha = fade * 0.75;
+        ctx.fillStyle = '#000';
+        const boxW = 280, boxH = 64;
+        const boxX = CANVAS_W / 2 - boxW / 2;
+        const boxY = CANVAS_H / 2 - 80;
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.globalAlpha = fade;
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+        // Icon with glow
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 12;
+        const icoGrad = ctx.createRadialGradient(boxX + 24, boxY + 32, 2, boxX + 24, boxY + 32, 20);
+        icoGrad.addColorStop(0, def.color);
+        icoGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = icoGrad;
+        ctx.fillRect(boxX + 4, boxY + 8, 40, 48);
+        drawItemIcon(ctx, ipo.itemId, boxX + 24, boxY + 34, 36, def.color);
+        ctx.shadowBlur = 0;
+        // Name
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText(def.name, boxX + 52, boxY + 22);
+        // Description
+        ctx.fillStyle = '#ccc';
+        ctx.font = '11px monospace';
+        const words = def.desc.split(' ');
+        let line = '', lineY = boxY + 40;
+        for (const w of words) {
+          const test = line ? line + ' ' + w : w;
+          if (ctx.measureText(test).width > boxW - 62) {
+            ctx.fillText(line, boxX + 52, lineY);
+            line = w; lineY += 14;
+          } else { line = test; }
+        }
+        if (line) ctx.fillText(line, boxX + 52, lineY);
+        ctx.globalAlpha = 1;
+      }
     }
 
     // Game Over screen

@@ -26,6 +26,20 @@ function saveBestiary(data) {
   try { localStorage.setItem(BESTIARY_KEY, JSON.stringify(data)); } catch {}
 }
 
+// â"€â"€ Vault Storage â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+function loadVault() {
+  try {
+    const raw = localStorage.getItem(VAULT_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveVault(data) {
+  try { localStorage.setItem(VAULT_KEY, JSON.stringify(data)); } catch {}
+}
+
+let vaultData = loadVault();
+
 // â”€â”€ Achievement Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ACHIEVEMENT_DEFS = [
   // Kill milestones
@@ -77,6 +91,11 @@ const ACHIEVEMENT_DEFS = [
   { id: 'ult_crystal', name: 'Shatter Storm', desc: 'Use Crystal ultimate', icon: '\uD83D\uDC8E' },
   { id: 'ult_wind', name: 'Trimerang Fury', desc: 'Use Wind ultimate', icon: '\uD83C\uDF2C' },
   { id: 'ult_storm', name: 'Lightning Reign', desc: 'Use Storm ultimate', icon: '\u26A1' },
+  // Items
+  ...Object.entries(BOSS_ITEMS).map(([id, it]) => ({
+    id: 'item_' + id, name: it.name, desc: 'Found: ' + it.name, icon: it.icon
+  })),
+  { id: 'item_collector', name: 'Item Collector', desc: 'Find every boss item', icon: '\uD83C\uDFC6' },
 ];
 
 // â”€â”€ Runtime Tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -182,11 +201,24 @@ function recordGoodEnding() { unlockAchievement('good_ending'); }
 function recordCheaterEnding() { unlockAchievement('cheater_ending'); }
 function recordCheatUsed() { unlockAchievement('discovered_cheats'); }
 
+function recordItemFound(itemId) {
+  if (typeof game !== 'undefined' && game.cheated) return;
+  if (!vaultData[itemId]) {
+    vaultData[itemId] = Date.now();
+    saveVault(vaultData);
+    unlockAchievement('item_' + itemId);
+    // Check if all items collected
+    const allKeys = Object.keys(BOSS_ITEMS);
+    if (allKeys.every(k => vaultData[k])) unlockAchievement('item_collector');
+  }
+}
+
 // â”€â”€ Pause Menu State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const pauseMenu = {
   active: false,
-  selected: 0,     // 0=resume, 1=guide, 2=bestiary, 3=achievements
-  popup: null,      // 'guide' | 'bestiary' | 'achievements' | null
+  selected: 0,     // 0=resume, 1=guide, 2=bestiary, 3=vault, 4=achievements
+  popup: null,      // 'guide' | 'bestiary' | 'vault' | 'achievements' | null
+  vaultScroll: 0,
   popupScroll: 0,
   guideNinja: 0,    // index into NINJA_ORDER
   bestiaryIdx: 0,   // current bestiary grid cursor
@@ -194,7 +226,7 @@ const pauseMenu = {
   clearCacheConfirm: false, // clear cache confirmation state
 };
 
-const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Achievements'];
+const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements'];
 
 function togglePause() {
   if (pauseMenu.popup) {
@@ -227,7 +259,8 @@ function pauseUpdate() {
     if (sel === 0) { pauseMenu.active = false; return; }
     if (sel === 1) { pauseMenu.popup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
     if (sel === 2) { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
-    if (sel === 3) { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
+    if (sel === 3) { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
+    if (sel === 4) { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
   }
 }
 
@@ -277,14 +310,26 @@ function updatePopup() {
     }
   }
 
+  if (pauseMenu.popup === 'vault') {
+    const itemKeys = Object.keys(BOSS_ITEMS);
+    if (consumePress('ArrowUp') || consumePress('KeyW')) {
+      pauseMenu.vaultScroll = Math.max(0, pauseMenu.vaultScroll - 1);
+    }
+    if (consumePress('ArrowDown') || consumePress('KeyS')) {
+      pauseMenu.vaultScroll = Math.min(itemKeys.length - 1, pauseMenu.vaultScroll + 1);
+    }
+  }
+
   if (pauseMenu.popup === 'achievements') {
     // Clear cache confirmation
     if (pauseMenu.clearCacheConfirm) {
       if (consumePress('KeyY')) {
         localStorage.removeItem(ACHIEVEMENTS_KEY);
         localStorage.removeItem(BESTIARY_KEY);
+        localStorage.removeItem(VAULT_KEY);
         achievementData = {};
         bestiaryData = {};
+        vaultData = {};
         pauseMenu.clearCacheConfirm = false;
         pauseMenu.popupScroll = 0;
         return;
@@ -475,7 +520,7 @@ function renderPauseMenu(ctx) {
   }
 
   // Main menu box
-  const bw = 280, bh = 200;
+  const bw = 280, bh = 232;
   const bx = CANVAS_W / 2 - bw / 2;
   const by = CANVAS_H / 2 - bh / 2;
   drawBox(ctx, bx, by, bw, bh);
@@ -511,6 +556,7 @@ function renderPauseMenu(ctx) {
 function renderPopup(ctx) {
   if (pauseMenu.popup === 'guide') renderGuidePopup(ctx);
   else if (pauseMenu.popup === 'bestiary') renderBestiaryPopup(ctx);
+  else if (pauseMenu.popup === 'vault') renderVaultPopup(ctx);
   else if (pauseMenu.popup === 'achievements') renderAchievementsPopup(ctx);
 }
 
@@ -976,6 +1022,105 @@ function renderBestiaryDetail(ctx, bx, by, bw, bh, entry, data) {
   ctx.fillText('ESC/Backspace: Back to grid', bx + 16, by + bh - 12);
 }
 
+// ── Vault Popup ───────────────────────────────────────────────────────
+function renderVaultPopup(ctx) {
+  const bw = 700, bh = 420;
+  const bx = CANVAS_W / 2 - bw / 2;
+  const by = CANVAS_H / 2 - bh / 2;
+  drawBox(ctx, bx, by, bw, bh);
+
+  const itemKeys = Object.keys(BOSS_ITEMS);
+  const found = itemKeys.filter(k => vaultData[k]).length;
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(`Vault (${found}/${itemKeys.length})`, bx + 20, by + 28);
+
+  const listY = by + 44;
+  const listH = bh - 70;
+  const rowH = 34;
+  const visible = Math.floor(listH / rowH);
+  const scroll = pauseMenu.vaultScroll;
+  const startIdx = Math.max(0, Math.min(scroll, itemKeys.length - visible));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(bx, listY, bw, listH);
+  ctx.clip();
+
+  for (let i = startIdx; i < Math.min(startIdx + visible, itemKeys.length); i++) {
+    const id = itemKeys[i];
+    const def = BOSS_ITEMS[id];
+    const owned = !!vaultData[id];
+    const ry = listY + (i - startIdx) * rowH;
+
+    // Highlight current scroll position
+    if (i === scroll) {
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx + 8, ry, bw - 16, rowH - 2);
+    }
+
+    // Icon box
+    const ibx = bx + 14, iby = ry + 3, ibs = 26;
+    if (owned) {
+      ctx.shadowColor = def.color;
+      ctx.shadowBlur = 8;
+    }
+    const ibGrad = ctx.createLinearGradient(ibx, iby, ibx, iby + ibs);
+    ibGrad.addColorStop(0, owned ? def.color : '#333');
+    ibGrad.addColorStop(1, owned ? '#111' : '#1a1a1a');
+    ctx.fillStyle = ibGrad;
+    ctx.fillRect(ibx, iby, ibs, ibs);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = owned ? def.color : '#555';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(ibx, iby, ibs, ibs);
+    // Corner accents when owned
+    if (owned) {
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 0.4;
+      ctx.fillRect(ibx + 1, iby + 1, 3, 1);
+      ctx.fillRect(ibx + 1, iby + 1, 1, 3);
+      ctx.globalAlpha = 1;
+    }
+    if (owned) {
+      drawItemIcon(ctx, id, ibx + ibs / 2, iby + ibs / 2, ibs * 0.7, def.color);
+    } else {
+      ctx.fillStyle = '#555';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', ibx + ibs / 2, iby + ibs / 2 + 1);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    // Name
+    ctx.fillStyle = owned ? '#fff' : '#555';
+    ctx.font = owned ? 'bold 12px monospace' : '12px monospace';
+    ctx.fillText(owned ? def.name : '???', bx + 48, ry + 16);
+
+    // Description
+    ctx.fillStyle = owned ? '#aaa' : '#444';
+    ctx.font = '10px monospace';
+    ctx.fillText(owned ? def.desc : '—', bx + 48, ry + 28);
+  }
+
+  ctx.restore();
+
+  // Scrollbar
+  if (itemKeys.length > visible) {
+    const sbH = listH * (visible / itemKeys.length);
+    const sbY = listY + (startIdx / itemKeys.length) * listH;
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(bx + bw - 8, sbY, 4, sbH);
+  }
+
+  // Footer
+  ctx.fillStyle = '#666';
+  ctx.font = '10px monospace';
+  ctx.fillText('\u2191\u2193 Scroll \u2022 ESC/Backspace to go back', bx + 16, by + bh - 12);
+}
+
 function renderAchievementsPopup(ctx) {
   const bw = 700, bh = 420;
   const bx = CANVAS_W / 2 - bw / 2;
@@ -1061,7 +1206,7 @@ function renderAchievementsPopup(ctx) {
     ctx.fillText('Clear all saved data?', cx, cy - 15);
     ctx.fillStyle = '#ccc';
     ctx.font = '12px monospace';
-    ctx.fillText('Achievements & Bestiary will be reset.', cx, cy + 5);
+    ctx.fillText('Achievements, Bestiary & Vault will be reset.', cx, cy + 5);
     ctx.fillStyle = '#4f4';
     ctx.font = 'bold 14px monospace';
     ctx.fillText('Y = Confirm    N = Cancel', cx, cy + 30);

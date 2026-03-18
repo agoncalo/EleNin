@@ -427,6 +427,38 @@ class Enemy {
         break;
       }
       case 'deflector': {
+        // A Friend's Letter: deflector becomes friendly
+        if (game.player.items.friendsLetter) {
+          this.friendly = true;
+          // Face nearest non-friendly enemy
+          let nearDist = Infinity, nearE = null;
+          for (const other of game.enemies) {
+            if (other === this || other.dead || other.friendly) continue;
+            const od = Math.sqrt((other.x + other.w / 2 - cx) ** 2 + (other.y + other.h / 2 - cy) ** 2);
+            if (od < nearDist) { nearDist = od; nearE = other; }
+          }
+          if (nearE) {
+            const tx = nearE.x + nearE.w / 2;
+            this.facing = tx > cx ? 1 : -1;
+            if (nearDist > 40) this.vx = this.facing * speed * 0.4 * windResist;
+            else this.vx *= 0.85;
+            this.jumpTimer++;
+            if (this.jumpTimer >= (this.big ? 90 : 120) && this.vy < 1 && nearDist < 250) {
+              this.vy = this.big ? -10 : -8;
+              this.vx = this.facing * speed * 2.5 * windResist;
+              this.jumpTimer = 0;
+            }
+            // Attack nearby enemies
+            if (nearDist < 50) {
+              nearE.takeDamage(this.contactDmg, game, cx);
+              nearE.hitCooldown = Math.max(nearE.hitCooldown, 20);
+            }
+          } else {
+            this.vx *= 0.9;
+          }
+          this.deflectReady = (this.vy >= -1 && this.vy <= 1);
+          break;
+        }
         // Miniboss samurai — faces player with dead zone to prevent flipping
         if (this.vy >= 0 && this.vy < 1 && Math.abs(px - cx) > 8) this.facing = px > cx ? 1 : -1;
         const distToPlayer = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
@@ -932,7 +964,7 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && this.type !== 'attacker' && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
+    if (this.hitCooldown <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
@@ -954,6 +986,7 @@ class Enemy {
   takeDamage(amount, game, fromX, attackElement) {
     if (this.dead) return;
     if (this.damageIframes > 0) return;
+    if (this.friendly) return;
     // Attacker: invulnerable while enemies are in its aura
     if (this.type === 'attacker' && this.attackerInvulnerable) {
       this.flashTimer = 4;
@@ -974,11 +1007,12 @@ class Enemy {
         }
       }
     }
-    // Shielded / Protector: frontal shield hits lose 1 pip + 75% damage reduction
+    // Shielded / Protector: frontal shield hits lose pips + 75% damage reduction
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
       if (hitFromFront) {
-        this.shieldHp--;
+        const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+        this.shieldHp -= pickaxeHits;
         this.flashTimer = 4;
         const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#4f8' : '#5ff';
         game.effects.push(new Effect(
@@ -1052,6 +1086,16 @@ class Enemy {
     recordBestiaryKill(this.type, this.big, false, this.element);
     // Track deflector kill for earth construct unlock
     if (this.type === 'deflector') game.player.defeatedDeflector = true;
+    // Elemental Charm: 10% heal on kill of matching element
+    if (this.element) {
+      const charmMap = { fire:'charmFire', earth:'charmEarth', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', steel:'charmSteel' };
+      const charmKey = charmMap[this.element];
+      if (charmKey && game.player.items[charmKey]) {
+        const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.1));
+        game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
+        game.effects.push(new TextEffect(game.player.x + game.player.w / 2, game.player.y - 10, '+' + healAmt, '#4f4'));
+      }
+    }
     SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, this.color, this.big ? 18 : 12, 4, 18));
@@ -2007,6 +2051,23 @@ class Boss extends Enemy {
       const isShielded = (this.bossType === 'shielded');
 
       if (isDeflector) {
+        // A Friend's Letter: deflector boss fades out peacefully
+        if (game.player.items.friendsLetter && !this.friendly) {
+          this.friendly = true;
+          this.friendlyFade = 120;
+          this.vx = 0;
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 20, 'FRIEND!', '#fda'));
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fda', 25, 6, 25));
+          recordBestiaryKill(this.bossType, false, true);
+        }
+        if (this.friendly && this.friendlyFade > 0) {
+          this.friendlyFade--;
+          this.vx = 0;
+          if (this.friendlyFade <= 0) {
+            this.dead = true;
+          }
+          return;
+        }
         // Ronin boss: faces player, deflects projectiles, jumps, throws shuriken spreads
         if (Math.abs(dx) > 8) this.facing = dx > 0 ? 1 : -1;
         const distToPlayer = Math.sqrt(dx * dx + dy * dy);
@@ -2365,6 +2426,7 @@ class Boss extends Enemy {
   takeDamage(amount, game, fromX) {
     if (this.dead) return;
     if (this.damageIframes > 0) return;
+    if (this.friendly) return;
     // Attacker boss: invulnerable when enemies nearby
     if (this.attackerInvulnerable) {
       this.flashTimer = 4;
@@ -2375,7 +2437,8 @@ class Boss extends Enemy {
     if (this.shieldHp > 0 && fromX !== undefined) {
       const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
       if (hitFromFront) {
-        this.shieldHp--;
+        const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+        this.shieldHp -= pickaxeHits;
         this.flashTimer = 4;
         const shieldColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
         game.effects.push(new Effect(this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 6, 3, 10));
@@ -2422,6 +2485,16 @@ class Boss extends Enemy {
       const oy = this.y + (Math.random() - 0.5) * 10;
       game.orbs.push(new Orb(ox, oy, orbTypes[Math.floor(Math.random() * orbTypes.length)]));
     }
+    // Drop boss item (any uncollected item)
+    const allItemIds = Object.keys(BOSS_ITEMS);
+    const pl = game.player;
+    const uncollected = allItemIds.filter(id => !pl.items[id]);
+    if (uncollected.length > 0) {
+      const itemId = uncollected[Math.floor(Math.random() * uncollected.length)];
+      const ix = this.x + this.w / 2 - 8;
+      const iy = this.y - 10;
+      game.bossItems.push(new BossItem(ix, iy, itemId));
+    }
   }
 
   render(ctx, cam, game) {
@@ -2437,6 +2510,10 @@ class Boss extends Enemy {
       }
     }
     if (this.dead) return;
+    // Friendly fade alpha
+    const _fading = this.friendlyFade > 0 && this.friendlyFade < 120;
+    if (_fading) ctx.save();
+    if (_fading) ctx.globalAlpha = this.friendlyFade / 120;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
 
@@ -2887,5 +2964,7 @@ class Boss extends Enemy {
       }
       ctx.restore();
     }
+    // Restore fade alpha
+    if (_fading) ctx.restore();
   }
 }

@@ -162,6 +162,13 @@ class Player {
     // Defeated boss/enemy tracking (for earth construct unlocks)
     this.defeatedBossTypes = new Set();
     this.defeatedDeflector = false;
+
+    // Boss items inventory (per-run)
+    this.items = {};
+    this.deathsKeyUsed = false;
+    this.autoSwingTimer = 0; // for The Code
+    this.codeComboCount = 0; // 3-hit combo tracker for The Code
+    this.evasionRng = Math.random; // for Leather Boots
   }
 
   // Hurtbox is slightly smaller than the rendered sprite
@@ -1521,6 +1528,11 @@ class Player {
               dmg += this.windPower;
             }
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
+            // Vampire Teeth: heal 1% HP per hit (min 1)
+            if (this.items.vampireTeeth) {
+              const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
+              this.hp = Math.min(this.hp + healAmt, this.maxHp);
+            }
             if (!this.ultimateReady && !this.ultimateActive) {
               this.addUltimateCharge(4);
             }
@@ -1588,11 +1600,22 @@ class Player {
             this.nextHitDouble = true;
           }
         }
-        // Destroy enemy projectiles with attack
+        // Destroy/deflect enemy projectiles with attack
         for (const p of game.projectiles) {
           if (!p.done && p.owner !== 'player' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
-            p.done = true;
-            game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#fff', 6, 2, 8));
+            if (this.items.iaito) {
+              // Deflect back at enemies
+              p.vx = -p.vx * 1.3;
+              p.vy = (Math.random() - 0.5) * 2;
+              p.owner = 'player';
+              p.damage = Math.max(p.damage, t.attackDamage + this.bonusDamage);
+              p.color = '#eef';
+              p.hitSet = new Set();
+              game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#eef', 8, 3, 10));
+            } else {
+              p.done = true;
+              game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#fff', 6, 2, 8));
+            }
             SFX.parry();
           }
         }
@@ -1627,6 +1650,11 @@ class Player {
           if (this.ninjaType === 'crystal') dmg += this.crystalCastle ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
+          // Vampire Teeth: heal 1% HP per hit (min 1)
+          if (this.items.vampireTeeth) {
+            const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
+            this.hp = Math.min(this.hp + healAmt, this.maxHp);
+          }
           if (game.boss.dead) {
             if (this.ninjaType === 'shadow') {
               game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a4e', game.camera));
@@ -1676,7 +1704,22 @@ class Player {
       } else {
         this.shadowAttackHit = false;
         this.attack(game);
+        if (this.items.theCode) this.codeComboCount = 1;
       }
+    }
+
+    // The Code: hold attack for a 3-hit combo
+    if (this.items.theCode && !this.attacking && this.attackCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
+      const holdingAttack = keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK];
+      if (holdingAttack && this.codeComboCount > 0 && this.codeComboCount < 3) {
+        this.shadowAttackHit = false;
+        this.attack(game);
+        this.codeComboCount++;
+      }
+    }
+    // Reset combo when attack released or combo finished
+    if (this.codeComboCount >= 3 || !(keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK])) {
+      this.codeComboCount = 0;
     }
 
     // Special ability
@@ -1687,7 +1730,8 @@ class Player {
     // Throw shuriken — recharge only starts when all shurikens are empty
     if (this.shurikens <= 0) {
       this.shurikenRechargeTimer++;
-      if (this.shurikenRechargeTimer >= 150) {
+      const rechargeTime = this.items.tripleShuriken ? 75 : 150;
+      if (this.shurikenRechargeTimer >= rechargeTime) {
         this.shurikens = this.maxShurikens;
         this.shurikenRechargeTimer = 0;
       }
@@ -1703,16 +1747,35 @@ class Player {
         SFX.play(200, 'square', 0.2, 0.15, 0);
       } else {
       SFX.shuriken();
+      const isKunai = this.items.theKunai && this.shurikens === 1;
       this.shurikens--;
       const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      const color = (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
-      const sProj = fireProjectileAtNearestEnemy({
-        x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
-      });
-      if (sProj && this.ninjaType === 'crystal') sProj.freezeDust = true;
-      if (sProj && this.ninjaType === 'storm') sProj.soaking = true;
-      if (sProj && this.ninjaType === 'shadow') sProj.shadowParalyse = true;
+      const color = isKunai ? '#f66' : (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
+      const makeShuriken = (angleOffset) => {
+        const sProj = fireProjectileAtNearestEnemy({
+          x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
+        });
+        if (sProj) {
+          if (this.ninjaType === 'crystal') sProj.freezeDust = true;
+          if (this.ninjaType === 'storm') sProj.soaking = true;
+          if (this.ninjaType === 'shadow') sProj.shadowParalyse = true;
+          if (this.items.homingShuriken) sProj.homing = true;
+          if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = this.maxShurikens; sProj.life = 30; }
+          if (angleOffset !== 0) {
+            const a = Math.atan2(sProj.vy, sProj.vx) + angleOffset;
+            const sp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
+            sProj.vx = Math.cos(a) * sp;
+            sProj.vy = Math.sin(a) * sp;
+          }
+        }
+        return sProj;
+      };
+      makeShuriken(0);
+      if (this.items.tripleShuriken) {
+        makeShuriken(0.25);
+        makeShuriken(-0.25);
+      }
       game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
       }
     }
@@ -2464,27 +2527,35 @@ class Player {
 
   applyElementalStatus(element, game) {
     if (!element) return;
+    // Elemental Charms: immune to matching affliction
+    const charmImmunity = {
+      fire: 'charmFire', water: 'charmWater', crystal: 'charmCrystal',
+      wind: 'charmWind', lightning: 'charmLightning', earth: 'charmEarth', steel: 'charmSteel'
+    };
+    if (charmImmunity[element] && this.items[charmImmunity[element]]) return;
+    // Protective Charm: halve duration
+    const dMul = this.items.protectiveCharm ? 0.5 : 1;
     if (element === 'fire') {
-      this.statusBurn = 180;
+      this.statusBurn = Math.round(180 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
     } else if (element === 'crystal' || element === 'water') {
-      this.statusFreeze = 120;
+      this.statusFreeze = Math.round(120 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FREEZE!', '#0ff'));
     } else if (element === 'wind') {
-      this.statusFloat = 150;
+      this.statusFloat = Math.round(150 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'FLOAT!', '#8f8'));
     } else if (element === 'lightning') {
-      this.statusParalyse = 180;
+      this.statusParalyse = Math.round(180 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
     } else if (element === 'earth') {
       if (this.heavyCooldown <= 0) {
-        this.statusHeavy = 150;
+        this.statusHeavy = Math.round(150 * dMul);
         this.heavyCooldown = 300;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
       }
     } else if (element === 'steel') {
       if (this.steelCooldown <= 0) {
-        this.statusSteel = 120;
+        this.statusSteel = Math.round(120 * dMul);
         this.steelCooldown = 300;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
       }
@@ -2525,6 +2596,12 @@ class Player {
       triggerHitstop(2);
       return;
     }
+    // Leather Boots: 5% evasion
+    if (this.items.leatherBoots && Math.random() < 0.05) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'DODGE', '#a86'));
+      triggerHitstop(2);
+      return;
+    }
     if (this.ninjaType === 'wind' && this.windPower >= 10 && typeof SFX !== 'undefined' && SFX.play) {
       SFX.play(80, 'sawtooth', 0.18, 0.22, -60);
       SFX.noise(0.18, 0.18);
@@ -2550,6 +2627,11 @@ class Player {
       }
     }
     const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
+    // Elemental Charms: halve damage from matching element
+    const charmMap = { fire:'charmFire', earth:'charmEarth', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', steel:'charmSteel' };
+    if (element && charmMap[element] && this.items[charmMap[element]]) {
+      amount = Math.max(1, Math.round(amount * 0.5));
+    }
     if (!bypassArmor) amount = Math.max(1, amount - this.bonusArmor);
     this.hp -= amount;
     this.lastDamageAmount = amount;
@@ -2560,7 +2642,38 @@ class Player {
     triggerHitstop(6);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
     this.applyElementalStatus(element, game);
+    // Spiked Armor: damage all nearby enemies when taking damage
+    if (this.items.spikedArmor) {
+      const spikeDmg = amount;
+      const sx = this.x + this.w / 2, sy = this.y + this.h / 2;
+      game.effects.push(new Effect(sx, sy, '#f80', 18, 5, 15));
+      for (const e of game.enemies) {
+        if (!e.dead) {
+          const edx = (e.x + e.w / 2) - sx, edy = (e.y + e.h / 2) - sy;
+          const ed = Math.sqrt(edx * edx + edy * edy);
+          if (ed < 80) {
+            e.takeDamage(spikeDmg, game, sx);
+            if (ed > 0) { e.vx += (edx / ed) * 5; e.vy += (edy / ed) * 3; }
+          }
+        }
+      }
+      if (game.boss && !game.boss.dead) {
+        const bdx = (game.boss.x + game.boss.w / 2) - sx, bdy = (game.boss.y + game.boss.h / 2) - sy;
+        const bd = Math.sqrt(bdx * bdx + bdy * bdy);
+        if (bd < 80) game.boss.takeDamage(spikeDmg, game, sx);
+      }
+    }
     if (this.hp <= 0) {
+      // Death's Key: revive once per run
+      if (this.items.deathsKey && !this.deathsKeyUsed) {
+        this.deathsKeyUsed = true;
+        this.hp = Math.round(this.maxHp * 0.5);
+        this.invincibleTimer = 120;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a6f', 25, 6, 25));
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 20, "DEATH'S KEY!", '#a6f'));
+        SFX.victory();
+        return;
+      }
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;

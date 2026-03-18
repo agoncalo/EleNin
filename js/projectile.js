@@ -348,11 +348,29 @@ class Projectile {
       return;
     }
     if (this.bouncy) this.vy += 0.15;
+    // Homing shuriken: gently steer toward nearest enemy
+    if (this.homing && this.owner === 'player') {
+      const target = findNearestTarget(this.x, this.y, game, 0);
+      if (target) {
+        const tdx = (target.x + target.w / 2) - (this.x + this.w / 2);
+        const tdy = (target.y + target.h / 2) - (this.y + this.h / 2);
+        const td = Math.sqrt(tdx * tdx + tdy * tdy);
+        if (td > 0) {
+          const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 8;
+          this.vx += (tdx / td) * 0.6;
+          this.vy += (tdy / td) * 0.6;
+          const ns = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+          if (ns > 0) { this.vx = (this.vx / ns) * sp; this.vy = (this.vy / ns) * sp; }
+        }
+      }
+    }
     this.x += this.vx;
     this.y += this.vy;
     this.life--;
-    if (this.life <= 0) { this.done = true; return; }
-    // Fireball trailing embers
+    if (this.life <= 0) {
+      if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
+      this.done = true; return;
+    }
     if (this.isFireball && this.life % 2 === 0) {
       game.effects.push(new Effect(
         this.x + this.w / 2 + (Math.random() - 0.5) * 6,
@@ -364,6 +382,7 @@ class Projectile {
     if (this.owner !== 'boss' || (this.bouncy && this.bouncesLeft > 0)) {
       for (const p of game.platforms) {
         if (p.thin) continue;
+        if (this.isKunai) continue; // Kunai passes through platforms
         if (rectOverlap(this, p)) {
           if (this.bouncy && (this.bouncesLeft > 0 || this.life > 30)) {
             // Only bounce off the top of platforms (falling down onto them)
@@ -375,12 +394,13 @@ class Projectile {
             return;
           }
           this.done = true;
+          if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
           return;
         }
       }
     }
-    // Boss bouncer: bounce off level walls and floor (not ceiling)
+    // bounce off level walls and floor (not ceiling)
     if (this.owner === 'boss' && this.bouncy && this.bouncesLeft > 0) {
       if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
       if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
@@ -402,43 +422,50 @@ class Projectile {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
 
-          // Shielded: block projectiles from the front (shield stops even piercing)
-          if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
-            e.flashTimer = 4;
-            game.effects.push(new Effect(
-              e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
-            ));
-            this.done = true;
-            return;
-          }
-          // Protector: block projectiles from the front (shield stops even piercing)
-          if (e.type === 'protector' && e.shieldHp > 0 && hitFromFront) {
-            e.flashTimer = 4;
-            game.effects.push(new Effect(
-              e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#4f8', 8, 3, 10
-            ));
-            this.done = true;
-            return;
-          }
+          // Kunai is unblockable — skip all shield/deflect checks
+          if (!this.isKunai) {
+            // Shielded: block projectiles from the front (shield stops even piercing)
+            if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
+              e.flashTimer = 4;
+              game.effects.push(new Effect(
+                e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
+              ));
+              this.done = true;
+              return;
+            }
+            // Protector: block projectiles from the front (shield stops even piercing)
+            if (e.type === 'protector' && e.shieldHp > 0 && hitFromFront) {
+              e.flashTimer = 4;
+              game.effects.push(new Effect(
+                e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#4f8', 8, 3, 10
+              ));
+              this.done = true;
+              return;
+            }
 
-          // Deflector: deflect projectiles back (always deflects when ready, any direction)
-          if (e.type === 'deflector' && e.deflectReady && !e.freezeTimer) {
-            e.deflectReady = false;
-            e.deflectTimer = e.big ? 50 : 80;
-            e.deflectFlash = 12;
-            this.vx = -this.vx * 1.2;
-            this.vy = (Math.random() - 0.5) * 2;
-            this.owner = 'enemy';
-            this.damage = Math.max(this.damage, 3);
-            this.color = '#aaf';
-            this.hitSet.clear();
-            game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h * 0.4, '#eef', 10, 4, 12));
-            SFX.hit();
-            triggerHitstop(4);
-            return;
+            // Deflector: deflect projectiles back (always deflects when ready, any direction)
+            if (e.type === 'deflector' && e.deflectReady && !e.freezeTimer) {
+              e.deflectReady = false;
+              e.deflectTimer = e.big ? 50 : 80;
+              e.deflectFlash = 12;
+              this.vx = -this.vx * 1.2;
+              this.vy = (Math.random() - 0.5) * 2;
+              this.owner = 'enemy';
+              this.damage = Math.max(this.damage, 3);
+              this.color = '#aaf';
+              this.hitSet.clear();
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h * 0.4, '#eef', 10, 4, 12));
+              SFX.hit();
+              triggerHitstop(4);
+              return;
+            }
           }
 
           e.takeDamage(this.damage, game, this.x);
+          // Kunai explosion: AoE blast on impact
+          if (this.isKunai) {
+            this._kunaiExplode(game, e);
+          }
           // Freeze dust: also freeze on hit
           if (this.freezeDust) {
             e.freezeTimer = 60;
@@ -498,40 +525,47 @@ class Projectile {
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         const bossHitFromFront = (this.x + this.w / 2 > game.boss.x + game.boss.w / 2) === (game.boss.facing === 1);
-        // Shielded boss: block projectiles from the front
-        if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && bossHitFromFront) {
-          game.boss.flashTimer = 4;
-          game.effects.push(new Effect(
-            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#5ff', 8, 3, 10
-          ));
-          this.done = true;
-          return;
-        }
-        // Protector boss: block projectiles from the front
-        if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && bossHitFromFront) {
-          game.boss.flashTimer = 4;
-          game.effects.push(new Effect(
-            game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#4f8', 8, 3, 10
-          ));
-          this.done = true;
-          return;
-        }
-        // Deflector boss: deflect projectiles back when ready
-        if (game.boss.bossType === 'deflector' && game.boss.deflectReady && !game.boss.freezeTimer) {
-          game.boss.deflectReady = false;
-          game.boss.deflectFlash = 12;
-          this.vx = -this.vx * 1.2;
-          this.vy = (Math.random() - 0.5) * 2;
-          this.owner = 'enemy';
-          this.damage = Math.max(this.damage, 3);
-          this.color = '#aaf';
-          this.hitSet.clear();
-          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h * 0.4, '#eef', 10, 4, 12));
-          SFX.hit();
-          triggerHitstop(4);
-          return;
+        // Kunai is unblockable — skip all shield/deflect checks for bosses
+        if (!this.isKunai) {
+          // Shielded boss: block projectiles from the front
+          if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && bossHitFromFront) {
+            game.boss.flashTimer = 4;
+            game.effects.push(new Effect(
+              game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#5ff', 8, 3, 10
+            ));
+            this.done = true;
+            return;
+          }
+          // Protector boss: block projectiles from the front
+          if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && bossHitFromFront) {
+            game.boss.flashTimer = 4;
+            game.effects.push(new Effect(
+              game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#4f8', 8, 3, 10
+            ));
+            this.done = true;
+            return;
+          }
+          // Deflector boss: deflect projectiles back when ready
+          if (game.boss.bossType === 'deflector' && game.boss.deflectReady && !game.boss.freezeTimer) {
+            game.boss.deflectReady = false;
+            game.boss.deflectFlash = 12;
+            this.vx = -this.vx * 1.2;
+            this.vy = (Math.random() - 0.5) * 2;
+            this.owner = 'enemy';
+            this.damage = Math.max(this.damage, 3);
+            this.color = '#aaf';
+            this.hitSet.clear();
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h * 0.4, '#eef', 10, 4, 12));
+            SFX.hit();
+            triggerHitstop(4);
+            return;
+          }
         }
         game.boss.takeDamage(this.damage, game, this.x);
+        // Kunai explosion on boss hit
+        if (this.isKunai) {
+          this._kunaiExplode(game);
+        }
         // Freeze dust: also freeze boss on hit
         if (this.freezeDust) {
           game.boss.freezeTimer = 40;
@@ -585,6 +619,51 @@ class Projectile {
       }
     }
   }
+
+  _kunaiExplode(game, skipEnemy) {
+    if (this._kunaiExploded) return;
+    this._kunaiExploded = true;
+    const kx = this.x + this.w / 2, ky = this.y + this.h / 2;
+    const maxShur = this.kunaiMaxShurikens || 3;
+    const radius = 50 + maxShur * 10;
+    const dmg = Math.round((this.kunaiDmg || this.damage) * (1 + maxShur * 0.15));
+    // Massive multi-layered explosion
+    game.effects.push(new Effect(kx, ky, '#fff', 12, 10, 18));
+    game.effects.push(new Effect(kx, ky, '#f44', 25, 8, 25));
+    game.effects.push(new Effect(kx, ky, '#fa3', 20, 6, 22));
+    game.effects.push(new Effect(kx, ky, '#ff0', 15, 5, 20));
+    game.effects.push(new Effect(kx, ky, '#f66', 10, 3, 30));
+    // Ring of sparks
+    for (let a = 0; a < 12; a++) {
+      const angle = (a / 12) * Math.PI * 2;
+      const rx = kx + Math.cos(angle) * radius * 0.4;
+      const ry = ky + Math.sin(angle) * radius * 0.4;
+      game.effects.push(new Effect(rx, ry, a % 2 === 0 ? '#f80' : '#ff0', 4, 3, 14));
+    }
+    // Shockwave ring effect
+    game.effects.push(new Effect(kx, ky, '#f88', 30, 12, 12));
+    SFX.hit();
+    SFX.play(80, 'sawtooth', 0.4, 0.3, 0);
+    SFX.play(150, 'square', 0.2, 0.2, 0.05);
+    triggerHitstop(6);
+    for (const e2 of game.enemies) {
+      if (!e2.dead && e2 !== skipEnemy) {
+        const edx = (e2.x + e2.w / 2) - kx, edy = (e2.y + e2.h / 2) - ky;
+        const ed = Math.sqrt(edx * edx + edy * edy);
+        if (ed < radius) {
+          e2.takeDamage(dmg, game, kx);
+          const push = 12 * (1 - ed / radius);
+          if (ed > 0) { e2.vx += (edx / ed) * push; e2.vy -= 4 * (1 - ed / radius); }
+        }
+      }
+    }
+    if (game.boss && !game.boss.dead) {
+      const bdx = (game.boss.x + game.boss.w / 2) - kx, bdy = (game.boss.y + game.boss.h / 2) - ky;
+      const bd = Math.sqrt(bdx * bdx + bdy * bdy);
+      if (bd < radius) game.boss.takeDamage(dmg, game, kx);
+    }
+  }
+
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
     if (this.freezeDust) {

@@ -318,6 +318,48 @@ const GP_SLAM = 13;    // Dpad Down
 const GP_LB = 4;
 const GP_RB = 5;
 
+// ── Boss Item Definitions ────────────────────────────────────
+const BOSS_ITEMS = {
+  pickaxe:        { name: 'Pickaxe',          icon: '⛏', color: '#c96', desc: 'Enemy shields take 2 hits instead of one.' },
+  tripleShuriken: { name: 'Triple Shuriken',  icon: '✦', color: '#ccc', desc: 'Throw 3 shurikens at once, halves cooldown.' },
+  homingShuriken: { name: 'Homing Shuriken',  icon: '◎', color: '#6cf', desc: 'Shurikens home in on enemies.' },
+  vampireTeeth:   { name: 'Vampire Teeth',    icon: '🦷', color: '#d44', desc: 'Each hit recovers 1% HP (min 1).' },
+  iaito:          { name: 'Iaito',             icon: '⚔', color: '#eee', desc: 'Sword attacks deflect bullets back at enemies.' },
+  spikedArmor:    { name: 'Spiked Armor',     icon: '⬡', color: '#f80', desc: 'When hit, damage all nearby enemies.' },
+  redMagnet:      { name: 'Red Magnet',        icon: '⊙', color: '#f33', desc: 'Greatly increases orb pickup range.' },
+  x2Orb:          { name: 'x2 Orb',            icon: '②', color: '#ff0', desc: 'Double the effect of orbs.' },
+  deathsKey:      { name: "Death's Key",        icon: '🗝', color: '#a6f', desc: 'Once per run, revive at 50% HP.' },
+  protectiveCharm:{ name: 'Protective Charm',  icon: '♣', color: '#4f4', desc: 'Halves affliction duration.' },
+  charmFire:      { name: 'Fire Charm',        icon: '◈', color: '#f44', desc: 'Halves fire damage, immune to burn, 10% heal on fire kill.' },
+  charmEarth:     { name: 'Earth Charm',       icon: '◈', color: '#a67', desc: 'Halves earth damage, immune to heavy, 10% heal on earth kill.' },
+  charmWater:     { name: 'Water Charm',       icon: '◈', color: '#4af', desc: 'Halves water damage, immune to freeze, 10% heal on water kill.' },
+  charmCrystal:   { name: 'Crystal Charm',     icon: '◈', color: '#0dd', desc: 'Halves crystal damage, immune to freeze, 10% heal on crystal kill.' },
+  charmWind:      { name: 'Wind Charm',        icon: '◈', color: '#6b6', desc: 'Halves wind damage, immune to float, 10% heal on wind kill.' },
+  charmLightning: { name: 'Lightning Charm',   icon: '◈', color: '#ff4', desc: 'Halves lightning damage, immune to paralyse, 10% heal on lightning kill.' },
+  charmSteel:     { name: 'Steel Charm',       icon: '◈', color: '#abb', desc: 'Halves steel damage, immune to steel, 10% heal on steel kill.' },
+  leatherBoots:   { name: 'Leather Boots',     icon: '👢', color: '#a86', desc: '5% chance to evade attacks.' },
+  friendsLetter:  { name: "A Friend's Letter", icon: '✉', color: '#fda', desc: "'I hope it will reach him.'" },
+  theKunai:       { name: 'The Kunai',         icon: '🗡', color: '#f66', desc: 'Last shuriken is a kunai that always explodes. More shurikens = bigger blast.' },
+  theCode:        { name: 'The Code',          icon: '⌘', color: '#aaf', desc: 'Hold attack for a 3-hit combo, alternating down-up.' },
+};
+
+// Which item(s) each boss drops (first uncollected in order)
+const BOSS_ITEM_DROPS = {
+  walker:     ['pickaxe', 'charmFire'],
+  shooter:    ['tripleShuriken', 'charmEarth'],
+  jumper:     ['leatherBoots', 'charmWater'],
+  flyer:      ['homingShuriken', 'charmCrystal'],
+  deflector:  ['friendsLetter', 'iaito', 'charmWind'],
+  bouncer:    ['spikedArmor', 'x2Orb', 'charmLightning'],
+  shielded:   ['protectiveCharm', 'deathsKey', 'charmSteel'],
+  protector:  ['redMagnet', 'theCode'],
+  attacker:   ['vampireTeeth'],
+  flyshooter: ['theKunai'],
+};
+
+// Items localStorage key
+const VAULT_KEY = 'elenin_vault';
+
 // ── Battle Phrases ───────────────────────────────────────────
 // Helper to pick a random phrase
 function pickPhrase(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
