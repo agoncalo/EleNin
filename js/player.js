@@ -64,6 +64,12 @@ class Player {
     // Special state
     this.specialCooldown = 0;
 
+    // Mana system (pip-based)
+    this.mana = 2;
+    this.maxMana = 2; // default, set per ninja in switchNinja
+    this.manaCost = 1; // cost per special use
+    this.bonusMana = 0; // extra max from element orbs
+
     // Fire ninja state
     this.comboMeter = 0;
     this.comboTimer = 0;
@@ -498,6 +504,10 @@ class Player {
     this.stormChaining = false;
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
+    // Set mana capacity per ninja
+    const manaCaps = { fire: 2, earth: 3, bubble: 2, shadow: 2, crystal: 2, wind: 2, storm: 2 };
+    this.maxMana = (manaCaps[type] || 2) + this.bonusMana;
+    this.mana = this.maxMana;
   }
 
   update(game) {
@@ -1602,6 +1612,8 @@ class Player {
             if (!this.ultimateReady && !this.ultimateActive) {
               this.addUltimateCharge(4);
             }
+            // Mana charge on hit
+            this.mana = Math.min(this.mana + 0.25, this.maxMana);
             e.hitCooldown = 15;
 
             if (this.ninjaType === 'crystal') {
@@ -1791,7 +1803,8 @@ class Player {
     }
 
     // Special ability
-    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.specialCooldown <= 0) {
+    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.mana >= this.manaCost) {
+      this.mana -= this.manaCost;
       this.useSpecial(game);
     }
 
@@ -2224,6 +2237,30 @@ class Player {
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f80', 14, 5, 14));
       }
 
+      // Bombardment: drop fire projectiles at intervals during the dash
+      if (this.fireDashTimer === 9 || this.fireDashTimer === 6 || this.fireDashTimer === 3) {
+        const dmg = Math.max(1, Math.floor((this.type.attackDamage + this.bonusDamage) / 2));
+        const px = this.x + this.w / 2;
+        const py = this.y + this.h / 2;
+        if (this.fireDashTimer === 3) {
+          // Last one: homing missile
+          const proj = new Projectile(px, py, this.facing * 6, 0, '#f40', dmg + 2, 'player');
+          proj.w = 12; proj.h = 12;
+          proj.isFireball = true;
+          proj.homing = true;
+          proj.piercing = true;
+          proj.life = 80;
+          game.projectiles.push(proj);
+        } else {
+          // Bombs: arc downward
+          const proj = new Projectile(px, py, this.facing * 3, 2 + Math.random() * 2, '#f60', dmg, 'player');
+          proj.w = 10; proj.h = 10;
+          proj.isFireball = true;
+          proj.life = 50;
+          game.projectiles.push(proj);
+        }
+      }
+
       if (this.fireDashTimer <= 0) {
         this._launchFireball(game);
       }
@@ -2432,6 +2469,7 @@ class Player {
       proj.h = 18;
       proj.piercing = true;
       proj.isFireball = true;
+      proj.homing = true;
       proj.life = 80;
       game.projectiles.push(proj);
       this._fireballPending = false;
@@ -2439,7 +2477,6 @@ class Player {
   }
 
   useSpecial(game) {
-    this.specialCooldown = 60;
     SFX.special();
     switch (this.ninjaType) {
       case 'fire': {
@@ -2501,17 +2538,28 @@ class Player {
         }
         game.stoneBlocks.push(construct);
         game.effects.push(new Effect(spawnX + TILE / 2, supportY, '#a87', 8, 2, 12));
+        // Fortify: power up all existing constructs
+        for (const block of game.stoneBlocks) {
+          if (!block.done) {
+            block.hp = block.maxHp;
+            block.powered = true;
+            block.hitCooldown = 30;
+            game.effects.push(new Effect(block.x + block.w / 2, block.y + block.h / 2, '#fc0', 6, 2, 10));
+          }
+        }
         break;
       }
       case 'bubble':
         for (let i = 0; i < 3; i++) {
           const randOffX = randInt(-30, 30);
           const randOffY = randInt(-20, 20);
-          game.bubbles.push(new Bubble(
+          const bub = new Bubble(
             this.x + this.facing * (50 + i * 50) + randOffX,
             this.y - 20 - i * 25 + randOffY,
             this.type.attackDamage + this.bonusDamage
-          ));
+          );
+          bub.homing = true;
+          game.bubbles.push(bub);
         }
         this.nextHitDouble = true;
         break;
@@ -2551,40 +2599,46 @@ class Player {
         break;
       }
       case 'crystal': {
-        // Spawn a diamond shard aimed at nearest enemy
+        // Spawn 3 diamond shards
         if (!game.diamondShards) game.diamondShards = [];
-        const sx = this.x + this.w / 2 + this.facing * 16;
-        const sy = this.y + this.h / 2;
-        game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+        for (let i = 0; i < 3; i++) {
+          const sx = this.x + this.w / 2 + this.facing * 16;
+          const sy = this.y + this.h / 2 + (i - 1) * 20;
+          game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+        }
         SFX.special();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
         break;
       }
       case 'wind':
         if (!game.trimerangs) game.trimerangs = [];
-        const px = this.x + this.w / 2 + this.facing * 32;
-        const py = this.y + this.h / 2;
-        const speed = 7 + this.windPower * 0.5;
-        const vx = this.facing * speed;
-        const vy = -2 + Math.random() * 4;
-        game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
+        for (let i = 0; i < 3; i++) {
+          const px = this.x + this.w / 2 + this.facing * 32;
+          const py = this.y + this.h / 2 + (i - 1) * 18;
+          const speed = 7 + this.windPower * 0.5;
+          const vx = this.facing * speed;
+          const vy = -3 + i * 3;
+          game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
+        }
         SFX.special();
         break;
       case 'storm': {
-        // Water orbs: 3 projectiles orbit the player in a circle, bypassing terrain
+        // 3 homing soak balls that fly to enemies and soak in a large area
         const wsx = this.x + this.w / 2;
         const wsy = this.y + this.h / 2;
         for (let i = 0; i < 3; i++) {
           const angle = (Math.PI * 2 / 3) * i;
-          const proj = new Projectile(wsx, wsy, 0, 0, '#48f', this.type.attackDamage + this.bonusDamage, 'player');
-          proj.w = 12; proj.h = 12;
+          const proj = new Projectile(
+            wsx + Math.cos(angle) * 30, wsy + Math.sin(angle) * 30,
+            Math.cos(angle) * 5, Math.sin(angle) * 5,
+            '#48f', this.type.attackDamage + this.bonusDamage, 'player'
+          );
+          proj.w = 16; proj.h = 16;
           proj.soaking = true;
           proj.piercing = true;
-          proj.life = 180;
-          proj.orbiting = true;
-          proj.orbitAngle = angle;
-          proj.orbitRadius = 70;
-          proj.orbitSpeed = 0.08;
+          proj.homing = true;
+          proj.noPlat = true;
+          proj.life = 240;
           game.projectiles.push(proj);
         }
         game.effects.push(new Effect(wsx, wsy, '#48f', 14, 5, 16));
@@ -2706,6 +2760,34 @@ class Player {
     this.invincibleTimer = 45;
     this.lastDamageTick = game.tick;
     this.windPower = 0;
+    // Knockback on damage — away from nearest threat
+    {
+      const pcx = this.x + this.w / 2, pcy = this.y + this.h / 2;
+      let srcX = null, srcY = null, bestDist = Infinity;
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const dx = (e.x + e.w / 2) - pcx, dy = (e.y + e.h / 2) - pcy;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; srcX = e.x + e.w / 2; srcY = e.y + e.h / 2; }
+      }
+      if (game.boss && !game.boss.dead) {
+        const dx = (game.boss.x + game.boss.w / 2) - pcx, dy = (game.boss.y + game.boss.h / 2) - pcy;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { srcX = game.boss.x + game.boss.w / 2; srcY = game.boss.y + game.boss.h / 2; }
+      }
+      const kbH = 5 + Math.min(amount, 5);
+      const kbV = -(3 + Math.min(amount, 4));
+      if (srcX !== null) {
+        const dir = Math.sign(pcx - srcX) || 1;
+        this.vx = dir * kbH;
+      } else {
+        this.vx = -this.facing * kbH;
+      }
+      this.vy = kbV;
+      this.grounded = false;
+    }
+    // Mana charge on taking damage
+    this.mana = Math.min(this.mana + 0.5, this.maxMana);
     SFX.playerHurt();
     triggerHitstop(6);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
@@ -2870,6 +2952,39 @@ class Player {
 
     // Storm afterimages (during lightning chain)
     if (this.ninjaType === 'storm' && this.stormAfterimages.length > 0) {
+      // Draw yellow lightning lines between consecutive afterimages
+      if (this.stormAfterimages.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = this.stormChaining ? 0.7 : 0.3;
+        for (let i = 1; i < this.stormAfterimages.length; i++) {
+          const prev = this.stormAfterimages[i - 1];
+          const curr = this.stormAfterimages[i];
+          const px1 = prev.x + this.w / 2 - cam.x, py1 = prev.y + this.h / 2 - cam.y;
+          const px2 = curr.x + this.w / 2 - cam.x, py2 = curr.y + this.h / 2 - cam.y;
+          // Jagged lightning: 3-segment zig-zag
+          const mx1 = px1 + (px2 - px1) * 0.33 + (Math.random() - 0.5) * 12;
+          const my1 = py1 + (py2 - py1) * 0.33 + (Math.random() - 0.5) * 12;
+          const mx2 = px1 + (px2 - px1) * 0.66 + (Math.random() - 0.5) * 12;
+          const my2 = py1 + (py2 - py1) * 0.66 + (Math.random() - 0.5) * 12;
+          ctx.beginPath();
+          ctx.moveTo(px1, py1);
+          ctx.lineTo(mx1, my1);
+          ctx.lineTo(mx2, my2);
+          ctx.lineTo(px2, py2);
+          ctx.stroke();
+        }
+        // Line from last afterimage to current player position
+        const last = this.stormAfterimages[this.stormAfterimages.length - 1];
+        const lx = last.x + this.w / 2 - cam.x, ly = last.y + this.h / 2 - cam.y;
+        const plx = this.x + this.w / 2 - cam.x, ply = this.y + this.h / 2 - cam.y;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(plx, ply);
+        ctx.stroke();
+        ctx.restore();
+      }
       for (const a of this.stormAfterimages) {
         const alpha = this.stormChaining ? 0.5 : (a.life / 15) * 0.4;
         ctx.globalAlpha = alpha;
@@ -2916,6 +3031,29 @@ class Player {
     // Shadow afterimages
     if (this.ninjaType === 'shadow') {
       const stealthFade = Math.max(0, 1 - this.shadowStealth / 200);
+      // Draw purple lines between chain afterimages
+      const chainImages = this.afterimages.filter(a => a.chain);
+      if (chainImages.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = '#a4e';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = this.chainStriking ? 0.6 : 0.25;
+        for (let i = 1; i < chainImages.length; i++) {
+          const prev = chainImages[i - 1];
+          const curr = chainImages[i];
+          ctx.beginPath();
+          ctx.moveTo(prev.x + this.w / 2 - cam.x, prev.y + this.h / 2 - cam.y);
+          ctx.lineTo(curr.x + this.w / 2 - cam.x, curr.y + this.h / 2 - cam.y);
+          ctx.stroke();
+        }
+        // Line from last chain image to current player position
+        const last = chainImages[chainImages.length - 1];
+        ctx.beginPath();
+        ctx.moveTo(last.x + this.w / 2 - cam.x, last.y + this.h / 2 - cam.y);
+        ctx.lineTo(this.x + this.w / 2 - cam.x, this.y + this.h / 2 - cam.y);
+        ctx.stroke();
+        ctx.restore();
+      }
       for (const a of this.afterimages) {
         if (a.chain) {
           // Chain afterimages: bright and persistent, fade only after chain ends
@@ -3184,13 +3322,6 @@ class Player {
     }
     if (this.statusSteel > 0) {
       // Body color override handled below (grey)
-    }
-
-    // Special ready indicator
-    if (this.specialCooldown <= 0) {
-      ctx.strokeStyle = t.accentColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
     }
 
     // Body — color changes for steel (grey) and heavy (dark lead)

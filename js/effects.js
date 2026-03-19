@@ -274,6 +274,58 @@ class Effect {
   }
 }
 
+// ── FlamePool (fire ninja ground flame) ──────────────────────
+class FlamePool {
+  constructor(x, y, damage) {
+    this.x = x; this.y = y;
+    this.w = 28; this.h = 12;
+    this.damage = damage;
+    this.life = 180;
+    this.maxLife = 180;
+    this.done = false;
+    this.hitTimer = 0;
+  }
+  update(game) {
+    this.life--;
+    if (this.life <= 0) { this.done = true; return; }
+    if (this.hitTimer > 0) this.hitTimer--;
+    if (this.hitTimer <= 0) {
+      for (const e of game.enemies) {
+        if (!e.dead && rectOverlap(this, e)) {
+          e.takeDamage(this.damage, game, this.x + this.w / 2);
+          e.burnTimer = Math.max(e.burnTimer || 0, 60);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h, '#f80', 4, 2, 8));
+          this.hitTimer = 20;
+        }
+      }
+      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.damage, game, this.x + this.w / 2);
+        game.boss.burnTimer = Math.max(game.boss.burnTimer || 0, 60);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h, '#f80', 4, 2, 8));
+        this.hitTimer = 20;
+      }
+    }
+  }
+  render(ctx, cam) {
+    const alpha = Math.min(1, this.life / 30);
+    const cx = this.x + this.w / 2 - cam.x;
+    const cy = this.y + this.h / 2 - cam.y;
+    // Flickering flame glow
+    ctx.globalAlpha = alpha * 0.4;
+    ctx.fillStyle = '#f80';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 4, 14 + Math.sin(this.life * 0.3) * 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Core
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.fillStyle = '#fc3';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 2, 8 + Math.sin(this.life * 0.5) * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
 class KanjiEffect {
   constructor(x, y, color, cam) {
     this.sx = x - (cam ? cam.x : 0);
@@ -384,6 +436,7 @@ class Orb {
             case 'reach': pl.bonusReach += 1 * _m; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
             case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m); game.effects.push(new Effect(ox, oy, '#ff0', 8, 3, 12)); break;
             case 'armor': pl.bonusArmor += 1 * _m; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
+            case 'element': pl.bonusMana += 1 * _m; pl.maxMana += 1 * _m; pl.mana = pl.maxMana; game.effects.push(new Effect(ox, oy, '#f0f', 8, 3, 12)); break;
           }
           return;
         }
@@ -452,6 +505,12 @@ class Orb {
         case 'armor':
           pl.bonusArmor += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#88f', 8, 3, 12));
+          break;
+        case 'element':
+          pl.bonusMana += 1 * _m;
+          pl.maxMana += 1 * _m;
+          pl.mana = pl.maxMana;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
           break;
       }
     }
@@ -528,6 +587,12 @@ class Orb {
             pl.bonusArmor += 1;
             game.effects.push(new Effect(cx, cy, '#88f', 8, 3, 12));
             break;
+          case 'element':
+            pl.bonusMana += 1;
+            pl.maxMana += 1;
+            pl.mana = pl.maxMana;
+            game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
+            break;
         }
       }
     }
@@ -538,7 +603,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
     ctx.fillStyle = colors[this.type];
     ctx.beginPath();
     ctx.arc(sx + 5, sy + 5, 5, 0, Math.PI * 2);
@@ -550,7 +615,7 @@ class Orb {
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 8px monospace';
-    const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■' };
+    const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
     ctx.fillText(icons[this.type], sx + 1, sy + 9);
   }
 }

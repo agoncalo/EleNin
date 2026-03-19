@@ -374,6 +374,11 @@ class Projectile {
         Math.random() > 0.5 ? '#f80' : '#f50', 4, 1.5, 6
       ));
     }
+    // Fire projectiles leave flame trails on the ground
+    if (this.isFireball && this.owner === 'player' && this.life % 8 === 0) {
+      const flameDmg = Math.max(1, Math.floor(this.damage / 3));
+      game.flamePools.push(new FlamePool(this.x + this.w / 2 - 14, this.y + this.h / 2, flameDmg));
+    }
     // Hit platforms (skip thin platforms; bouncy only collides downward)
     if (this.owner !== 'boss' || (this.bouncy && this.bouncesLeft > 0)) {
       for (const p of game.platforms) {
@@ -402,8 +407,8 @@ class Projectile {
       if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
       if (this.y + this.h > 480) { this.y = 480 - this.h; this.vy = -Math.abs(this.vy) * 0.75; this.bouncesLeft--; }
     }
-    // Hit stone blocks (power them up)
-    if (this.owner === 'enemy' || this.owner === 'boss') {
+    // Hit stone blocks (power them up) — skip if fired by a construct
+    if ((this.owner === 'enemy' || this.owner === 'boss') && !this.fromConstruct) {
       for (const b of game.stoneBlocks) {
         if (!b.done && rectOverlap(this, b)) {
           b.powered = true;
@@ -458,6 +463,7 @@ class Projectile {
           }
 
           e.takeDamage(this.damage, game, this.x);
+          game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
             this._kunaiExplode(game, e);
@@ -555,6 +561,7 @@ class Projectile {
           }
         }
         game.boss.takeDamage(this.damage, game, this.x);
+        game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {
           this._kunaiExplode(game);

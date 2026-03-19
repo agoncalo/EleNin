@@ -469,7 +469,7 @@ class Enemy {
           } else {
             // idle — walk toward player
             if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.5 * windResist;
-            if (shDist < 120 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+            if (shDist < 120 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
@@ -618,7 +618,7 @@ class Enemy {
           } else {
             // idle — walk slowly toward player
             if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.4 * windResist;
-            if (pDist < 140 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+            if (pDist < 140 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
@@ -1184,6 +1184,126 @@ class Enemy {
     SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, this.color, this.big ? 18 : 12, 4, 18));
+
+    // ── Elemental death effects — spawn projectiles/objects ──
+    if (this.element) {
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      const count = this.big ? 5 : 3;
+      const dmg = Math.max(1, Math.ceil(2 * this.wave));
+
+      switch (this.element) {
+        case 'fire': {
+          // Scatter fire projectiles (like fire special bombardment)
+          for (let i = 0; i < count; i++) {
+            const a = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.4;
+            const spd = 3 + Math.random() * 2;
+            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#f60', dmg, 'player');
+            proj.w = 10; proj.h = 10;
+            proj.isFireball = true;
+            proj.life = 50;
+            game.projectiles.push(proj);
+          }
+          game.effects.push(new Effect(cx, cy, '#f60', 16, 5, 16));
+          game.effects.push(new Effect(cx, cy, '#fa3', 10, 3, 12));
+          break;
+        }
+        case 'water': {
+          // Scatter homing soaking bubbles
+          for (let i = 0; i < count; i++) {
+            const offX = (Math.random() - 0.5) * 40;
+            const offY = (Math.random() - 0.5) * 30;
+            const bub = new Bubble(cx + offX - 16, cy + offY - 16, dmg);
+            bub.homing = true;
+            bub.soaking = true;
+            bub.life = 240;
+            game.bubbles.push(bub);
+          }
+          game.effects.push(new Effect(cx, cy, '#6af', 16, 5, 16));
+          game.effects.push(new Effect(cx, cy, '#38d', 10, 6, 12));
+          break;
+        }
+        case 'lightning': {
+          // 3 homing shock balls
+          for (let i = 0; i < 3; i++) {
+            const a = (Math.PI * 2 / 3) * i + (Math.random() - 0.5) * 0.5;
+            const spd = 2 + Math.random();
+            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#ff4', dmg, 'player');
+            proj.w = 10; proj.h = 10;
+            proj.homing = true;
+            proj.shadowParalyse = true;
+            proj.life = 120;
+            game.projectiles.push(proj);
+          }
+          game.effects.push(new Effect(cx, cy, '#ff8', 14, 5, 14));
+          game.effects.push(new Effect(cx, cy, '#ff4', 8, 7, 10));
+          break;
+        }
+        case 'wind': {
+          // Scatter trimerangs
+          if (!game.trimerangs) game.trimerangs = [];
+          for (let i = 0; i < count; i++) {
+            const a = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.3;
+            const spd = 3 + Math.random() * 2;
+            const t = new Trimerang(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, 'player');
+            t.life = 150;
+            game.trimerangs.push(t);
+          }
+          game.effects.push(new Effect(cx, cy, '#bfb', 14, 6, 18));
+          game.effects.push(new Effect(cx, cy, '#9e9', 10, 4, 14));
+          break;
+        }
+        case 'earth': {
+          // Scatter small spikes
+          for (let i = 0; i < count; i++) {
+            const offX = (i - Math.floor(count / 2)) * 18;
+            const spike = new StoneSpike(cx + offX - 8, cy - 8, game.wave || 1);
+            spike.w = 16; spike.h = 16;
+            spike.hp = 3; spike.maxHp = 3;
+            spike.vy = -(3 + Math.random() * 3);
+            spike.vx = (Math.random() - 0.5) * 4;
+            game.stoneBlocks.push(spike);
+          }
+          game.effects.push(new Effect(cx, cy, '#b8864e', 14, 5, 16));
+          game.effects.push(new Effect(cx, cy, '#7a4a1a', 10, 4, 12));
+          break;
+        }
+        case 'crystal': {
+          // Scatter diamond shards
+          if (!game.diamondShards) game.diamondShards = [];
+          for (let i = 0; i < count; i++) {
+            const shard = new DiamondShard(cx, cy, 'player', game);
+            const a = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+            shard.angle = a + Math.PI / 2;
+            shard.dirX = Math.cos(a);
+            shard.dirY = Math.sin(a);
+            shard.speed = 2 + Math.random() * 2;
+            shard.maxSpeed = 7;
+            game.diamondShards.push(shard);
+          }
+          game.effects.push(new Effect(cx, cy, '#aff', 16, 5, 16));
+          game.effects.push(new Effect(cx, cy, '#0dd', 10, 4, 18));
+          break;
+        }
+        case 'steel': {
+          // Scatter shuriken projectiles
+          const sCount = this.big ? 8 : 5;
+          for (let i = 0; i < sCount; i++) {
+            const a = (Math.PI * 2 / sCount) * i;
+            const spd = 5;
+            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#bcc', dmg + 1, 'player');
+            proj.w = 6; proj.h = 6;
+            proj.life = 60;
+            game.projectiles.push(proj);
+          }
+          game.effects.push(new Effect(cx, cy, '#bcc', 16, 6, 14));
+          game.effects.push(new Effect(cx, cy, '#8aa', 10, 4, 10));
+          break;
+        }
+      }
+      triggerHitstop(this.big ? 4 : 2);
+    }
+
     // Crystal shatter: scatter diamond shards on kill
     if (game.player.ninjaType === 'crystal') {
       if (!game.diamondShards) game.diamondShards = [];
@@ -1224,6 +1344,8 @@ class Enemy {
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
     } else if (r < 0.94) {
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'armor'));
+    } else {
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
     }
   }
 
@@ -2603,10 +2725,10 @@ class Boss extends Enemy {
     recordBestiaryKill(this.bossType, false, true);
     // Boss death does NOT count as a waveKill — but drops a few orbs
     const orbTypes = ['heal', 'maxhp', 'damage', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'];
-    const count = 3 + Math.floor(Math.random() * 3); // 3-5 orbs
+    const count = 3 * game.wave + Math.floor(Math.random() * 3); // 3-5 orbs
     for (let i = 0; i < count; i++) {
-      const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 30;
-      const oy = this.y + (Math.random() - 0.5) * 10;
+      const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 100;
+      const oy = this.y + (Math.random() - 0.5) * 100;
       game.orbs.push(new Orb(ox, oy, orbTypes[Math.floor(Math.random() * orbTypes.length)]));
     }
     // Drop boss item (any uncollected item)

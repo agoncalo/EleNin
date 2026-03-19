@@ -17,6 +17,7 @@ class Game {
     this.spikes = [];
     this.trimerangs = [];
     this.diamondShards = [];
+    this.flamePools = [];
     this.crystalCastle = null;
     this.deaths = 0;
     this.lives = 3;
@@ -572,6 +573,10 @@ class Game {
         pl.bonusSpeed += avgSpeed;
         pl.bonusReach += avgReach;
         pl.bonusArmor += avgArmor;
+        // Mana: +1 max and refill
+        pl.bonusMana += 1;
+        pl.maxMana += 1;
+        pl.mana = pl.maxMana;
         // Assume one ultimate activation per wave: scale requirement and refill
         pl.ultimateMax = Math.round(pl.ultimateMax * 1.2);
         pl.ultimateCharge = 0;
@@ -667,6 +672,8 @@ class Game {
       for (const d of this.diamondShards) d.update(this);
       this.diamondShards = this.diamondShards.filter(d => !d.done);
     }
+    for (const f of this.flamePools) f.update(this);
+    this.flamePools = this.flamePools.filter(f => !f.done);
     if (this.crystalCastle) {
       this.crystalCastle.update(this);
       if (this.crystalCastle.done) this.crystalCastle = null;
@@ -841,6 +848,10 @@ class Game {
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
     if (this.crystalCastle) this.crystalCastle.render(ctx, cam);
+    for (const p of this.projectiles) p.render(ctx, cam);
+    if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
+    if (this.diamondShards) for (const d of this.diamondShards) d.render(ctx, cam);
+    for (const f of this.flamePools) f.render(ctx, cam);
     this.player.render(ctx, cam);
 
     // Shadow ultimate: darken everything except enemies
@@ -1333,10 +1344,6 @@ class Game {
       ctx.restore();
     }
 
-    for (const p of this.projectiles) p.render(ctx, cam);
-    if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
-    if (this.diamondShards) for (const d of this.diamondShards) d.render(ctx, cam);
-
     // Crystal ultimate: shatter glass shards
     if (this.player.crystalShatter > 0 && this.player.crystalShards) {
       ctx.save();
@@ -1589,43 +1596,37 @@ class Game {
     const ninjaBarY = 4;
     const gap = 6;
 
-    // Element bar
-    let elemBarW = 140, elemBarVal = 0, elemBarMax = 1, elemBarColor = '#aaa', elemBarGlow = false, elemBarLabel = '';
-    if (pl.ninjaType === 'fire') {
-      elemBarVal = pl.comboMeter; elemBarMax = 10; elemBarColor = '#f93'; elemBarGlow = pl.comboMeter >= 10; elemBarLabel = 'Element';
-    } else if (pl.ninjaType === 'bubble') {
-      elemBarVal = pl.bubbleBuffTimer; elemBarMax = 240; elemBarColor = '#6af'; elemBarGlow = pl.bubbleBuffTimer > 200; elemBarLabel = 'Float';
-    } else if (pl.ninjaType === 'shadow') {
-      elemBarVal = pl.shadowStealth; elemBarMax = 300; elemBarColor = '#a4e'; elemBarGlow = pl.backstabReady; elemBarLabel = 'Stealth';
-    } else if (pl.ninjaType === 'crystal') {
-      elemBarVal = this.diamondShards ? this.diamondShards.length : 0; elemBarMax = 10; elemBarColor = '#0ff'; elemBarGlow = this.crystalCastle != null; elemBarLabel = 'Crystal';
-    } else if (pl.ninjaType === 'wind') {
-      elemBarVal = pl.windPower; elemBarMax = 10; elemBarColor = '#8d8'; elemBarGlow = pl.windPower >= 10; elemBarLabel = 'Wind';
-    } else if (pl.ninjaType === 'earth') {
-      elemBarVal = this.stoneBlocks.length; elemBarMax = 10; elemBarColor = '#8b5e3c'; elemBarGlow = this.stoneBlocks.length >= 10; elemBarLabel = 'Blocks';
-    } else if (pl.ninjaType === 'storm') {
-      // Count soaked enemies
-      let soakedCount = 0;
-      for (const e of this.enemies) { if (!e.dead && e.soakTimer > 0) soakedCount++; }
-      if (this.boss && !this.boss.dead && this.boss.soakTimer > 0) soakedCount++;
-      elemBarVal = soakedCount; elemBarMax = 10; elemBarColor = '#48f'; elemBarGlow = soakedCount >= 3; elemBarLabel = 'Soaked';
-    }
-    const elemBarH = 10;
+    // Mana pip bar
+    const manaColors = { fire: '#f93', earth: '#8b5e3c', bubble: '#6af', shadow: '#a4e', crystal: '#0ff', wind: '#8d8', storm: '#48f' };
+    const manaColor = manaColors[pl.ninjaType] || '#aaa';
+    const pipSize = 14;
+    const pipGap = 4;
+    const totalPips = pl.maxMana;
+    const pipBarW = totalPips * (pipSize + pipGap) - pipGap;
+    const pipBarX = CANVAS_W / 2 - pipBarW / 2;
+    const elemBarH = pipSize;
     const elemBarY = CANVAS_H - elemBarH - gap;
-    const elemBarX = CANVAS_W / 2 - elemBarW / 2;
-    ctx.save();
-    if (elemBarGlow) { ctx.shadowColor = elemBarColor; ctx.shadowBlur = 14; }
-    ctx.fillStyle = '#222';
-    ctx.fillRect(elemBarX, elemBarY, elemBarW, elemBarH);
-    ctx.fillStyle = elemBarColor;
-    ctx.fillRect(elemBarX, elemBarY, elemBarW * Math.min(1, elemBarVal / elemBarMax), elemBarH);
-    ctx.shadowBlur = 0;
-    ctx.restore();
-    const darkLabelTypes = ['fire', 'bubble', 'crystal', 'wind'];
-    const useDarkLabel = darkLabelTypes.includes(pl.ninjaType) && elemBarVal / elemBarMax > 0.15;
-    ctx.fillStyle = elemBarGlow ? (useDarkLabel ? '#111' : '#fff') : (useDarkLabel ? '#222' : '#ccc');
+    for (let i = 0; i < totalPips; i++) {
+      const px = pipBarX + i * (pipSize + pipGap);
+      const fillAmount = Math.min(1, Math.max(0, pl.mana - i));
+      ctx.fillStyle = '#222';
+      ctx.fillRect(px, elemBarY, pipSize, pipSize);
+      if (fillAmount > 0) {
+        ctx.save();
+        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 8; }
+        ctx.fillStyle = manaColor;
+        ctx.fillRect(px, elemBarY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
+        ctx.restore();
+      }
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px, elemBarY, pipSize, pipSize);
+    }
+    const elemLabels = { fire: 'FIRE', earth: 'EARTH', bubble: 'WATER', shadow: 'SHADOW', crystal: 'CRYSTAL', wind: 'WIND', storm: 'STORM' };
+    ctx.fillStyle = '#ccc';
     ctx.font = 'bold 9px monospace';
-    ctx.fillText(elemBarLabel, elemBarX + 3, elemBarY + 8);
+    const elemLabel = elemLabels[pl.ninjaType] || 'ELEM';
+    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, elemBarY + 11);
 
     // Shield bar (separate row, only if player has shield)
     const hasShield = pl.maxShield > 0;

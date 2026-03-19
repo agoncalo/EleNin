@@ -14,16 +14,32 @@ class Bubble {
     this.bobPhase += 0.03;
     this.y = this.baseY + Math.sin(this.bobPhase) * 5;
     this.baseY -= 0.15;
+    // Homing: slowly drift toward nearest enemy
+    if (this.homing) {
+      const cx = this.x + 16, cy = this.y + 16;
+      const target = findNearestTarget(cx, cy, game);
+      if (target) {
+        const tx = target.x + target.w / 2, ty = target.y + target.h / 2;
+        const dx = tx - cx, dy = ty - cy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 0) {
+          this.x += (dx / d) * 1.2;
+          this.baseY += (dy / d) * 1.2;
+        }
+      }
+    }
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
         e.takeDamage(this.dmg, game);
+        if (this.soaking) e.soakTimer = Math.max(e.soakTimer || 0, 300);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
       game.boss.takeDamage(this.dmg, game);
+      if (this.soaking) game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 200);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
     }
   }

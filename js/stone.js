@@ -64,7 +64,20 @@ class StoneConstruct {
     // Deal and take damage when falling on enemies
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        if (this.vy > 4 && this.y + this.h - this.vy <= e.y + 4) {
+        if (this.contactDamage === false && !this.thrown) {
+          // No contact damage (pillar) — just push enemy away
+          if (!(this instanceof StoneSpike)) {
+            const overlapLeft = (e.x + e.w) - this.x;
+            const overlapRight = (this.x + this.w) - e.x;
+            if (overlapLeft < overlapRight) {
+              e.x = this.x - e.w - 1;
+              e.vx = -2;
+            } else {
+              e.x = this.x + this.w + 1;
+              e.vx = 2;
+            }
+          }
+        } else if (this.vy > 4 && this.y + this.h - this.vy <= e.y + 4) {
           e.takeDamage(3 * this.wave, game, this.x + this.w/2);
           this.takeDamage(2);
           game.effects.push(new Effect(this.x + this.w/2, this.y + this.h, '#aaa', 8, 3, 10));
@@ -90,7 +103,7 @@ class StoneConstruct {
 
     // Take damage from boss contact
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      this.takeDamage(2);
+      if (this.contactDamage !== false || this.thrown) this.takeDamage(2);
     }
 
     // Hard landing effects
@@ -124,6 +137,7 @@ class StoneConstruct {
 class StonePillar extends StoneConstruct {
   constructor(x, y, wave) {
     super(x, y - TILE, TILE, TILE * 3, 4, wave);
+    this.contactDamage = false;
   }
   render(ctx, cam) {
     ctx.fillStyle = '#8b5e3c';
@@ -251,6 +265,7 @@ class StoneShooter extends StoneConstruct {
         if (d > 0) {
           const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#b8864e', (3 * this.wave), 'player');
           p.w = 6; p.h = 6; p.life = 90;
+          p.fromConstruct = true;
           game.projectiles.push(p);
         }
       }
