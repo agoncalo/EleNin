@@ -825,6 +825,138 @@ class Game {
       }
     }
 
+    // ── Ultimate background details ──
+
+    // Fire ultimate: background mini meteors streaking across sky
+    if (fireUltSky) {
+      ctx.save();
+      for (let i = 0; i < 12; i++) {
+        const seed = i * 173 + 91;
+        const speed = 1.5 + (seed % 7) * 0.5;
+        const period = 180 + (seed % 120);
+        const phase = (this.tick * speed + seed) % period;
+        const progress = phase / period;
+        const sx = (seed * 3.7 % CANVAS_W) + progress * 300 - 100;
+        const sy = (seed * 2.3 % (CANVAS_H * 0.6)) + progress * 200;
+        if (sx > -20 && sx < CANVAS_W + 20 && sy > -20 && sy < CANVAS_H) {
+          const size = 2 + (seed % 3);
+          // Trail
+          ctx.globalAlpha = 0.3;
+          ctx.strokeStyle = '#f93';
+          ctx.lineWidth = size * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx - 12 - size * 3, sy - 8 - size * 2);
+          ctx.stroke();
+          // Body
+          ctx.globalAlpha = 0.5 + Math.sin(this.tick * 0.1 + i) * 0.2;
+          ctx.fillStyle = i % 3 === 0 ? '#ff4' : '#f62';
+          ctx.beginPath();
+          ctx.arc(sx, sy, size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Earth ultimate: space jets and helicopters passing by
+    if (this.player.earthGolem) {
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const seed = i * 251 + 47;
+        const speed = 2 + (seed % 3);
+        const period = 400 + (seed % 200);
+        const dir = i % 2 === 0 ? 1 : -1;
+        const phase = (this.tick * speed + seed * 10) % period;
+        const progress = phase / period;
+        const vx = dir > 0 ? -80 + progress * (CANVAS_W + 160) : CANVAS_W + 80 - progress * (CANVAS_W + 160);
+        const vy = 30 + (seed % 5) * 40 + Math.sin(this.tick * 0.02 + i) * 8;
+        ctx.globalAlpha = 0.35;
+        if (i < 2) {
+          // Jet: triangular body + exhaust
+          ctx.fillStyle = '#8b6340';
+          ctx.beginPath();
+          ctx.moveTo(vx + dir * 18, vy);
+          ctx.lineTo(vx - dir * 10, vy - 5);
+          ctx.lineTo(vx - dir * 10, vy + 5);
+          ctx.closePath();
+          ctx.fill();
+          // Wings
+          ctx.fillStyle = '#5a3a1a';
+          ctx.fillRect(vx - dir * 4, vy - 9, 8, 3);
+          ctx.fillRect(vx - dir * 4, vy + 6, 8, 3);
+          // Exhaust glow
+          ctx.globalAlpha = 0.2 + Math.sin(this.tick * 0.3 + i) * 0.1;
+          ctx.fillStyle = '#fa3';
+          ctx.beginPath();
+          ctx.arc(vx - dir * 12, vy, 3, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Helicopter: body + rotor
+          ctx.fillStyle = '#7a5a3a';
+          ctx.fillRect(vx - 10, vy - 4, 20, 8);
+          // Cockpit
+          ctx.fillStyle = '#5a3a1a';
+          ctx.fillRect(vx + dir * 8, vy - 3, 4, 6);
+          // Rotor blades (spinning)
+          ctx.strokeStyle = '#c8a878';
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.4;
+          const rotAngle = this.tick * 0.4 + i * 2;
+          ctx.beginPath();
+          ctx.moveTo(vx + Math.cos(rotAngle) * 16, vy - 6);
+          ctx.lineTo(vx - Math.cos(rotAngle) * 16, vy - 6);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(vx + Math.sin(rotAngle) * 16, vy - 6);
+          ctx.lineTo(vx - Math.sin(rotAngle) * 16, vy - 6);
+          ctx.stroke();
+          // Tail
+          ctx.fillStyle = '#5a3a1a';
+          ctx.fillRect(vx - dir * 10, vy - 2, 6, 4);
+        }
+      }
+      ctx.restore();
+    }
+
+    // Wind ultimate: ghost elk silhouette in background
+    if (this.player.windBow) {
+      ctx.save();
+      const elkAlpha = 0.12 + Math.sin(this.tick * 0.03) * 0.05;
+      ctx.globalAlpha = elkAlpha;
+      ctx.fillStyle = '#bfb';
+      // Elk position: drifts slowly across screen
+      const elkX = CANVAS_W * 0.5 + Math.sin(this.tick * 0.008) * 80;
+      const elkY = CANVAS_H * 0.3 + Math.sin(this.tick * 0.012) * 20;
+      const s = 1.2; // scale
+      // Body (large rectangle)
+      ctx.fillRect(elkX - 40 * s, elkY - 10 * s, 80 * s, 30 * s);
+      // Head (rectangle extending forward)
+      ctx.fillRect(elkX + 35 * s, elkY - 20 * s, 25 * s, 22 * s);
+      // Neck
+      ctx.fillRect(elkX + 30 * s, elkY - 15 * s, 12 * s, 20 * s);
+      // Front legs
+      ctx.fillRect(elkX + 15 * s, elkY + 18 * s, 8 * s, 30 * s);
+      ctx.fillRect(elkX + 28 * s, elkY + 18 * s, 8 * s, 28 * s);
+      // Back legs
+      ctx.fillRect(elkX - 25 * s, elkY + 18 * s, 8 * s, 28 * s);
+      ctx.fillRect(elkX - 12 * s, elkY + 18 * s, 8 * s, 30 * s);
+      // Antlers (branching rectangles)
+      ctx.fillRect(elkX + 42 * s, elkY - 35 * s, 5 * s, 18 * s);
+      ctx.fillRect(elkX + 55 * s, elkY - 30 * s, 5 * s, 14 * s);
+      ctx.fillRect(elkX + 38 * s, elkY - 32 * s, 22 * s, 4 * s);
+      // Second branch
+      ctx.fillRect(elkX + 48 * s, elkY - 42 * s, 4 * s, 12 * s);
+      ctx.fillRect(elkX + 44 * s, elkY - 40 * s, 14 * s, 4 * s);
+      // Tail (small block)
+      ctx.fillRect(elkX - 42 * s, elkY - 8 * s, 8 * s, 6 * s);
+      // Eye glow
+      ctx.globalAlpha = elkAlpha * 2;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(elkX + 52 * s, elkY - 16 * s, 4 * s, 4 * s);
+      ctx.restore();
+    }
+
     // Spawn house
     this.renderSpawnHouse(ctx, cam);
 
@@ -1304,10 +1436,10 @@ class Game {
       ctx.restore();
     }
 
-    // Shadow ultimate: glowing eyes (darkness now renders before platforms)
-    if (this.player.ninjaType === 'shadow' && this.player.shadowEyesTimer > 0) {
+    // Shadow ultimate: glowing eyes (active during entire darkness)
+    if (this.player.ninjaType === 'shadow' && this.player.shadowDarkness > 0.1) {
       ctx.save();
-      const eyeAlpha = Math.min(1, this.player.shadowEyesTimer / 20);
+      const eyeAlpha = Math.min(1, this.player.shadowDarkness / 0.3);
       ctx.globalAlpha = eyeAlpha * 0.9;
       const ecx = CANVAS_W / 2;
       const ecy = CANVAS_H / 2 - 40;
