@@ -1213,6 +1213,77 @@ class Game {
     ctx.textAlign = 'left';
     ctx.fillText('Pause', ssx + 6, ssy);
 
+    // ── HUD Bars Guide ──
+    const bx = 440, by = 310;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('HUD BARS', bx + 100, by - 18);
+
+    ctx.textAlign = 'left';
+    ctx.font = '10px monospace';
+
+    // Ultimate bar example
+    ctx.fillStyle = '#222';
+    ctx.fillRect(bx, by, 120, 12);
+    ctx.fillStyle = '#ff0';
+    ctx.fillRect(bx, by, 72, 12);
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, 120, 12);
+    ctx.fillStyle = '#ff0';
+    ctx.fillText('Ultimate charge — fills from kills', bx + 128, by + 10);
+
+    // HP bar example
+    const hby = by + 22;
+    ctx.fillStyle = '#400';
+    ctx.fillRect(bx, hby, 120, 10);
+    ctx.fillStyle = '#e44';
+    ctx.fillRect(bx, hby, 84, 10);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(bx, hby, 120, 10);
+    ctx.fillStyle = '#e44';
+    ctx.fillText('HP — your health', bx + 128, hby + 9);
+
+    // Shield bar example
+    const sby = hby + 20;
+    ctx.fillStyle = '#112';
+    ctx.fillRect(bx, sby, 120, 8);
+    ctx.fillStyle = '#4af';
+    ctx.fillRect(bx, sby, 60, 8);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(bx, sby, 120, 8);
+    ctx.fillStyle = '#4af';
+    ctx.fillText('Shield — absorbs damage first', bx + 128, sby + 8);
+
+    // Mana pips example
+    const mpy = sby + 20;
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < 2 ? '#f93' : '#222';
+      ctx.fillRect(bx + i * 18, mpy, 14, 14);
+      ctx.strokeStyle = '#555';
+      ctx.strokeRect(bx + i * 18, mpy, 14, 14);
+    }
+    ctx.fillStyle = '#f93';
+    ctx.fillText('Mana — used for special ability', bx + 128, mpy + 11);
+
+    // Buff icons
+    const ipy = mpy + 24;
+    ctx.font = '13px monospace';
+    ctx.fillStyle = '#f80';
+    ctx.fillText('\u2694', bx, ipy);
+    ctx.fillStyle = '#0f0';
+    ctx.fillText('\u00bb', bx + 20, ipy);
+    ctx.fillStyle = '#fa0';
+    ctx.fillText('\u2194', bx + 40, ipy);
+    ctx.fillStyle = '#88f';
+    ctx.fillText('\u26CA', bx + 60, ipy);
+    ctx.fillStyle = '#f44';
+    ctx.fillText('\u2665', bx + 80, ipy);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('Atk  Spd  Rch  Arm  Lives', bx + 128, ipy);
+
     // ── Tip about ninja abilities ──
     ctx.fillStyle = '#f93';
     ctx.font = 'bold 14px monospace';
