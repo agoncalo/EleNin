@@ -38,6 +38,23 @@ function gameLoop(timestamp) {
         continue;
       }
     }
+    if (game.menuActive) {
+      if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
+        game.menuActive = false;
+        game.controlsScreen = true;
+      }
+      clearFrameInput();
+      accumulator -= FIXED_DT;
+      continue;
+    }
+    if (game.controlsScreen) {
+      if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
+        game.controlsScreen = false;
+      }
+      clearFrameInput();
+      accumulator -= FIXED_DT;
+      continue;
+    }
     if (pauseMenu.active) {
       pauseUpdate();
       clearFrameInput();

@@ -2,6 +2,10 @@
 class Game {
   constructor() {
     this.tick = 0;
+    this.menuActive = true;
+    this.controlsScreen = false;
+    this.controlsTick = 0;
+    this.menuTick = 0;
     this.camera = { x: 0, y: 0 };
     this.player = new Player(100, 300);
     this.platforms = [];
@@ -774,7 +778,471 @@ class Game {
     this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
   }
 
+  renderMenu() {
+    this.menuTick++;
+    const t = this.menuTick;
+
+    // Dark background
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, '#06061a');
+    grad.addColorStop(1, '#12122e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Background stars
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 60; i++) {
+      const seed = i * 137 + 29;
+      const sx = (seed * 7.3) % CANVAS_W;
+      const sy = (seed * 3.1) % CANVAS_H;
+      const twinkle = 0.2 + Math.sin(t * 0.02 + i) * 0.3 + 0.3;
+      ctx.globalAlpha = twinkle;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+    ctx.globalAlpha = 1;
+
+    // ── ELENIN logo with rectangular letters ──
+    const ninjaColors = [
+      { body: '#e33', accent: '#f93' },     // E - fire
+      { body: '#a0622a', accent: '#2e9e2e' }, // l - earth
+      { body: '#48f', accent: '#8cf' },       // e - bubble
+      { body: '#726', accent: '#a4e' },       // N - shadow
+      { body: '#2dd', accent: '#aff' },       // i - crystal
+      { body: '#8d8', accent: '#bfb' },       // n - wind
+    ];
+
+    const letterW = 48;
+    const letterH = 64;
+    const gap = 14;
+    const totalW = 6 * letterW + 5 * gap;
+    const startX = (CANVAS_W - totalW) / 2;
+    const startY = 140;
+    const bg = '#06061a'; // cutout color (matches background)
+    const s = 2; // strip/cutout thickness
+
+    // Letter drawing: solid rectangles with rectangular cutouts
+    const drawE = (x, y, color, accentColor) => {
+      const pillar = 12;
+      // Left vertical pillar
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, pillar, letterH);
+      // Three horizontal bars (top, mid, bottom)
+      ctx.fillRect(x + pillar, y, letterW - pillar, 10);
+      ctx.fillRect(x + pillar, y + letterH / 2 - 5, (letterW - pillar) * 0.75, 10);
+      ctx.fillRect(x + pillar, y + letterH - 10, letterW - pillar, 10);
+      // Accent edges
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, y, letterW - pillar, 2);
+      ctx.fillRect(x + pillar, y + letterH - 2, letterW - pillar, 2);
+      ctx.fillRect(x, y, pillar, 2);
+    };
+
+    const drawLower_l = (x, y, color, accentColor) => {
+      // Tall narrow solid block
+      const pillarW = 18;
+      const px = x + (letterW - pillarW) / 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(px, y, pillarW, letterH);
+      // Small wide foot
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(px - 4, y + letterH - 4, pillarW + 8, 4);
+      // Top accent
+      ctx.fillRect(px, y, pillarW, 2);
+    };
+
+    const drawLower_e = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      const h = letterH - topOff;
+      const yy = y + topOff;
+      const pillar = 10;
+      // Left vertical pillar
+      ctx.fillStyle = color;
+      ctx.fillRect(x, yy, pillar, h);
+      // Three horizontal bars (top, mid, bottom)
+      ctx.fillRect(x + pillar, yy, letterW - pillar, 8);
+      ctx.fillRect(x + pillar, yy + h / 2 - 4, letterW - pillar, 8);
+      ctx.fillRect(x + pillar, yy + h - 8, (letterW - pillar) * 0.75, 8);
+      // Right top section (closes the top)
+      ctx.fillRect(x + letterW - pillar, yy, pillar, h / 2 - 4);
+      // Accent edges
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, yy, letterW - pillar, 2);
+      ctx.fillRect(x + pillar, yy + h / 2 - 4, letterW - pillar, 2);
+      ctx.fillRect(x, yy, pillar, 2);
+    };
+
+    const drawN = (x, y, color, accentColor) => {
+      const pillar = 12;
+      // Left pillar
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, pillar, letterH);
+      // Right pillar
+      ctx.fillRect(x + letterW - pillar, y, pillar, letterH);
+      // Diagonal: thick stepped blocks connecting top-left to bottom-right
+      ctx.fillStyle = accentColor;
+      const steps = 7;
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const bx = x + pillar - 2 + frac * (letterW - pillar * 2 + 4 - 10);
+        const by = y + frac * (letterH - 10);
+        ctx.fillRect(bx, by, 10, 10);
+      }
+      // Accent: thin line on left pillar top and right pillar bottom
+      ctx.fillRect(x, y, pillar, 2);
+      ctx.fillRect(x + letterW - pillar, y + letterH - 2, pillar, 2);
+    };
+
+    const drawLower_i = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      // Stem: solid narrow block
+      const pillarW = 18;
+      const px = x + (letterW - pillarW) / 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(px, y + topOff, pillarW, letterH - topOff);
+      // Accent base
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(px - 3, y + letterH - 3, pillarW + 6, 3);
+      // Top accent
+      ctx.fillRect(px, y + topOff, pillarW, 2);
+    };
+
+    const drawLower_n = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      const h = letterH - topOff;
+      const yy = y + topOff;
+      const pillar = 10;
+      // Left pillar
+      ctx.fillStyle = color;
+      ctx.fillRect(x, yy, pillar, h);
+      // Right pillar
+      ctx.fillRect(x + letterW - pillar, yy + 8, pillar, h - 8);
+      // Top arch bar connecting them
+      ctx.fillRect(x + pillar, yy, letterW - pillar * 2, 10);
+      // Accent: top edge
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, yy, letterW - pillar * 2, 2);
+      ctx.fillRect(x, yy, pillar, 2);
+    };
+
+    // Floating animation per letter
+    const letters = [
+      { draw: drawE, upper: true },
+      { draw: drawLower_l, upper: false },
+      { draw: drawLower_e, upper: false },
+      { draw: drawN, upper: true },
+      { draw: drawLower_i, upper: false },
+      { draw: drawLower_n, upper: false },
+    ];
+
+    for (let i = 0; i < 6; i++) {
+      const lx = startX + i * (letterW + gap);
+      const floatY = Math.sin(t * 0.035 + i * 0.8) * 5;
+      const ly = startY + floatY;
+      const c = ninjaColors[i];
+
+      // Glow behind each letter
+      ctx.save();
+      ctx.shadowColor = c.accent;
+      ctx.shadowBlur = 15 + Math.sin(t * 0.05 + i) * 5;
+      letters[i].draw(lx, ly, c.body, c.accent);
+      ctx.restore();
+
+      // Draw letter again without shadow for clean look
+      letters[i].draw(lx, ly, c.body, c.accent);
+
+      // Hat on the "i" (index 4) — ninja kasa
+      if (i === 4) {
+        const hatCx = lx + letterW / 2;
+        const hatBaseY = ly + letterH * 0.3 - 4;
+        // Pointed kasa hat
+        ctx.fillStyle = c.accent;
+        ctx.beginPath();
+        ctx.moveTo(hatCx - 16, hatBaseY);
+        ctx.lineTo(hatCx, hatBaseY - 22);
+        ctx.lineTo(hatCx + 16, hatBaseY);
+        ctx.closePath();
+        ctx.fill();
+        // Brim
+        ctx.fillStyle = c.body;
+        ctx.fillRect(hatCx - 16, hatBaseY - 2, 32, 4);
+      }
+    }
+
+    // Subtitle
+    ctx.globalAlpha = 0.5 + Math.sin(t * 0.04) * 0.2;
+    ctx.fillStyle = '#aaa';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('~ a ninja platformer ~', CANVAS_W / 2, startY + letterH + 35);
+    ctx.globalAlpha = 1;
+
+    // "Press any key to start" blinking
+    const blink = Math.sin(t * 0.06) > -0.3;
+    if (blink) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PRESS ANY KEY TO START', CANVAS_W / 2, CANVAS_H - 120);
+    }
+
+    // Small ninja silhouettes at bottom
+    const ninjaNames = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind'];
+    const silW = 16, silH = 22;
+    const silTotalW = 6 * silW + 5 * 24;
+    const silStartX = (CANVAS_W - silTotalW) / 2;
+    const silY = CANVAS_H - 75;
+    for (let i = 0; i < 6; i++) {
+      const sx = silStartX + i * (silW + 24);
+      const c = ninjaColors[i];
+      const bob = Math.sin(t * 0.04 + i * 1.1) * 2;
+      ctx.globalAlpha = 0.7;
+      // Body
+      ctx.fillStyle = c.body;
+      ctx.fillRect(sx, silY + bob + 8, silW, silH - 8);
+      // Head
+      ctx.fillRect(sx + 3, silY + bob, 10, 10);
+      // Hat
+      ctx.fillStyle = c.accent;
+      ctx.beginPath();
+      ctx.moveTo(sx - 1, silY + bob + 2);
+      ctx.lineTo(sx + 8, silY + bob - 8);
+      ctx.lineTo(sx + 17, silY + bob + 2);
+      ctx.closePath();
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx + 4, silY + bob + 3, 2, 2);
+      ctx.fillRect(sx + 9, silY + bob + 3, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  renderControls() {
+    this.controlsTick++;
+    const t = this.controlsTick;
+
+    // Dark background
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, '#08081e');
+    grad.addColorStop(1, '#141430');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CONTROLS', CANVAS_W / 2, 36);
+
+    // Helper to draw a key cap
+    const drawKey = (cx, cy, label, w, h) => {
+      w = w || 30; h = h || 26;
+      // Key body
+      ctx.fillStyle = '#222';
+      ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+      // Highlight top edge
+      ctx.fillStyle = '#444';
+      ctx.fillRect(cx - w / 2 + 1, cy - h / 2, w - 2, 2);
+      // Label
+      ctx.fillStyle = '#ddd';
+      ctx.font = label.length > 2 ? '9px monospace' : 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, cy + 1);
+    };
+
+    ctx.textBaseline = 'middle';
+
+    // ── LEFT SIDE: Movement ──
+    const mlx = 170, mly = 100;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('MOVEMENT', mlx + 16, mly - 30);
+
+    // Arrow keys
+    drawKey(mlx, mly - 2, '\u2191');         // Up
+    drawKey(mlx - 34, mly + 28, '\u2190');   // Left
+    drawKey(mlx, mly + 28, '\u2193');         // Down
+    drawKey(mlx + 34, mly + 28, '\u2192');   // Right
+
+    // Or WASD
+    ctx.fillStyle = '#666';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('or', mlx + 90, mly + 13);
+
+    const wsdx = mlx + 130;
+    drawKey(wsdx, mly - 2, 'W');
+    drawKey(wsdx - 34, mly + 28, 'A');
+    drawKey(wsdx, mly + 28, 'S');
+    drawKey(wsdx + 34, mly + 28, 'D');
+
+    // Labels
+    ctx.fillStyle = '#8cf';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('Jump / Double Jump', mlx + 180, mly - 2);
+    ctx.fillText('Move Left / Right', mlx + 180, mly + 16);
+    ctx.fillText('Ground Slam (hold)', mlx + 180, mly + 34);
+
+    // Space bar
+    drawKey(mlx + 50, mly + 66, 'SPACE', 80, 24);
+    ctx.fillStyle = '#666';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('= Jump', mlx + 96, mly + 66);
+
+    // ── RIGHT SIDE: Combat ──
+    const crx = 170, cry = 220;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('COMBAT', crx + 16, cry - 20);
+
+    // Z/J, X/K, C/L, V/M
+    const combatKeys = [
+      { k1: 'Z', k2: 'J', label: 'Attack', color: '#f88' },
+      { k1: 'X', k2: 'K', label: 'Special (costs mana)', color: '#8f8' },
+      { k1: 'C', k2: 'L', label: 'Shuriken', color: '#ff8' },
+      { k1: 'V', k2: 'M', label: 'Ultimate (when charged)', color: '#f8f' },
+    ];
+    for (let i = 0; i < combatKeys.length; i++) {
+      const row = combatKeys[i];
+      const ry = cry + i * 32;
+      drawKey(crx - 20, ry, row.k1);
+      ctx.fillStyle = '#666';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('/', crx + 5, ry);
+      drawKey(crx + 30, ry, row.k2);
+      ctx.fillStyle = row.color;
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(row.label, crx + 54, ry);
+    }
+
+    // ── Mouse ──
+    const msx = 540, msy = 100;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('MOUSE', msx + 30, msy - 30);
+
+    // Simple mouse icon
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(msx, msy - 15, 60, 80, 12);
+    ctx.stroke();
+    // Divider line
+    ctx.beginPath();
+    ctx.moveTo(msx + 30, msy - 15);
+    ctx.lineTo(msx + 30, msy + 25);
+    ctx.stroke();
+    // Horizontal line
+    ctx.beginPath();
+    ctx.moveTo(msx, msy + 25);
+    ctx.lineTo(msx + 60, msy + 25);
+    ctx.stroke();
+
+    // LMB label
+    ctx.fillStyle = '#f88';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ATK', msx + 15, msy + 5);
+    // RMB label
+    ctx.fillStyle = '#8f8';
+    ctx.fillText('SPC', msx + 45, msy + 5);
+    // MMB label
+    ctx.fillStyle = '#ff8';
+    ctx.fillText('SHR', msx + 30, msy + 40);
+
+    // Mouse labels
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f88';
+    ctx.fillText('Left Click = Attack', msx + 70, msy - 2);
+    ctx.fillStyle = '#8f8';
+    ctx.fillText('Right Click = Special', msx + 70, msy + 16);
+    ctx.fillStyle = '#ff8';
+    ctx.fillText('Middle Click = Shuriken', msx + 70, msy + 34);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('Scroll = Switch Ninja', msx + 70, msy + 52);
+
+    // ── Ninja Switching ──
+    const nsx = 540, nsy = 215;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NINJA SWITCH', nsx + 80, nsy - 18);
+
+    const ninjaList = [
+      { key: '1', name: 'Fire', color: '#e33' },
+      { key: '2', name: 'Earth', color: '#a0622a' },
+      { key: '3', name: 'Bubble', color: '#48f' },
+      { key: '4', name: 'Shadow', color: '#726' },
+      { key: '5', name: 'Crystal', color: '#2dd' },
+      { key: '6', name: 'Wind', color: '#8d8' },
+      { key: '7', name: 'Storm', color: '#aa4' },
+    ];
+    for (let i = 0; i < ninjaList.length; i++) {
+      const n = ninjaList[i];
+      const nx = nsx + (i % 4) * 88;
+      const ny = nsy + Math.floor(i / 4) * 30;
+      drawKey(nx, ny, n.key);
+      ctx.fillStyle = n.color;
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(n.name, nx + 20, ny);
+    }
+
+    // ── System ──
+    const ssx = 170, ssy = 380;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SYSTEM', ssx, ssy - 18);
+    drawKey(ssx - 20, ssy, 'ESC', 36);
+    ctx.fillStyle = '#ccc';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('Pause', ssx + 6, ssy);
+
+    // ── Tip about ninja abilities ──
+    ctx.fillStyle = '#f93';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Each ninja has a unique special ability — try them all!', CANVAS_W / 2, CANVAS_H - 80);
+
+    // Blink prompt
+    const blink = Math.sin(t * 0.06) > -0.3;
+    if (blink) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PRESS ANY KEY TO START', CANVAS_W / 2, CANVAS_H - 40);
+    }
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+  }
+
   render() {
+    if (this.menuActive) {
+      this.renderMenu();
+      return;
+    }
+    if (this.controlsScreen) {
+      this.renderControls();
+      return;
+    }
+
     const cam = this.camera;
 
     // Sky gradient
