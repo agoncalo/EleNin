@@ -410,6 +410,8 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
+    const _bonusLabel = { shuriken: 'SHURIKEN', ultcharge: 'ULT CHARGE', damage: 'DAMAGE', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'ELEMENT' };
+    const _bonusColor = { shuriken: '#ccc', ultcharge: '#ff0', damage: '#f80', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
 
     // Attraction to player if nearby
     const pl = game.player;
@@ -444,6 +446,7 @@ class Orb {
             case 'armor': pl.bonusArmor += 1 * _m; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
             case 'element': pl.bonusMana += 1 * _m; pl.maxMana += 1 * _m; pl.mana = pl.maxMana; game.effects.push(new Effect(ox, oy, '#f0f', 8, 3, 12)); break;
           }
+          if (_bonusLabel[this.type]) game.effects.push(new TextEffect(ox, oy - 15, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
           return;
         }
       }
@@ -519,6 +522,7 @@ class Orb {
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
           break;
       }
+      if (_bonusLabel[this.type]) game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, '+BONUS ' + _bonusLabel[this.type], _bonusColor[this.type]));
     }
 
     // Collector pickups: golems, trimerangs, bubbles grab orbs for the player
@@ -600,6 +604,7 @@ class Orb {
             game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
             break;
         }
+        if (_bonusLabel[this.type]) game.effects.push(new TextEffect(cx, cy - 15, '+BONUS ' + _bonusLabel[this.type], _bonusColor[this.type]));
       }
     }
   }
