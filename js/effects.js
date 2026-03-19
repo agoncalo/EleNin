@@ -392,17 +392,23 @@ class TextEffect {
 class Orb {
   constructor(x, y, type) {
     this.x = x; this.y = y;
-    this.w = 10; this.h = 10;
+    this.type = type;
+    // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
+    const tierRadius = { heal: 5, shield: 6, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    this.radius = tierRadius[type] || 5;
+    this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
-    this.type = type; // 'heal', 'maxhp', 'damage', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'
     this.life = 480;
     this.done = false;
     this.grounded = false;
     this.vx = 0;
+    this.rare = ['damage', 'speed', 'reach', 'armor', 'element'].includes(type);
+    this.tick = 0;
   }
   update(game) {
     if (this.done) return;
     this.life--;
+    this.tick++;
     if (this.life <= 0) { this.done = true; return; }
 
     // Attraction to player if nearby
@@ -604,19 +610,45 @@ class Orb {
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
     const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
-    ctx.fillStyle = colors[this.type];
+    const r = this.radius;
+    const cx = sx + r;
+    const cy = sy + r;
+    // Rainbow color for element orb
+    const orbColor = this.type === 'element' ? 'hsl(' + (this.tick * 3 % 360) + ',100%,60%)' : colors[this.type];
+    // Rare orb: pulsing outer glow + rotating sparkles
+    if (this.rare) {
+      const pulse = 1 + 0.2 * Math.sin(this.tick * 0.1);
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = orbColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 2.2 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 4; i++) {
+        const angle = this.tick * 0.05 + i * Math.PI / 2;
+        const spx = cx + Math.cos(angle) * r * 1.8;
+        const spy = cy + Math.sin(angle) * r * 1.8;
+        ctx.beginPath();
+        ctx.arc(spx, spy, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = orbColor;
     ctx.beginPath();
-    ctx.arc(sx + 5, sy + 5, 5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 0.3;
     ctx.beginPath();
-    ctx.arc(sx + 5, sy + 5, 8, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 8px monospace';
+    const fontSize = Math.max(8, r * 1.4) | 0;
+    ctx.font = 'bold ' + fontSize + 'px monospace';
     const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
-    ctx.fillText(icons[this.type], sx + 1, sy + 9);
+    ctx.fillText(icons[this.type], cx - fontSize * 0.35, cy + fontSize * 0.35);
   }
 }
 
