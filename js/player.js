@@ -531,7 +531,40 @@ class Player {
       this.deathTimer--;
       if (this.deathTimer <= 0) {
         this.hp = this.maxHp;
-        this.x = 100; this.y = 200;
+        // Choose respawn position based on zone type
+        if (game.levelType === 'tower') {
+          // Pick a visible platform in the appropriate half of the screen
+          const camY = game.camera.y;
+          const camMid = camY + CANVAS_H / 2;
+          const tx = game.towerXOffset || 0;
+          const isDown = game.zoneType === 'tower_down';
+          const candidates = [];
+          for (const p of game.platforms) {
+            if (p.thin || p._towerPiece) continue;
+            if (p.w < 60 || p.h > 30) continue;              // skip walls/tiny ledges
+            const px = p.x + p.w / 2;
+            const py = p.y;
+            if (px < tx + 40 || px > tx + 920) continue;      // inside tower X bounds
+            if (py < camY || py > camY + CANVAS_H) continue;   // on screen
+            if (isDown && py < camMid) continue;               // descending: lower half only
+            if (!isDown && py >= camMid) continue;             // ascending: upper half only
+            candidates.push(p);
+          }
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * candidates.length)];
+            this.x = pick.x + pick.w / 2 - this.w / 2;
+            this.y = pick.y - this.h;
+          } else {
+            // Fallback: center of visible area
+            this.x = tx + 480 - this.w / 2;
+            this.y = camMid - this.h;
+          }
+        } else if (game.levelType === 'arena') {
+          const ax = game.arenaXOffset;
+          this.x = ax + 200; this.y = 300;
+        } else {
+          this.x = 100; this.y = 200;
+        }
         this.vx = 0; this.vy = 0;
         this.invincibleTimer = 90;
         this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0;
@@ -2284,8 +2317,8 @@ class Player {
       this.windFullTrails = this.windFullTrails.filter(t => t.life > 0);
     }
 
-    // Fall into pit
-    if (this.y > 2000) {
+    // Fall into pit (skip in towers — wrap handles bounds)
+    if (this.y > 2000 && game.levelType !== 'tower') {
       this.x = 100; this.y = 200;
       this.vx = 0; this.vy = 0;
       this.takeDamage(2, game, null, { type: 'pit' });
@@ -2432,7 +2465,7 @@ class Player {
       proj.h = 18;
       proj.piercing = true;
       proj.isFireball = true;
-      proj.life = 80;
+      proj.life = 600;
       game.projectiles.push(proj);
       this._fireballPending = false;
     }
@@ -2536,7 +2569,7 @@ class Player {
         // Clamp to level bounds
         if (this.x < 0) this.x = 0;
         if (this.x + this.w > game.levelW) this.x = game.levelW - this.w;
-        if (this.y < -100) this.y = -100;
+        if (game.levelType !== 'tower' && this.y < -100) this.y = -100;
         this.vy = 0;
         this.invincibleTimer = 30;
         this.stopMidair = true;

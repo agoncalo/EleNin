@@ -24,8 +24,8 @@ class SeededRNG {
 // chunkX  : world-space left edge of this chunk
 // chunkIdx: sequential index (0 = first/spawn chunk)
 // out     : { platforms: [], spikes: [] }  ← push into these arrays
-function generateOpenChunk(chunkX, chunkIdx, out) {
-  const rng = new SeededRNG((chunkX + 1) * 2654435761 ^ (chunkIdx + 1) * 1234567);
+function generateOpenChunk(chunkX, chunkIdx, out, gameSeed) {
+  const rng = new SeededRNG(((chunkX + 1) * 2654435761 ^ (chunkIdx + 1) * 1234567) + (gameSeed || 0));
 
   const addP = (x, y, w, h, c) => {
     const p = new Platform(chunkX + x, y, w, h, c);
@@ -107,7 +107,7 @@ function generateOpenChunk(chunkX, chunkIdx, out) {
 
 // ── Downward-scroll tower layout ─────────────────────────────
 // Returns { topY, bottomY, bossRoomY }
-function buildTowerDownLayout(platforms, spikes, numSections) {
+function buildTowerDownLayout(platforms, spikes, numSections, gameSeed) {
   const S   = numSections || 14;
   const sec = TOWER_SECTION_H;
   const topY     = 20;
@@ -142,7 +142,7 @@ function buildTowerDownLayout(platforms, spikes, numSections) {
   addP(184, topY - 28, 20, 76, '#555');
   addP(496, topY - 28, 20, 76, '#555');
 
-  const rng = new SeededRNG(0xC0FFEE);
+  const rng = new SeededRNG((gameSeed || 0) ^ 0xC0FFEE);
   const layouts = [
     (y) => { addP(50,  y + 50, 130, 16, '#666'); addTP(430, y + 140, 100); },
     (y) => { addP(540, y + 50, 130, 16, '#666'); addTP(130, y + 140, 100); },
@@ -179,7 +179,7 @@ function buildTowerDownLayout(platforms, spikes, numSections) {
 
 // ── Upward-scroll tower layout ───────────────────────────────
 // Returns { topY, bottomY, bossRoomY }
-function buildTowerUpLayout(platforms, spikes, numSections) {
+function buildTowerUpLayout(platforms, spikes, numSections, gameSeed) {
   const S   = numSections || 16;
   const sec = TOWER_SECTION_H;
   const bottomY = 460;
@@ -214,7 +214,7 @@ function buildTowerUpLayout(platforms, spikes, numSections) {
   addP(184, bottomY + 14, 20, 60, '#555');
   addP(496, bottomY + 14, 20, 60, '#555');
 
-  const rng = new SeededRNG(0xDEAD);
+  const rng = new SeededRNG((gameSeed || 0) ^ 0xDEAD);
   const layouts = [
     (y) => { addP(50,  y,      130, 16, '#666'); addTP(430, y - 100, 100); },
     (y) => { addP(540, y,      130, 16, '#666'); addTP(110, y - 100, 100); },
@@ -247,4 +247,84 @@ function buildTowerUpLayout(platforms, spikes, numSections) {
   addP(260, bossRoomY + sec * 1.15, 270, 16, '#999'); // center floor
 
   return { topY, bottomY, bossRoomY };
+}
+
+// ── Dynamic tower section generation ─────────────────────────
+// Generates ONE section of platforms at the given coordinates.
+// ox = X offset including TOWER_OX (e.g. towerBaseX + TOWER_OX for world coords).
+// sectionY = Y position of the section's top edge.
+function generateTowerSection(direction, platforms, spikes, ox, sectionY, sectionIndex, rng) {
+  const sec = TOWER_SECTION_H;
+  const addP = (x, y, w, h, c) => {
+    const p = new Platform(ox + x, y, w, h, c);
+    p._towerPiece = true;
+    platforms.push(p);
+  };
+  const addTP = (x, y, w) => {
+    const p = new Platform(ox + x, y, w, 6, '#997');
+    p.thin = true; p._towerPiece = true;
+    platforms.push(p);
+  };
+  const route = [70, 540, 280, 150];
+
+  if (direction === 'down') {
+    const layouts = [
+      (y) => { addP(50,  y + 50, 130, 16, '#666'); addTP(430, y + 140, 100); },
+      (y) => { addP(540, y + 50, 130, 16, '#666'); addTP(130, y + 140, 100); },
+      (y) => { addP(270, y + 55, 180, 16, '#777'); addTP(60, y + 150, 80); addTP(545, y + 120, 80); },
+      (y) => { addP(80,  y + 40, 110, 16, '#666'); addP(510, y + 80, 110, 16, '#666'); addTP(265, y + 160, 130); },
+      (y) => { addTP(200, y + 50, 90); addP(430, y + 90, 120, 16, '#777'); addTP(80, y + 165, 100); },
+      (y) => { addP(90,  y + 55, 130, 16, '#888'); addP(510, y + 100, 120, 16, '#888'); addTP(270, y + 170, 120); },
+      (y) => { addP(40,  y + 35, 100, 16, '#666'); addP(570, y + 75, 100, 16, '#666'); addP(275, y + 125, 120, 16, '#777'); addTP(115, y + 195, 90); },
+      (y) => { addTP(80, y + 60, 120); addTP(510, y + 60, 120); addP(255, y + 145, 160, 16, '#777'); },
+    ];
+    const ax = route[sectionIndex % route.length];
+    const bx = route[(sectionIndex + 1) % route.length];
+    addP(ax, sectionY + 34, 140, 16, '#7b7');
+    addP(bx, sectionY + 182, 140, 16, '#7b7');
+    rng.pick(layouts)(sectionY);
+    if (rng.next() < 0.5)
+      addP(rng.next() < 0.5 ? 0 : 742, sectionY + rng.int(20, sec - 30), 24, 10, '#555');
+  } else {
+    const layouts = [
+      (y) => { addP(50,  y,      130, 16, '#666'); addTP(430, y - 100, 100); },
+      (y) => { addP(540, y,      130, 16, '#666'); addTP(110, y - 100, 100); },
+      (y) => { addP(270, y,      180, 16, '#777'); addTP(60, y - 110, 80); addTP(545, y - 85, 80); },
+      (y) => { addP(80,  y + 30, 110, 16, '#666'); addP(510, y,       110, 16, '#666'); addTP(265, y - 115, 130); },
+      (y) => { addTP(200, y + 20, 90); addP(430,  y,       120, 16, '#777'); addTP(90, y - 120, 100); },
+      (y) => { addP(90,  y,      130, 16, '#888'); addP(510, y - 55,  120, 16, '#888'); addTP(270, y - 155, 120); },
+      (y) => { addP(40,  y + 30, 100, 16, '#666'); addP(570, y,       100, 16, '#666'); addP(265, y - 75, 120, 16, '#777'); addTP(115, y - 175, 90); },
+      (y) => { addTP(80, y - 45, 120); addTP(510, y - 45, 120); addP(255, y, 160, 16, '#777'); },
+    ];
+    const layoutY = sectionY + sec * 0.4;
+    const ridx = sectionIndex % route.length;
+    const ax = route[ridx];
+    const bx = route[(ridx + 1) % route.length];
+    addP(ax, layoutY + 26, 140, 16, '#7b7');
+    addP(bx, layoutY - 145, 140, 16, '#7b7');
+    rng.pick(layouts)(layoutY);
+    if (rng.next() < 0.5)
+      addP(rng.next() < 0.5 ? 0 : 742, sectionY + rng.int(20, sec - 30), 24, 10, '#555');
+  }
+}
+
+// Generates the final tower section (floor/ceiling cap + landing platforms).
+function generateTowerEndSection(direction, platforms, spikes, ox, sectionY) {
+  const sec = TOWER_SECTION_H;
+  const addP = (x, y, w, h, c) => {
+    const p = new Platform(ox + x, y, w, h, c);
+    p._towerPiece = true;
+    platforms.push(p);
+  };
+  if (direction === 'down') {
+    addP(0, sectionY + sec, TOWER_CORRIDOR_W, 60, '#555');  // floor at section bottom
+    addP(50,  sectionY + sec * 0.55, 200, 16, '#888');
+    addP(540, sectionY + sec * 0.55, 200, 16, '#888');
+    addP(260, sectionY + sec * 0.28, 270, 16, '#999');
+  } else {
+    addP(0, sectionY - 60, TOWER_CORRIDOR_W, 60, '#555');   // ceiling above section
+    addP(50,  sectionY + sec * 0.8,  200, 16, '#888');
+    addP(540, sectionY + sec * 0.8,  200, 16, '#888');
+    addP(260, sectionY + sec * 1.15, 270, 16, '#999');
+  }
 }

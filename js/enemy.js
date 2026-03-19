@@ -1022,25 +1022,42 @@ class Enemy {
         }
       }
     } else {
-      if (this.y < -50) this.y = -50;
-      if (this.y > 460) this.y = 460;
+      // In towers, skip hardcoded clamp — tower wrap handles Y bounds
+      if (!(game.zoneType === 'tower_down' || game.zoneType === 'tower_up')) {
+        if (this.y < -50) this.y = -50;
+        if (this.y > 460) this.y = 460;
+      }
     }
 
-    // Keep in level bounds (tower-aware for inline tower)
+    // Keep in level bounds (tower and arena aware for inline positioning)
     const etxOff = game.towerXOffset || 0;
+    const eax = game.arenaXOffset || 0;
     const eIsTower = game.zoneType === 'tower_down' || game.zoneType === 'tower_up';
-    const eMinX = eIsTower ? etxOff + TOWER_OX : 0;
-    const eMaxX = eIsTower ? etxOff + TOWER_OX + TOWER_CORRIDOR_W : game.levelW;
+    const eIsArena = game.zoneType === 'arena1' || game.zoneType === 'arena2';
+    let eMinX, eMaxX;
+    if (eIsTower) {
+      eMinX = etxOff + TOWER_OX;
+      eMaxX = etxOff + TOWER_OX + TOWER_CORRIDOR_W;
+    } else if (eIsArena) {
+      eMinX = eax;
+      eMaxX = eax + 1200;
+    } else {
+      eMinX = 0;
+      eMaxX = game.levelW;
+    }
     if (this.x < eMinX) { this.x = eMinX; this.vx = Math.abs(this.vx); this.facing = 1; }
     if (this.x + this.w > eMaxX) { this.x = eMaxX - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
 
-    // Off-map handling: towers should despawn stragglers instead of wrapping to top.
+    // Off-map handling: wrap in towers, legacy wrap in other zones.
     if (game.zoneType === 'tower_down' || game.zoneType === 'tower_up') {
-      const topCull = game.camera.y - 380;
-      const botCull = game.camera.y + CANVAS_H + 380;
-      if (this.y > botCull || this.y + this.h < topCull) {
-        this.dead = true;
-        return;
+      const topEdge = game.camera.y - 60;
+      const botEdge = game.camera.y + CANVAS_H + 60;
+      if (this.y > botEdge) {
+        this.y = topEdge - this.h;
+        this.vy = Math.min(this.vy, 2);
+      } else if (this.y + this.h < topEdge) {
+        this.y = botEdge;
+        this.vy = Math.max(this.vy, -2);
       }
     } else if (this.y > 700) {
       // Non-tower zones keep legacy wrap behavior.
@@ -2165,8 +2182,11 @@ class Boss extends Enemy {
       } // end else (normal state machine, not dashing)
       } // end knockback check
       }
-      if (this.y < -80) this.y = -80;
-      if (this.y > 440) this.y = 440;
+      // In towers, skip hardcoded clamp — tower wrap handles Y bounds
+      if (!(game.zoneType === 'tower_down' || game.zoneType === 'tower_up')) {
+        if (this.y < -80) this.y = -80;
+        if (this.y > 440) this.y = 440;
+      }
     } else {
       // Ground boss AI — type-specific behavior
       const isDeflector = (this.bossType === 'deflector');
@@ -2510,11 +2530,22 @@ class Boss extends Enemy {
       }
     }
 
-    // Keep boss in level bounds
+    // Keep boss in level bounds (tower and arena aware)
     const txOff = game.towerXOffset || 0;
+    const bax = game.arenaXOffset || 0;
     const isTower = game.zoneType === 'tower_down' || game.zoneType === 'tower_up';
-    const bossMinX = isTower ? txOff + TOWER_OX : 0;
-    const bossMaxX = isTower ? txOff + TOWER_OX + TOWER_CORRIDOR_W : game.levelW;
+    const isArena = game.zoneType === 'arena1' || game.zoneType === 'arena2';
+    let bossMinX, bossMaxX;
+    if (isTower) {
+      bossMinX = txOff + TOWER_OX;
+      bossMaxX = txOff + TOWER_OX + TOWER_CORRIDOR_W;
+    } else if (isArena) {
+      bossMinX = bax;
+      bossMaxX = bax + 1200;
+    } else {
+      bossMinX = 0;
+      bossMaxX = game.levelW;
+    }
     if (this.x < bossMinX) {
       this.x = bossMinX; this.vx = Math.abs(this.vx); this.facing = 1;
       if (this.chargeState === 'charging') { this.chargeState = 'recoil'; this.chargeTimer = 0; }
@@ -2523,10 +2554,17 @@ class Boss extends Enemy {
       this.x = bossMaxX - this.w; this.vx = -Math.abs(this.vx); this.facing = -1;
       if (this.chargeState === 'charging') { this.chargeState = 'recoil'; this.chargeTimer = 0; }
     }
-    // Boss Y bounds: tower-aware to prevent teleporting to top
+    // Boss Y bounds: wrap in towers, legacy in other zones
     if (game.zoneType === 'tower_down' || game.zoneType === 'tower_up') {
-      if (this.y > game.towerBottomY + 100) { this.y = game.towerBottomY + 100; this.vy = 0; }
-      if (this.y < game.towerTopY - 100) { this.y = game.towerTopY - 100; this.vy = 0; }
+      const topEdge = game.camera.y - 60;
+      const botEdge = game.camera.y + CANVAS_H + 60;
+      if (this.y > botEdge) {
+        this.y = topEdge - this.h;
+        this.vy = Math.min(this.vy, 2);
+      } else if (this.y + this.h < topEdge) {
+        this.y = botEdge;
+        this.vy = Math.max(this.vy, -2);
+      }
     } else {
       if (this.y > 700) { this.y = -40; this.vy = 0; }
       if (!this.flying && this.y < -60) { this.y = -60; this.vy = 0; }
@@ -2625,7 +2663,7 @@ class Boss extends Enemy {
     recordBestiaryKill(this.bossType, false, true);
     // Boss death does NOT count as a waveKill — but drops a few orbs
     const orbTypes = ['heal', 'maxhp', 'damage', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'];
-    const count = 3 + Math.floor(Math.random() * 3); // 3-5 orbs
+    const count = 3 * this.wave + Math.floor(Math.random() * 3); // 3-5 orbs
     for (let i = 0; i < count; i++) {
       const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 30;
       const oy = this.y + (Math.random() - 0.5) * 10;
