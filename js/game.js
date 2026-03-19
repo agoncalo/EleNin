@@ -973,7 +973,7 @@ class Game {
     ctx.fillStyle = '#aaa';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('~ a ninja platformer ~', CANVAS_W / 2, startY + letterH + 35);
+    ctx.fillText('~ an elemental ninja platformer ~', CANVAS_W / 2, startY + letterH + 35);
     ctx.globalAlpha = 1;
 
     // "Press any key to start" blinking
