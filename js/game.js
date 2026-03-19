@@ -1452,7 +1452,6 @@ class Game {
     if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
     if (this.diamondShards) for (const d of this.diamondShards) d.render(ctx, cam);
     for (const f of this.flamePools) f.render(ctx, cam);
-    this.player.render(ctx, cam);
 
     // Shadow ultimate: darken everything except enemies
     if (this.player.ninjaType === 'shadow' && this.player.shadowDarkness > 0) {
@@ -1465,6 +1464,8 @@ class Game {
 
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
+
+    this.player.render(ctx, cam);
 
     // ── Ultimate cutscene / active rendering ──
 
@@ -2183,7 +2184,7 @@ class Game {
       ctx.restore();
     }
 
-    this.renderUI();
+    if (!this.simplePause) this.renderUI();
   }
 
   renderUI() {

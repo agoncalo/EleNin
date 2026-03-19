@@ -38,6 +38,15 @@ function gameLoop(timestamp) {
         continue;
       }
     }
+    // Simple pause (P key, no menu)
+    if (consumePress('KeyP')) {
+      if (!game.gameOver && !game.gameWon && !pauseMenu.active) {
+        game.simplePause = !game.simplePause;
+        clearFrameInput();
+        accumulator -= FIXED_DT;
+        continue;
+      }
+    }
     if (game.menuActive) {
       if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.menuActive = false;
@@ -51,6 +60,11 @@ function gameLoop(timestamp) {
       if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.controlsScreen = false;
       }
+      clearFrameInput();
+      accumulator -= FIXED_DT;
+      continue;
+    }
+    if (game.simplePause) {
       clearFrameInput();
       accumulator -= FIXED_DT;
       continue;
