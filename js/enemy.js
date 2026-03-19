@@ -1339,11 +1339,13 @@ class Enemy {
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
     } else if (r < 0.84) {                                   // T4: damage 6%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
-    } else if (r < 0.89) {                                   // T4: speed 5%
+    } else if (r < 0.87) {                                   // T4: elDmg 3%
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'elDmg'));
+    } else if (r < 0.91) {                                   // T4: speed 4%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'speed'));
-    } else if (r < 0.94) {                                   // T4: reach 5%
+    } else if (r < 0.95) {                                   // T4: reach 4%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'reach'));
-    } else if (r < 0.98) {                                   // T4: armor 4%
+    } else if (r < 0.98) {                                   // T4: armor 3%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'armor'));
     } else {                                                  // T4: element 2%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
@@ -2725,7 +2727,7 @@ class Boss extends Enemy {
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
     // Boss death does NOT count as a waveKill — but drops a few orbs
-    const orbTypes = ['heal', 'maxhp', 'damage', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'];
+    const orbTypes = ['heal', 'maxhp', 'damage', 'elDmg', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'];
     const count = 3 * game.wave + Math.floor(Math.random() * 3); // 3-5 orbs
     for (let i = 0; i < count; i++) {
       const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 100;

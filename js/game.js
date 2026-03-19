@@ -570,6 +570,7 @@ class Game {
         pl.maxHp += avgMaxHp;
         pl.hp = Math.min(pl.hp + avgMaxHp, pl.maxHp);
         pl.bonusDamage += avgDmg;
+        pl.bonusElemental += avgDmg;
         pl.maxShield += avgShield * 2;
         pl.shield = Math.min(pl.shield + avgShield * 3, pl.maxShield);
         pl.maxShurikens += avgShuriken;
@@ -629,6 +630,7 @@ class Game {
       pl.maxShield = avgShieldMax;
       pl.shield = avgShieldMax;
       pl.bonusDamage = avgDmg;
+      pl.bonusElemental = avgDmg;
       pl.maxShurikens = 3 + avgShuriken;
       pl.shurikens = pl.maxShurikens;
       pl.bonusSpeed = avgSpeed;
@@ -2338,7 +2340,9 @@ class Game {
     const buffItems = [];
     const baseAtk = pl.type.attackDamage;
     const totalAtk = baseAtk + pl.bonusDamage;
-    buffItems.push({ icon: '\u2694', value: totalAtk, color: '#f80', hasBonus: pl.bonusDamage > 0 });
+    buffItems.push({ icon: '\u2694', value: totalAtk, color: '#f80', hasBonus: pl.bonusDamage > 0, bonusVal: pl.bonusDamage });
+    const totalEle = baseAtk + pl.bonusElemental;
+    buffItems.push({ icon: '\u2737', value: totalEle, color: '#c4f', hasBonus: pl.bonusElemental > 0, bonusVal: pl.bonusElemental });
     buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: '#0f0' });
     buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: '#fa0' });
     buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
@@ -2359,7 +2363,7 @@ class Game {
         let iw = ctx.measureText(b.icon).width + 3 + ctx.measureText(String(b.value)).width;
         if (b.hasBonus) {
           ctx.font = '10px monospace';
-          iw += 2 + ctx.measureText(`+${pl.bonusDamage}`).width;
+          iw += 2 + ctx.measureText(`+${b.bonusVal}`).width;
           ctx.font = 'bold 14px monospace';
         }
         itemWidths.push(iw);
@@ -2379,7 +2383,7 @@ class Game {
           const valW = ctx.measureText(String(b.value)).width;
           ctx.font = '10px monospace';
           ctx.fillStyle = '#5f5';
-          ctx.fillText(`+${pl.bonusDamage}`, bx + iconW + 3 + valW + 2, by);
+          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, by);
           ctx.font = 'bold 14px monospace';
         }
         bx += itemWidths[i] + 14;

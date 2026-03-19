@@ -394,7 +394,7 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 5, shield: 6, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 5, shield: 6, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
@@ -402,7 +402,7 @@ class Orb {
     this.done = false;
     this.grounded = false;
     this.vx = 0;
-    this.rare = ['damage', 'speed', 'reach', 'armor', 'element'].includes(type);
+    this.rare = ['damage', 'elDmg', 'speed', 'reach', 'armor', 'element'].includes(type);
     this.tick = 0;
   }
   update(game) {
@@ -410,8 +410,8 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
-    const _bonusLabel = { shuriken: 'SHURIKEN', ultcharge: 'ULT CHARGE', damage: 'DAMAGE', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'ELEMENT' };
-    const _bonusColor = { shuriken: '#ccc', ultcharge: '#ff0', damage: '#f80', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
+    const _bonusLabel = { shuriken: 'SHURIKEN', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL' };
+    const _bonusColor = { shuriken: '#ccc', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
 
     // Attraction to player if nearby
     const pl = game.player;
@@ -438,6 +438,7 @@ class Orb {
             case 'heal': pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
             case 'maxhp': pl.maxHp += 1 * _m; pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
             case 'damage': pl.bonusDamage += 1 * _m; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
+            case 'elDmg': pl.bonusElemental += 1 * _m; game.effects.push(new Effect(ox, oy, '#c4f', 8, 3, 12)); break;
             case 'shield': pl.maxShield += 2 * _m; pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
             case 'shuriken': pl.maxShurikens += 1 * _m; pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
             case 'speed': pl.bonusSpeed += 1 * _m; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
@@ -489,6 +490,10 @@ class Orb {
           pl.bonusDamage += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f80', 8, 3, 12));
           break;
+        case 'elDmg':
+          pl.bonusElemental += 1 * _m;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#c4f', 8, 3, 12));
+          break;
         case 'shield':
           pl.maxShield += 2 * _m;
           pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
@@ -522,7 +527,7 @@ class Orb {
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
           break;
       }
-      if (_bonusLabel[this.type]) game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, '+BONUS ' + _bonusLabel[this.type], _bonusColor[this.type]));
+      if (_bonusLabel[this.type]) game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
     }
 
     // Collector pickups: golems, trimerangs, bubbles grab orbs for the player
@@ -571,6 +576,10 @@ class Orb {
             pl.bonusDamage += 1;
             game.effects.push(new Effect(cx, cy, '#f80', 8, 3, 12));
             break;
+          case 'elDmg':
+            pl.bonusElemental += 1;
+            game.effects.push(new Effect(cx, cy, '#c4f', 8, 3, 12));
+            break;
           case 'shield':
             pl.maxShield += 2;
             pl.shield = Math.min(pl.shield + 3, pl.maxShield);
@@ -604,7 +613,7 @@ class Orb {
             game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
             break;
         }
-        if (_bonusLabel[this.type]) game.effects.push(new TextEffect(cx, cy - 15, '+BONUS ' + _bonusLabel[this.type], _bonusColor[this.type]));
+        if (_bonusLabel[this.type]) game.effects.push(new TextEffect(cx, cy - 15, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
       }
     }
   }
@@ -614,7 +623,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
@@ -652,7 +661,7 @@ class Orb {
     ctx.fillStyle = '#fff';
     const fontSize = Math.max(8, r * 1.4) | 0;
     ctx.font = 'bold ' + fontSize + 'px monospace';
-    const icons = { heal: '♥', maxhp: '+', damage: '!', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
+    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
     ctx.fillText(icons[this.type], cx - fontSize * 0.35, cy + fontSize * 0.35);
   }
 }
@@ -817,7 +826,7 @@ class SpinningScythe {
     this.owner = owner;
     this.game = game;
     this.sc = isUlt ? 1.5 : 1.2;
-    this.damage = owner.type.attackDamage + owner.bonusDamage;
+    this.damage = owner.type.attackDamage + owner.bonusElemental;
     // World position — starts offset from owner
     const angle = Math.random() * Math.PI * 2;
     this.x = owner.x + owner.w / 2 + Math.cos(angle) * 60;

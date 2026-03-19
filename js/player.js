@@ -14,6 +14,7 @@ class Player {
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
+    this.bonusElemental = 0;
     this.bonusSpeed = 0;
     this.bonusReach = 0;
     this.bonusArmor = 0;
@@ -187,7 +188,7 @@ class Player {
   // Mecha hand punch hit detection
   _mechaHandHit(game, g, hand) {
     const hitBox = { x: hand.x - 32, y: hand.y - 32, w: 64, h: 64 };
-    const dmg = (this.type.attackDamage + this.bonusDamage) * 3;
+    const dmg = (this.type.attackDamage + this.bonusElemental) * 3;
     const gcx = g.x + g.w / 2;
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(hitBox, e)) {
@@ -365,7 +366,7 @@ class Player {
         this.shadowEyesTimer = 60; // eyes visible for 60 frames
         this.shadowUltBuff = true;
         // Massive initial shadow strike around the player
-        damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, (this.type.attackDamage + this.bonusDamage) * 3);
+        damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, (this.type.attackDamage + this.bonusElemental) * 3);
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 40, 10, 30));
         this.shadowStealth = 300;
         this.backstabReady = true;
@@ -417,7 +418,7 @@ class Player {
         this.crystalCastle = true;
         game.crystalCastle = new CrystalCastle(
           castleX, castleY, castleW, castleH,
-          this.type.attackDamage + this.bonusDamage, this.wave || 1
+          this.type.attackDamage + this.bonusElemental, this.wave || 1
         );
         // Lock ninja to castle center
         this.vx = 0; this.vy = 0;
@@ -581,7 +582,7 @@ class Player {
           if (m.y >= m.targetY - 10 || d < 12) {
             m.done = true;
             if (m.big) {
-              damageInRadius(game, m.targetX, m.targetY, 150, (this.type.attackDamage + this.bonusDamage + 6) * 3, m.targetX);
+              damageInRadius(game, m.targetX, m.targetY, 150, (this.type.attackDamage + this.bonusElemental + 6) * 3, m.targetX);
               if (game.boss && game.boss.health <= 0) {
                 game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f33', game.camera));
               }
@@ -597,7 +598,7 @@ class Player {
               SFX.bossSpawn();
               triggerHitstop(12);
             } else {
-              damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusDamage + 6, m.targetX);
+              damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusElemental + 6, m.targetX);
               game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
               game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
               SFX.slam();
@@ -680,7 +681,7 @@ class Player {
           const golemBox = { x: g.x, y: g.y, w: g.w, h: g.h };
           for (const e of game.enemies) {
             if (!e.dead && rectOverlap(golemBox, e)) {
-              e.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, cx);
+              e.takeDamage(this.type.attackDamage + this.bonusElemental + 3, game, cx);
               const kbDir = Math.sign(e.x + e.w / 2 - cx) || 1;
               e.vx = kbDir * 14; e.vy = -8;
               g.contactCd = 15;
@@ -688,7 +689,7 @@ class Player {
             }
           }
           if (g.contactCd <= 0 && game.boss && !game.boss.dead && rectOverlap({ x: g.x, y: g.y, w: g.w, h: g.h }, game.boss)) {
-            game.boss.takeDamage(this.type.attackDamage + this.bonusDamage + 3, game, cx);
+            game.boss.takeDamage(this.type.attackDamage + this.bonusElemental + 3, game, cx);
             g.contactCd = 15;
           }
         }
@@ -708,7 +709,7 @@ class Player {
         if (g.missileCooldown <= 0 && (consumePress('KeyX') || consumePress('KeyK') || justPressed['MouseSpecial'] || gpJust[GP_SPECIAL])) {
           g.missileCooldown = 28;
           const px = cx + g.facing * (g.w / 2 + 4);
-          const dmg = this.type.attackDamage + this.bonusDamage + 5;
+          const dmg = this.type.attackDamage + this.bonusElemental + 5;
           const p1 = new Projectile(px, cy - 10, g.facing * 9, -1.5, '#f84', dmg, 'player');
           const p2 = new Projectile(px, cy + 10, g.facing * 9,  1.5, '#f84', dmg, 'player');
           p1.isMissile = true; p2.isMissile = true;
@@ -722,7 +723,7 @@ class Player {
         if (g.ballCooldown <= 0 && (consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN])) {
           g.ballCooldown = 40;
           const count = 12;
-          const dmg = this.type.attackDamage + this.bonusDamage + 2;
+          const dmg = this.type.attackDamage + this.bonusElemental + 2;
           for (let i = 0; i < count; i++) {
             const a = (Math.PI * 2 / count) * i;
             const spd = 5;
@@ -840,7 +841,7 @@ class Player {
               if (a.y >= a.targetY - 5 || a.y > game.camera.y + CANVAS_H + 50) {
                 a.done = true;
                 // Impact damage in radius
-                damageInRadius(game, a.targetX, a.targetY, 100, (this.type.attackDamage + this.bonusDamage + 6) * 4, a.targetX);
+                damageInRadius(game, a.targetX, a.targetY, 100, (this.type.attackDamage + this.bonusElemental + 6) * 4, a.targetX);
                 game.effects.push(new Effect(a.targetX, a.targetY, '#bfb', 20, 7, 18));
                 game.effects.push(new Effect(a.targetX, a.targetY, '#8d8', 15, 5, 14));
                 game.effects.push(new Effect(a.targetX, a.targetY, '#fff', 10, 4, 10));
@@ -882,7 +883,7 @@ class Player {
           t.enemy.vy = 0;
           t.enemy.freezeTimer = 2; // keep them immobile
           if (doDamage) {
-            t.enemy.takeDamage(this.type.attackDamage + this.bonusDamage + 1, game, this.x + this.w / 2);
+            t.enemy.takeDamage(this.type.attackDamage + this.bonusElemental + 1, game, this.x + this.w / 2);
             game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#4af', 6, 2, 10));
           }
         }
@@ -910,7 +911,7 @@ class Player {
           for (const t of bu.trapped) {
             if (!t.enemy.dead) {
               t.enemy.freezeTimer = 0;
-              t.enemy.takeDamage((this.type.attackDamage + this.bonusDamage) * 2, game, this.x + this.w / 2);
+              t.enemy.takeDamage((this.type.attackDamage + this.bonusElemental) * 2, game, this.x + this.w / 2);
               game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#4af', 14, 5, 16));
               game.effects.push(new Effect(t.enemy.x + t.enemy.w / 2, t.enemy.y + t.enemy.h / 2, '#8cf', 10, 3, 12));
             }
@@ -1285,7 +1286,7 @@ class Player {
           if (!b.done) b.pop(game);
         }
       }
-      let slamDmg = t.attackDamage + this.bonusDamage + 2;
+      let slamDmg = t.attackDamage + this.bonusElemental + 2;
       const slamCX = this.x + this.w / 2;
       const slamCY = this.y + this.h;
       const slamColor = t.color;
@@ -1871,7 +1872,7 @@ class Player {
         if (this.fireArmorTimer % 20 === 0) {
           const t = this.type;
           const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-          const dmg = t.attackDamage + this.bonusDamage + 2;
+          const dmg = t.attackDamage + this.bonusElemental + 2;
           const p = fireProjectileAtNearestEnemy({
             x: cx, y: cy, game, speed: 8, color: '#f93', damage: dmg, owner: 'player', width: 14, height: 10, piercing: true, facing: this.facing
           });
@@ -1883,7 +1884,7 @@ class Player {
             const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
             const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
             if (Math.sqrt(dx * dx + dy * dy) < 50) {
-              e.takeDamage(this.type.attackDamage + this.bonusDamage, game);
+              e.takeDamage(this.type.attackDamage + this.bonusElemental, game);
               e.hitCooldown = 30;
             }
           }
@@ -1935,7 +1936,7 @@ class Player {
           this.facing = -behind;
           this.vx = 0; this.vy = 0;
           this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, chain: true });
-          let dmg = this.type.attackDamage + this.bonusDamage;
+          let dmg = this.type.attackDamage + this.bonusElemental;
           if (this.backstabReady || (nearest.hp !== undefined && nearest.hp <= this.shadowKillThreshold)) {
             dmg = 9999;
           }
@@ -2004,7 +2005,7 @@ class Player {
           this.facing = -behind;
           this.vx = 0; this.vy = 0;
           this.stormAfterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
-          const dmg = (this.type.attackDamage + this.bonusDamage) * 2;
+          const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
           if (nearest === game.boss && nearest.dead) {
             this.stormLightningFlash = 35;
@@ -2067,7 +2068,7 @@ class Player {
             this.facing = -behind;
             this.vx = 0; this.vy = 0;
             this.stormAfterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12 });
-            const dmg = (this.type.attackDamage + this.bonusDamage) * 2;
+            const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
             loopTarget.takeDamage(dmg, game, this.x + this.w / 2);
             if (loopTarget === game.boss && loopTarget.dead) {
               this.stormLightningFlash = 35;
@@ -2222,7 +2223,7 @@ class Player {
 
       for (const e of game.enemies) {
         if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
-          const dmg = this.type.attackDamage + this.bonusDamage;
+          const dmg = this.type.attackDamage + this.bonusElemental;
           e.takeDamage(dmg, game, this.x + this.w / 2);
           e.burnTimer = Math.max(e.burnTimer || 0, 90);
           triggerHitstop(3);
@@ -2230,7 +2231,7 @@ class Player {
         }
       }
       if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
-        const dmg = this.type.attackDamage + this.bonusDamage;
+        const dmg = this.type.attackDamage + this.bonusElemental;
         game.boss.takeDamage(dmg, game, this.x + this.w / 2);
         game.boss.burnTimer = Math.max(game.boss.burnTimer || 0, 90);
         triggerHitstop(3);
@@ -2239,7 +2240,7 @@ class Player {
 
       // Bombardment: drop fire projectiles at intervals during the dash
       if (this.fireDashTimer === 9 || this.fireDashTimer === 6 || this.fireDashTimer === 3) {
-        const dmg = Math.max(1, Math.floor((this.type.attackDamage + this.bonusDamage) / 2));
+        const dmg = Math.max(1, Math.floor((this.type.attackDamage + this.bonusElemental) / 2));
         const px = this.x + this.w / 2;
         const py = this.y + this.h / 2;
         if (this.fireDashTimer === 3) {
@@ -2284,7 +2285,7 @@ class Player {
         this.windTrails.push({ x: this.x, y: this.y, life: 15 });
         for (const e of game.enemies) {
           if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
-            const dmg = t.attackDamage + this.bonusDamage + this.windPower;
+            const dmg = t.attackDamage + this.bonusElemental + this.windPower;
             e.takeDamage(dmg, game, this.x + this.w / 2);
             e.hitCooldown = 15;
             triggerHitstop(4);
@@ -2293,7 +2294,7 @@ class Player {
           }
         }
         if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
-          const dmg = t.attackDamage + this.bonusDamage + this.windPower;
+          const dmg = t.attackDamage + this.bonusElemental + this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
           game.boss.hitCooldown = 15;
           triggerHitstop(4);
@@ -2360,7 +2361,7 @@ class Player {
     if (this.ninjaType === 'crystal') {
       const fx = this.x + this.w / 2 + this.facing * 20;
       const fy = this.y + this.h / 2;
-      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this.type.attackDamage + this.bonusDamage, 'player');
+      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this.type.attackDamage + this.bonusElemental, 'player');
       proj.w = 10; proj.h = 8;
       proj.freezeDust = true;
       proj.life = 60;
@@ -2464,7 +2465,7 @@ class Player {
       const fx = this.x + this.w / 2;
       const fy = this.y + this.h / 2;
       const speed = 8 * this.facing;
-      const proj = new Projectile(fx - 9, fy - 9, speed, 0, '#f80', this.type.attackDamage + this.bonusDamage + 4, 'player');
+      const proj = new Projectile(fx - 9, fy - 9, speed, 0, '#f80', this.type.attackDamage + this.bonusElemental + 4, 'player');
       proj.w = 18;
       proj.h = 18;
       proj.piercing = true;
@@ -2557,7 +2558,7 @@ class Player {
           const bub = new Bubble(
             this.x + this.facing * (50 + i * 50) + randOffX,
             this.y - 20 - i * 25 + randOffY,
-            this.type.attackDamage + this.bonusDamage
+            this.type.attackDamage + this.bonusElemental
           );
           bub.homing = true;
           game.bubbles.push(bub);
@@ -2632,7 +2633,7 @@ class Player {
           const proj = new Projectile(
             wsx + Math.cos(angle) * 30, wsy + Math.sin(angle) * 30,
             Math.cos(angle) * 5, Math.sin(angle) * 5,
-            '#48f', this.type.attackDamage + this.bonusDamage, 'player'
+            '#48f', this.type.attackDamage + this.bonusElemental, 'player'
           );
           proj.w = 16; proj.h = 16;
           proj.soaking = true;

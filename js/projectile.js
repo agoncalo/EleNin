@@ -118,14 +118,14 @@ class Trimerang {
   _damageEnemies(game) {
     for (const e of game.enemies) {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
-        e.takeDamage(game.player.type.attackDamage + game.player.bonusDamage + game.player.windPower, game, this.x);
+        e.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x);
         this.hitSet.add(e);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
         game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
       }
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
-      game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusDamage + game.player.windPower, game, this.x);
+      game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x);
       this.hitSet.add(game.boss);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
       game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
@@ -231,7 +231,7 @@ class DiamondShard {
         const dx = (e.x + e.w / 2) - this.x;
         const dy = (e.y + e.h / 2) - this.y;
         if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(e.w, e.h) / 2) {
-          const dmg = game.player.type.attackDamage + game.player.bonusDamage + 1;
+          const dmg = game.player.type.attackDamage + game.player.bonusElemental + 1;
           const prevIframes = e.damageIframes;
           e.takeDamage(dmg, game, this.x);
           if (e.damageIframes > prevIframes) {
@@ -249,7 +249,7 @@ class DiamondShard {
       const dx = (game.boss.x + game.boss.w / 2) - this.x;
       const dy = (game.boss.y + game.boss.h / 2) - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
-        const dmg = game.player.type.attackDamage + game.player.bonusDamage + 1;
+        const dmg = game.player.type.attackDamage + game.player.bonusElemental + 1;
         const prevIframes = game.boss.damageIframes;
         game.boss.takeDamage(dmg, game, this.x);
         if (game.boss.damageIframes > prevIframes) {
