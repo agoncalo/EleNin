@@ -1620,7 +1620,7 @@ class Player {
               e.launchIceSlide(game, this.x + this.w / 2, dmg);
               for (const other of game.enemies) {
                 if (other !== e && !other.dead && other.freezeTimer >= 1) {
-                  other.takeDamage(dmg * 0.75, game, this.x + this.w / 2, 'steel');
+                  other.takeDamage(dmg * 0.75, game, this.x + this.w / 2);
                 }
               }
             }

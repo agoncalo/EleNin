@@ -1325,27 +1325,27 @@ class Enemy {
       }
       game.effects.push(new Effect(cx, cy, '#aff', 14, 5, 15));
     }
-    // Drop orb
+    // Drop orb — tiered rarity
     const r = Math.random();
-    if (r < 0.35) {
+    if (r < 0.30) {                                          // T1: heal 30%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'heal'));
-    } else if (r < 0.48) {
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'maxhp'));
-    } else if (r < 0.58) {
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
-    } else if (r < 0.66) {
+    } else if (r < 0.48) {                                   // T2: shield 18%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shield'));
-    } else if (r < 0.78) {
+    } else if (r < 0.58) {                                   // T3: maxhp 10%
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'maxhp'));
+    } else if (r < 0.68) {                                   // T3: shuriken 10%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shuriken'));
-    } else if (r < 0.82) {
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'speed'));
-    } else if (r < 0.86) {
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'reach'));
-    } else if (r < 0.90) {
+    } else if (r < 0.78) {                                   // T3: ultcharge 10%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
-    } else if (r < 0.94) {
+    } else if (r < 0.84) {                                   // T4: damage 6%
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
+    } else if (r < 0.89) {                                   // T4: speed 5%
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'speed'));
+    } else if (r < 0.94) {                                   // T4: reach 5%
+      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'reach'));
+    } else if (r < 0.98) {                                   // T4: armor 4%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'armor'));
-    } else {
+    } else {                                                  // T4: element 2%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
     }
   }
