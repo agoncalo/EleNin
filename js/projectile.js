@@ -66,8 +66,27 @@ class Trimerang {
     // Normal homing behavior
     let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     speed *= 0.985;
-    const dx = (pl.x + pl.w / 2) - this.x;
-    const dy = (pl.y + pl.h / 2) - this.y;
+    let tx, ty;
+    if (this.homingEnemy) {
+      // Home toward nearest enemy
+      let best = null, bestDist = Infinity;
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const d = Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y);
+        if (d < bestDist) { bestDist = d; best = e; }
+      }
+      if (game.boss && !game.boss.dead) {
+        const d = Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y);
+        if (d < bestDist) { bestDist = d; best = game.boss; }
+      }
+      if (best) { tx = best.x + best.w / 2; ty = best.y + best.h / 2; }
+      else { tx = this.x + this.vx; ty = this.y + this.vy; }
+    } else {
+      tx = pl.x + pl.w / 2;
+      ty = pl.y + pl.h / 2;
+    }
+    const dx = tx - this.x;
+    const dy = ty - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     const accel = Math.min(0.18, dist / 900);
     const ax = (dx / dist) * accel;
@@ -86,8 +105,8 @@ class Trimerang {
     this.life--;
     if (this.life <= 0) { this.done = true; return; }
     this._damageEnemies(game);
-    // If player touches it, end
-    if (Math.hypot((pl.x + pl.w / 2) - this.x, (pl.y + pl.h / 2) - this.y) < this.radius + Math.max(pl.w, pl.h) / 2) {
+    // If player touches it, end (only for player-homing trimerangs)
+    if (!this.homingEnemy && Math.hypot((pl.x + pl.w / 2) - this.x, (pl.y + pl.h / 2) - this.y) < this.radius + Math.max(pl.w, pl.h) / 2) {
       this.done = true;
       game.effects.push(new Effect(this.x, this.y, '#fff', 12, 4, 16));
     }
@@ -463,7 +482,7 @@ class Projectile {
           }
 
           e.takeDamage(this.damage, game, this.x);
-          game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+          if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
             this._kunaiExplode(game, e);
@@ -561,7 +580,7 @@ class Projectile {
           }
         }
         game.boss.takeDamage(this.damage, game, this.x);
-        game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+        if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {
           this._kunaiExplode(game);

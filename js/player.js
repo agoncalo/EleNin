@@ -2471,6 +2471,7 @@ class Player {
       proj.isFireball = true;
       proj.homing = true;
       proj.life = 80;
+      proj.fromSpecial = true;
       game.projectiles.push(proj);
       this._fireballPending = false;
     }
@@ -2639,6 +2640,7 @@ class Player {
           proj.homing = true;
           proj.noPlat = true;
           proj.life = 240;
+          proj.fromSpecial = true;
           game.projectiles.push(proj);
         }
         game.effects.push(new Effect(wsx, wsy, '#48f', 14, 5, 16));

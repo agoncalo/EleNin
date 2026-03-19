@@ -1247,6 +1247,7 @@ class Enemy {
             const spd = 3 + Math.random() * 2;
             const t = new Trimerang(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, 'player');
             t.life = 150;
+            t.homingEnemy = true;
             game.trimerangs.push(t);
           }
           game.effects.push(new Effect(cx, cy, '#bfb', 14, 6, 18));

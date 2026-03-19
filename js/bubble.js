@@ -59,7 +59,9 @@ class Bubble {
       const dy = (nearest.y + nearest.h / 2) - cy;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d > 0) {
-        game.projectiles.push(new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage + this.dmg, 'player'));
+        const bp = new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage + this.dmg, 'player');
+        bp.fromSpecial = true;
+        game.projectiles.push(bp);
       }
     }
   }
