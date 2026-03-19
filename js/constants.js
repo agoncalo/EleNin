@@ -899,3 +899,39 @@ const FINAL_BOSS_KILL_PHRASES = {
   wind:    ["Every lead. Every favor. It all ends here.", "The wind scatters even crowns.", "I gathered them all... and we won."],
   storm:   ["Sorry. Truly. ...But the thunder is MINE.", "Lightning strikes the tallest tower.", "My birthright. Reclaimed."],
 };
+
+// ── Zone / Wave mapping ──────────────────────────────────────
+// open1      = waves 1-3   (lateral open, push-forward)
+// tower_down = wave  4     (downward autoscroll tower, flyer boss)
+// arena1     = waves 5-6   (enclosed arena, two bosses)
+// open2      = wave  7     (second open stretch)
+// arena2     = waves 8-9   (enclosed arena, two bosses)
+// tower_up   = wave  10    (upward autoscroll tower, final boss)
+const WAVE_ZONE_MAP = [
+  'open1', 'open1', 'open1',
+  'tower_down',
+  'arena1', 'arena1',
+  'open2',
+  'arena2', 'arena2',
+  'tower_up',
+];
+function getWaveZone(wave) { return WAVE_ZONE_MAP[wave - 1] || 'open1'; }
+
+const ZONE_LEVEL_TYPE = {
+  open1:      'open',
+  open2:      'open',
+  tower_down: 'tower',
+  tower_up:   'tower',
+  arena1:     'arena',
+  arena2:     'arena',
+};
+
+// Player entry position when entering a zone
+const ZONE_ENTRY = {
+  open1:      { x: 100, y: 440 },
+  tower_down: { x: 300, y: 20  }, // near top of tower
+  arena1:     { x: 100, y: 440 },
+  open2:      { x: 100, y: 440 },
+  arena2:     { x: 100, y: 440 },
+  tower_up:   { x: 300, y: 410 }, // near bottom of tower
+};

@@ -68,7 +68,25 @@ class Game {
     this.ninjaKillResponsePos = null;
     this.transitionTimer = 0;
 
-    this.buildLevel();
+    // ── Procedural world / zone state ─────────────────────────
+    this.zoneType        = 'open1'; // open1,tower_down,arena1,open2,arena2,tower_up
+    this.pendingZone     = null;    // zone queued for transition
+    this.exitDoor        = null;    // { x,y,w,h,triggered }
+    this.towerCorridor   = null;    // (legacy, unused)
+    this.inlineTower     = null;    // inline tower built at end of open field
+    this.towerXOffset    = 0;       // X offset for inline tower positioning
+    this.leftBoundary    = 0;       // camera left clamp in open zones
+    this.highWaterX      = 0;       // farthest x player has been
+    this.worldX          = 0;       // rightmost generated chunk edge
+    this.worldChunkCount = 0;
+    this.towerScrollY    = 0;       // autoscroll y target
+    this.towerScrollSpeed = 0;
+    this.towerTopY       = 0;
+    this.towerBottomY    = 0;
+    this.towerBossRoomY  = 0;
+    this.towerScrollDelay = 0;      // frames to wait before scrolling starts
+
+    this.startZone('open1');
     this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
     // Start phrase (character-specific)
     const startPool = NINJA_START_PHRASES[this.player.ninjaType] || START_PHRASES;
@@ -88,7 +106,7 @@ class Game {
     // Small tent at spawn point
     let tentX, tentGroundY;
     if (this.levelType === 'tower') {
-      tentX = 380; tentGroundY = 440;
+      tentX = this.towerXOffset + 380; tentGroundY = 440;
     } else if (this.levelType === 'arena') {
       tentX = 130; tentGroundY = 400;
     } else {
@@ -362,6 +380,394 @@ class Game {
     P(775, -170, 25, 10, '#555');
   }
 
+  // ── Zone management ───────────────────────────────────────
+  startZone(zone) {
+    this.zoneType  = zone;
+    this.levelType = ZONE_LEVEL_TYPE[zone];
+    this.platforms = [];
+    this.spikes    = [];
+    this.enemies   = [];
+    this.projectiles = [];
+    this.stoneBlocks = [];
+    this.stonePillars = [];
+    this.bubbles    = [];
+    this.orbs       = [];
+    this.bossItems  = [];
+    this.effects    = [];
+    this.fireTrails = [];
+    if (this.diamondShards) this.diamondShards = [];
+    this.crystalCastle = null;
+    this.boss       = null;
+    this.bossActive = false;
+    this.exitDoor   = null;
+    this.towerCorridor = null;
+    this.inlineTower = null;
+    this.towerXOffset = 0;
+    switch (zone) {
+      case 'open1':
+      case 'open2': this._setupOpenZone(); break;
+      case 'tower_down': this._setupTowerDown(); break;
+      case 'tower_up':   this._setupTowerUp();   break;
+      case 'arena1':
+      case 'arena2': this.buildArena(); this.levelW = 1200; this.levelH = 540; break;
+    }
+  }
+
+  _setupOpenZone() {
+    this.levelH          = 540;
+    this.leftBoundary    = 0;
+    this.highWaterX      = 0;
+    this.worldX          = 0;
+    this.worldChunkCount = 0;
+    for (let i = 0; i < 7; i++) this._addOpenChunk();
+    this.levelW = this.worldX + CANVAS_W;
+  }
+
+  _addOpenChunk() {
+    generateOpenChunk(this.worldX, this.worldChunkCount,
+      { platforms: this.platforms, spikes: this.spikes });
+    this.worldChunkCount++;
+    this.worldX += CHUNK_W;
+  }
+
+  _generateOpenAhead() {
+    if (this.exitDoor || this.inlineTower || this.bossActive) return; // stop once transition path placed
+    const PRERENDER = 1800;
+    while (this.player.x + PRERENDER > this.worldX) {
+      this._addOpenChunk();
+      this.levelW = this.worldX + CANVAS_W;
+    }
+    // Prune chunks far behind left boundary
+    const pruneX = this.leftBoundary - 2400;
+    this.platforms = this.platforms.filter(p => !p._chunkX || p._chunkX >= pruneX);
+    this.spikes    = this.spikes.filter(s => !s._chunkX || s._chunkX >= pruneX);
+  }
+
+  _setupTowerDown() {
+    this.levelW          = 960;
+    this.towerScrollSpeed = 0.45;
+    this.towerScrollY    = 0;
+    this.towerScrollDelay = 210;    // ~3.5s lock before scroll starts
+    const r = buildTowerDownLayout(this.platforms, this.spikes, 14);
+    this.towerTopY      = r.topY;
+    this.towerBottomY   = r.bottomY;
+    this.towerBossRoomY = r.bossRoomY;
+    this.levelH = this.towerBottomY + 300;
+  }
+
+  _setupTowerUp() {
+    this.levelW          = 960;
+    this.towerScrollSpeed = 0.55;
+    this.towerScrollDelay = 210;    // ~3.5s lock before scroll starts
+    const r = buildTowerUpLayout(this.platforms, this.spikes, 16);
+    this.towerTopY      = r.topY;
+    this.towerBottomY   = r.bottomY;
+    this.towerBossRoomY = r.bossRoomY;
+    this.towerScrollY   = this.towerBottomY - CANVAS_H; // start at bottom
+    this.levelH = this.towerBottomY + 300;
+  }
+
+  spawnExitDoor() {
+    const dw = 48, dh = 80;
+    let dx, dy;
+    if (this.zoneType === 'open1' || this.zoneType === 'open2') {
+      // Flat run-up then door
+      const runX = this.worldX;
+      const flat = new Platform(runX - 100, 480, 800, 60, '#555');
+      flat._chunkX = runX - 100;
+      this.platforms.push(flat);
+      dx = runX + 600;
+      dy = 480 - dh;
+      this.worldX  = dx + dw + 200;
+      this.levelW  = this.worldX + CANVAS_W;
+    } else if (this.zoneType === 'tower_down') {
+      // Center of boss room floor platform
+      dx = this.towerXOffset + TOWER_OX + 260 + 135 - dw / 2;
+      dy = this.towerBossRoomY + TOWER_SECTION_H * 0.28 - dh;
+    } else if (this.zoneType === 'arena1' || this.zoneType === 'arena2') {
+      dx = this.levelW - dw - 20;
+      dy = 480 - dh;
+    } else {
+      return; // tower_up → victory, no door
+    }
+    this.exitDoor = { x: dx, y: dy, w: dw, h: dh, triggered: false };
+  }
+
+  buildInlineTower(nextZone) {
+    // Build the tower physically at the end of the current area — no teleports.
+    const isDown = nextZone === 'tower_down';
+
+    let runX, corridorLen, towerBaseX;
+
+    if (this.zoneType === 'open1' || this.zoneType === 'open2') {
+      runX = this.worldX;
+      corridorLen = 600;
+      towerBaseX = runX + corridorLen;
+    } else if (this.zoneType === 'arena1' || this.zoneType === 'arena2') {
+      runX = this.levelW - 200;
+      corridorLen = 200;
+      towerBaseX = runX + corridorLen;
+    } else {
+      return false;
+    }
+
+    // ── Corridor connecting current area to tower ──
+    const floorP = new Platform(runX - 100, 480, corridorLen + 200, 60, '#545');
+    floorP._chunkX = runX;
+    this.platforms.push(floorP);
+    const roofP = new Platform(runX + 80, 356, corridorLen - 60, 16, '#4a4a4a');
+    roofP._chunkX = runX;
+    this.platforms.push(roofP);
+    const cWall = new Platform(runX + 80, 356, 16, 124, '#4a4a4a');
+    cWall._chunkX = runX;
+    this.platforms.push(cWall);
+
+    // ── Generate tower layout, then shift into world position ──
+    const tPlats = [];
+    const tSpks  = [];
+    let r;
+    if (isDown) {
+      r = buildTowerDownLayout(tPlats, tSpks, 14);
+    } else {
+      r = buildTowerUpLayout(tPlats, tSpks, 16);
+    }
+    const deltaX = towerBaseX;
+    const deltaY = isDown ? (480 - r.topY) : (480 - r.bottomY);
+    for (const p of tPlats) { p.x += deltaX; p.y += deltaY; }
+    for (const s of tSpks)  { s.x += deltaX; s.y += deltaY; }
+
+    // Split the left wall to create an entrance gap (y 356→540)
+    const lwX = towerBaseX + TOWER_OX - 32;
+    const gapTop = 356, gapBot = 540;
+    for (let i = tPlats.length - 1; i >= 0; i--) {
+      const p = tPlats[i];
+      if (Math.abs(p.x - lwX) < 2 && p.w === 32 && p.h > 500) {
+        const wTop = p.y, wBot = p.y + p.h;
+        tPlats.splice(i, 1);
+        if (gapTop > wTop) {
+          const a = new Platform(p.x, wTop, 32, gapTop - wTop, p.color);
+          a._towerPiece = true; tPlats.push(a);
+        }
+        if (wBot > gapBot) {
+          const b = new Platform(p.x, gapBot, 32, wBot - gapBot, p.color);
+          b._towerPiece = true; tPlats.push(b);
+        }
+        break;
+      }
+    }
+
+    // Entry ledge: extends corridor floor into the tower entrance
+    const ledge = new Platform(lwX, 480, TOWER_OX + 300, 60, '#545');
+    ledge._towerPiece = true;
+    tPlats.push(ledge);
+
+    this.platforms.push(...tPlats);
+    this.spikes.push(...tSpks);
+
+    // Store tower parameters
+    const sTopY  = r.topY  + deltaY;
+    const sBotY  = r.bottomY + deltaY;
+    const sBossY = r.bossRoomY + deltaY;
+    this.inlineTower = {
+      baseX:      towerBaseX,
+      topY:       sTopY,
+      bottomY:    sBotY,
+      bossRoomY:  sBossY,
+      scrollSpeed: isDown ? 0.45 : 0.55,
+      scrollDelay: 210,
+      direction:  isDown ? 'down' : 'up',
+      entered:    false,
+      targetZone: nextZone,
+      triggerX:   lwX + 48,   // just past the left wall gap
+    };
+
+    // Extend world bounds
+    if (this.zoneType === 'open1' || this.zoneType === 'open2') {
+      this.worldX = towerBaseX + 960;
+      this.levelW = this.worldX + CANVAS_W;
+    } else {
+      this.levelW = towerBaseX + 960 + CANVAS_W;
+    }
+    this.levelH = Math.max(this.levelH, sBotY + 300);
+    return true;
+  }
+
+  checkZoneTransition() {
+    // Inline tower: player physically walks into the shaft — activate tower mode
+    if (this.inlineTower && !this.inlineTower.entered && this.pendingZone) {
+      const pl = this.player;
+      if (pl.x + pl.w * 0.5 >= this.inlineTower.triggerX) {
+        this._activateInlineTower();
+        return;
+      }
+    }
+    if (!this.exitDoor || this.exitDoor.triggered || !this.pendingZone) return;
+    const pl = this.player;
+    if (rectOverlap(pl, this.exitDoor)) {
+      this.exitDoor.triggered = true;
+      this.enterNextZone();
+    }
+  }
+
+  _activateInlineTower() {
+    // Seamlessly switch to tower mode — no wipe, no teleport.
+    const t = this.inlineTower;
+    const zone = t.targetZone;
+    t.entered = true;
+    this.pendingZone = null;
+    this.zoneType  = zone;
+    this.levelType = 'tower';
+    this.towerXOffset   = t.baseX;
+    this.towerBottomY   = t.bottomY;
+    this.towerBossRoomY = t.bossRoomY;
+    this.towerScrollSpeed = t.scrollSpeed;
+    this.towerScrollDelay = t.scrollDelay;
+    if (t.direction === 'down') {
+      // Set topY low enough so camera isn't snapped away from entry view
+      this.towerTopY    = Math.min(t.topY, this.camera.y) - 40;
+      this.towerScrollY = this.camera.y;
+    } else {
+      this.towerTopY    = t.topY;
+      // Set bottomY high enough to include entry view
+      this.towerBottomY = Math.max(t.bottomY, this.camera.y + CANVAS_H) + 40;
+      this.towerScrollY = Math.max(t.bottomY - CANVAS_H, this.camera.y);
+    }
+    this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 90);
+    this.spawnTimer = -120;
+    SFX.wave();
+    this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+  }
+
+  enterNextZone() {
+    // Used for non-tower transitions (exit door → arena/open).
+    const zone = this.pendingZone;
+    if (!zone) return;
+    this.pendingZone = null;
+    this.transitionTimer = 60;
+    this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 90);
+    this.startZone(zone);
+    const e = ZONE_ENTRY[zone] || { x: 100, y: 440 };
+    this.player.x = e.x;
+    this.player.y = e.y;
+    this.camera.x = 0;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.spawnTimer = -120;
+    SFX.wave();
+    this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+  }
+
+  _getCameraBounds() {
+    if (this.zoneType === 'tower_down' || this.zoneType === 'tower_up') {
+      const tx = this.towerXOffset;
+      return { minX: tx, maxX: tx,
+               minY: this.towerTopY, maxY: this.towerBottomY - CANVAS_H };
+    }
+    const minX = (this.zoneType === 'open1' || this.zoneType === 'open2')
+      ? this.leftBoundary : 0;
+    return { minX, maxX: Math.max(minX, this.levelW - CANVAS_W),
+             minY: -100, maxY: 540 - CANVAS_H };
+  }
+
+  _updateZone() {
+    const pl = this.player;
+    if (this.zoneType === 'tower_down' || this.zoneType === 'tower_up') {
+      // ── Tower auto-scroll ──────────────────────────────────
+      if (this.towerScrollDelay > 0) {
+        this.towerScrollDelay--;
+      } else {
+        if (this.zoneType === 'tower_down') {
+          this.towerScrollY = Math.min(
+            this.towerScrollY + this.towerScrollSpeed,
+            this.towerBottomY - CANVAS_H
+          );
+          // Soft push: nudge player down if above camera top
+          const camTop = this.towerScrollY - 30;
+          if (pl.y < camTop) {
+            pl.vy = Math.max(pl.vy, 2.5);
+            if (pl.y < camTop - 100) { pl.y = camTop - 100; pl.takeDamage(1, this); }
+          }
+        } else {
+          this.towerScrollY = Math.max(
+            this.towerScrollY - this.towerScrollSpeed,
+            this.towerTopY
+          );
+          // Soft push: nudge player up if below camera bottom
+          const camBot = this.towerScrollY + CANVAS_H + 30;
+          if (pl.y + pl.h > camBot) {
+            pl.vy = Math.min(pl.vy, -2.5);
+            if (pl.y > camBot + 100) { pl.y = camBot + 80; pl.takeDamage(1, this); }
+          }
+        }
+      }
+      // Camera follows scroll target — smooth lock X to tower center
+      this.camera.x = lerp(this.camera.x, this.towerXOffset, 0.10);
+      this.camera.y = lerp(this.camera.y, this.towerScrollY, 0.07);
+    } else {
+      // ── Open / Arena standard follow ───────────────────────
+      const tcx = pl.x + pl.w / 2 - CANVAS_W / 2;
+      const tcy = pl.y + pl.h / 2 - CANVAS_H / 2;
+      this.camera.x = lerp(this.camera.x, tcx, 0.08);
+      this.camera.y = lerp(this.camera.y, tcy, 0.08);
+      // Left boundary push in open zones
+      if (this.zoneType === 'open1' || this.zoneType === 'open2') {
+        this.highWaterX = Math.max(this.highWaterX, pl.x);
+        const lbTarget = this.highWaterX - 1400;
+        if (lbTarget > this.leftBoundary)
+          this.leftBoundary = Math.min(this.leftBoundary + 1.5, lbTarget);
+        if (pl.x < this.leftBoundary + 15) {
+          pl.x = this.leftBoundary + 15;
+          if (pl.vx < 0) pl.vx = 0;
+        }
+        this._generateOpenAhead();
+      }
+      // Smooth camera approach toward inline tower
+      if (this.inlineTower && !this.inlineTower.entered && this.pendingZone) {
+        const approachDist = pl.x - (this.inlineTower.baseX - 400);
+        if (approachDist > 0) {
+          const lockTarget = this.inlineTower.baseX;
+          this.camera.x = lerp(this.camera.x, lockTarget, 0.06);
+        }
+      }
+    }
+    // Clamp camera
+    const cb = this._getCameraBounds();
+    this.camera.x = Math.max(cb.minX, Math.min(this.camera.x, cb.maxX));
+    this.camera.y = Math.max(cb.minY, Math.min(this.camera.y, cb.maxY));
+  }
+
+  _renderZoneOverlays(ctx, cam) {
+    // Left boundary push indicator (open zones)
+    if ((this.zoneType === 'open1' || this.zoneType === 'open2') && this.leftBoundary > 20) {
+      const lbx = this.leftBoundary - cam.x;
+      if (lbx < CANVAS_W) {
+        ctx.save();
+        const g = ctx.createLinearGradient(lbx, 0, lbx + 28, 0);
+        g.addColorStop(0, 'rgba(180,30,30,0.38)');
+        g.addColorStop(1, 'rgba(180,30,30,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(lbx, 0, 28, CANVAS_H);
+        ctx.restore();
+      }
+    }
+    // Tower scroll direction arrow
+    if (this.zoneType === 'tower_down' || this.zoneType === 'tower_up') {
+      const dir   = this.zoneType === 'tower_down' ? '↓' : '↑';
+      const range = Math.max(1, this.towerBottomY - CANVAS_H - this.towerTopY);
+      const pct   = this.zoneType === 'tower_down'
+        ? Math.round((this.towerScrollY - this.towerTopY) / range * 100)
+        : Math.round((1 - (this.towerScrollY - this.towerTopY) / range) * 100);
+      ctx.save();
+      ctx.globalAlpha = 0.55 + 0.3 * Math.sin(this.tick * 0.1);
+      ctx.fillStyle = '#ffcc00';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${dir} ${pct}%`, CANVAS_W - 6, 28);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+  }
+
   spawnEnemy() {
     const waveDef = WAVE_DEFS[this.wave - 1];
     let totalW = 0;
@@ -387,9 +793,18 @@ class Game {
     const spawnDist = this.levelW < 1000 ? randInt(150, 300) : randInt(350, 550);
     let x = this.player.x + side * spawnDist;
     let y = isFlying ? randInt(50, 250) : -40;
-    if (this.levelType === 'tower') y = Math.min(this.player.y - 100, 200);
-    const xMin = this.levelType === 'tower' ? 120 : 40;
-    const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
+    if (this.zoneType === 'tower_down') {
+      // Always spawn below view in descending tower.
+      y = Math.min(this.camera.y + CANVAS_H + randInt(60, 150), this.towerBottomY - 40);
+    } else if (this.zoneType === 'tower_up') {
+      // Always spawn above view in ascending tower.
+      y = Math.max(this.camera.y - randInt(100, 180), this.towerTopY + 8);
+    } else if (this.levelType === 'tower') {
+      y = Math.min(this.player.y - 100, 200);
+    }
+    const txOff = this.towerXOffset;
+    const xMin = this.levelType === 'tower' ? txOff + TOWER_OX + 40 : 40;
+    const xMax = this.levelType === 'tower' ? txOff + TOWER_OX + TOWER_CORRIDOR_W - 40 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
     // Elemental variant chance
@@ -407,8 +822,14 @@ class Game {
 
   spawnBoss() {
     const waveDef = WAVE_DEFS[this.wave - 1];
-    let bx = Math.min(this.player.x + 300, this.levelW - 100);
-    let by = this.levelType === 'tower' ? 100 : 300;
+    let bx, by;
+    if (this.zoneType === 'tower_down' || this.zoneType === 'tower_up') {
+      bx = this.towerXOffset + CANVAS_W / 2 - 28;
+      by = this.camera.y + CANVAS_H * 0.5;
+    } else {
+      bx = Math.min(this.player.x + 300, this.levelW - 100);
+      by = 300;
+    }
     this.boss = new Boss(bx, by, waveDef.boss, this.wave);
     // Elemental variant chance
     if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
@@ -489,23 +910,25 @@ class Game {
       this.phraseColor = this.player.type.accentColor;
       this.phraseSource = this.player;
     }
-    const oldLevelType = this.levelType;
-    this.buildLevel();
-    // Only reposition player if level type changed
-    if (this.levelType !== oldLevelType) {
-      this.player.x = this.levelType === 'tower' ? 380 : 100;
-      this.player.y = this.levelType === 'tower' ? 400 : 300;
-      this.player.vx = 0;
-      this.player.vy = 0;
+    // Zone-aware transition
+    const curZone  = getWaveZone(this.wave - 1); // wave was already incremented
+    const nextZone = getWaveZone(this.wave);
+    if (nextZone === curZone) {
+      // Same zone: continue in-place (multi-boss arenas or consecutive open waves)
+      this.spawnTimer = -120;
+      SFX.wave();
+      if (!this.gameOverDelay) this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+    } else {
+      // Zone change: inline tower or exit door.
+      this.pendingZone = nextZone;
+      this.spawnTimer  = -9999; // hold enemy spawns until next zone
+      SFX.wave();
+      const isTowerEntry = (nextZone === 'tower_down' || nextZone === 'tower_up');
+      const placedTower = isTowerEntry ? this.buildInlineTower(nextZone) : false;
+      if (!placedTower) this.spawnExitDoor();
       if (!this.gameOverDelay) {
-        this.transitionTimer = 90;
-        this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
+        this.showWaveMessage(placedTower ? 'Zone cleared! Enter the tower…' : 'Zone cleared! Find the exit…');
       }
-    }
-    this.spawnTimer = -120;
-    SFX.wave();
-    if (!this.gameOverDelay) {
-      this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
     }
   }
 
@@ -651,8 +1074,9 @@ class Game {
       const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
       this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
       this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-      this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-      this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+      { const cb = this._getCameraBounds();
+        this.camera.x = Math.max(cb.minX, Math.min(this.camera.x, cb.maxX));
+        this.camera.y = Math.max(cb.minY, Math.min(this.camera.y, cb.maxY)); }
       return; // Skip all other updates during cutscene
     }
 
@@ -758,13 +1182,10 @@ class Game {
     this.orbs = this.orbs.filter(o => !o.done);
     this.bossItems = this.bossItems.filter(bi => !bi.done);
 
-    // Camera follows player (smooth)
-    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
-    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
-    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
-    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+    // Camera + zone-specific logic
+    this._updateZone();
+    // Zone transition interaction (corridor trigger or exit door)
+    this.checkZoneTransition();
   }
 
   render() {
@@ -821,8 +1242,58 @@ class Game {
     // Spawn house
     this.renderSpawnHouse(ctx, cam);
 
+    // Zone overlays (left boundary push indicator, tower scroll arrow)
+    this._renderZoneOverlays(ctx, cam);
+
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
+
+    // Inline tower entrance arrow cue
+    if (this.inlineTower && !this.inlineTower.entered && this.pendingZone) {
+      const t = this.inlineTower;
+      const arrowX = t.triggerX - cam.x - 10;
+      const arrowY = 430 - cam.y;
+      ctx.save();
+      ctx.globalAlpha = 0.65 + 0.25 * Math.sin(this.tick * 0.09);
+      ctx.fillStyle = '#caa25a';
+      ctx.font = 'bold 20px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('→', arrowX, arrowY);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+
+    // Exit door
+    if (this.exitDoor && !this.exitDoor.triggered) {
+      const d = this.exitDoor;
+      const dx = d.x - cam.x, dy = d.y - cam.y;
+      const pulse = 0.5 + 0.5 * Math.sin(this.tick * 0.09);
+      // Glow
+      ctx.save();
+      ctx.globalAlpha = 0.2 + pulse * 0.18;
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(dx - 8, dy - 8, d.w + 16, d.h + 16);
+      ctx.restore();
+      // Frame
+      ctx.fillStyle = '#7a5200';
+      ctx.fillRect(dx, dy, d.w, d.h);
+      // Portal gradient
+      const ig = ctx.createLinearGradient(dx, dy, dx, dy + d.h);
+      ig.addColorStop(0, '#fff8c0');
+      ig.addColorStop(0.45, '#ffd700');
+      ig.addColorStop(1, '#a06010');
+      ctx.fillStyle = ig;
+      ctx.fillRect(dx + 5, dy + 5, d.w - 10, d.h - 10);
+      // Arrow + label
+      ctx.fillStyle = '#4a2800';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      const arrow = (this.pendingZone === 'tower_down' || this.pendingZone === 'tower_up') ? '↑' : '→';
+      ctx.fillText(arrow, dx + d.w / 2, dy + d.h / 2 + 5);
+      ctx.font = '8px monospace';
+      ctx.fillText('EXIT', dx + d.w / 2, dy + d.h - 8);
+      ctx.textAlign = 'left';
+    }
 
     // Fire trails
     for (const ft of this.fireTrails) {
