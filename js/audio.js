@@ -15,6 +15,7 @@ const SFX = {
     g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(); o.stop(audioCtx.currentTime + duration);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
   },
   noise(duration, vol = 0.08) {
     const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * duration, audioCtx.sampleRate);
@@ -27,6 +28,7 @@ const SFX = {
     g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
     src.connect(g); g.connect(audioCtx.destination);
     src.start(); src.stop(audioCtx.currentTime + duration);
+    src.onended = () => { src.disconnect(); g.disconnect(); };
   },
   attack() { this.play(320, 'square', 0.08, 0.1, 200); },
   hit() { this.play(200, 'square', 0.1, 0.12, -100); this.noise(0.1, 0.1); },
