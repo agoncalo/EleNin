@@ -31,14 +31,16 @@ class Bubble {
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
+      if (!e.dead && (e._contactDmgCd || 0) <= 0 && rectOverlap(this, e)) {
         e.takeDamage(this.dmg, game);
+        e._contactDmgCd = 10;
         if (this.soaking) e.soakTimer = Math.max(e.soakTimer || 0, 300);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
       }
     }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+    if (game.boss && !game.boss.dead && (game.boss._contactDmgCd || 0) <= 0 && rectOverlap(this, game.boss)) {
       game.boss.takeDamage(this.dmg, game);
+      game.boss._contactDmgCd = 10;
       if (this.soaking) game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 200);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
     }

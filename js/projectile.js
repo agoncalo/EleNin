@@ -232,9 +232,7 @@ class DiamondShard {
         const dy = (e.y + e.h / 2) - this.y;
         if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(e.w, e.h) / 2) {
           const dmg = game.player.type.attackDamage + game.player.bonusElemental + 1;
-          const prevIframes = e.damageIframes;
-          e.takeDamage(dmg, game, this.x);
-          if (e.damageIframes > prevIframes) {
+          if (e.takeDamage(dmg, game, this.x)) {
             e.launchIceSlide(game, this.x, dmg);
           }
           game.effects.push(new Effect(this.x, this.y, '#aff', 8, 3, 10));
@@ -250,9 +248,7 @@ class DiamondShard {
       const dy = (game.boss.y + game.boss.h / 2) - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
         const dmg = game.player.type.attackDamage + game.player.bonusElemental + 1;
-        const prevIframes = game.boss.damageIframes;
-        game.boss.takeDamage(dmg, game, this.x);
-        if (game.boss.damageIframes > prevIframes) {
+        if (game.boss.takeDamage(dmg, game, this.x)) {
           game.boss.launchIceSlide(game, this.x, dmg);
         }
         game.effects.push(new Effect(this.x, this.y, '#aff', 10, 4, 12));
@@ -481,14 +477,14 @@ class Projectile {
             }
           }
 
-          e.takeDamage(this.damage, game, this.x);
+          const _dmgHit = e.takeDamage(this.damage, game, this.x);
           if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
             this._kunaiExplode(game, e);
           }
-          // Freeze dust: freeze + ice slide on hit
-          if (this.freezeDust) {
+          // Freeze dust: freeze + ice slide on hit (skip if healed/resisted)
+          if (this.freezeDust && _dmgHit) {
             e.launchIceSlide(game, this.x, this.damage);
           }
           // Soaking: apply soak on hit
@@ -579,14 +575,14 @@ class Projectile {
             return;
           }
         }
-        game.boss.takeDamage(this.damage, game, this.x);
+        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x);
         if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {
           this._kunaiExplode(game);
         }
-        // Freeze dust: freeze + slide boss on hit
-        if (this.freezeDust) {
+        // Freeze dust: freeze + slide boss on hit (skip if healed/resisted)
+        if (this.freezeDust && _bossDmgHit) {
           game.boss.launchIceSlide(game, this.x, this.damage);
         }
         // Soaking: apply soak on boss hit

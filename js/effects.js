@@ -388,6 +388,46 @@ class TextEffect {
   }
 }
 
+class DamageNumber {
+  constructor(x, y, amount, element) {
+    this.x = x + (Math.random() - 0.5) * 14;
+    this.y = y - 4 + (Math.random() - 0.5) * 6;
+    this.amount = Math.round(amount);
+    this.text = String(this.amount);
+    const elColors = {
+      fire: '#f93', earth: '#da6', water: '#6af', crystal: '#aef',
+      wind: '#bfb', lightning: '#ff8', steel: '#cdd', physical: '#faa',
+    };
+    this.color = element && elColors[element] ? elColors[element] : '#fff';
+    this.baseSize = Math.min(24, 10 + Math.ceil(amount / 4));
+    this.life = 40;
+    this.maxLife = 40;
+    this.vy = -1.8;
+    this.done = false;
+    this.scale = 1.6;
+  }
+  update() {
+    this.y += this.vy;
+    this.vy *= 0.96;
+    this.scale = Math.max(1, this.scale - 0.1);
+    this.life--;
+    if (this.life <= 0) this.done = true;
+  }
+  render(ctx, cam) {
+    const alpha = this.life < 12 ? this.life / 12 : 1;
+    const sz = Math.round(this.baseSize * this.scale);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `bold ${sz}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#000';
+    ctx.fillText(this.text, this.x - cam.x + 1, this.y - cam.y + 1);
+    ctx.fillStyle = this.color;
+    ctx.fillText(this.text, this.x - cam.x, this.y - cam.y);
+    ctx.restore();
+  }
+}
+
 // ── Orb (item drop) ──────────────────────────────────────────
 class Orb {
   constructor(x, y, type) {

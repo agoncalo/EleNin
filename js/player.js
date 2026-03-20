@@ -1203,10 +1203,7 @@ class Player {
           this.vy = 0;
           this.grounded = true;
           this.jumpsLeft = maxJ;
-        } else if (this.vy < 0 && this.y - this.vy >= p.y + p.h - 4) {
-          this.y = p.y + p.h;
-          this.vy = 0;
-        } else if (this.vx > 0) {
+        } else if (this.vx > 0 && p.h > p.w) {
           this.x = p.x - this.w;
           this.onWall = 1;
           if (this.windDashing) {
@@ -1226,7 +1223,7 @@ class Player {
               game.effects.push(new Effect(this.x + this.w, this.y + Math.random() * this.h, '#f80', 8 + Math.random() * 6, 3, 12));
             }
           }
-        } else if (this.vx < 0) {
+        } else if (this.vx < 0 && p.h > p.w) {
           this.x = p.x + p.w;
           this.onWall = -1;
           if (this.windDashing) {
@@ -2250,17 +2247,19 @@ class Player {
       }
 
       for (const e of game.enemies) {
-        if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
+        if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, e)) {
           const dmg = this.type.attackDamage + this.bonusElemental;
           e.takeDamage(dmg, game, this.x + this.w / 2);
+          e._contactDmgCd = 8;
           e.burnTimer = Math.max(e.burnTimer || 0, 90);
           triggerHitstop(3);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#f80', 12, 4, 12));
         }
       }
-      if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
+      if (game.boss && !game.boss.dead && (game.boss._contactDmgCd || 0) <= 0 && rectOverlap(this, game.boss)) {
         const dmg = this.type.attackDamage + this.bonusElemental;
         game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+        game.boss._contactDmgCd = 8;
         game.boss.burnTimer = Math.max(game.boss.burnTimer || 0, 90);
         triggerHitstop(3);
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f80', 14, 5, 14));
@@ -2312,18 +2311,20 @@ class Player {
       if (this.windDashing) {
         this.windTrails.push({ x: this.x, y: this.y, life: 15 });
         for (const e of game.enemies) {
-          if (!e.dead && e.damageIframes <= 0 && rectOverlap(this, e)) {
+          if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, e)) {
             const dmg = t.attackDamage + this.bonusElemental + this.windPower;
             e.takeDamage(dmg, game, this.x + this.w / 2);
+            e._contactDmgCd = 8;
             e.hitCooldown = 15;
             triggerHitstop(4);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 12));
             if (e.element) this.applyElementalStatus(e.element, game);
           }
         }
-        if (game.boss && !game.boss.dead && game.boss.damageIframes <= 0 && rectOverlap(this, game.boss)) {
+        if (game.boss && !game.boss.dead && (game.boss._contactDmgCd || 0) <= 0 && rectOverlap(this, game.boss)) {
           const dmg = t.attackDamage + this.bonusElemental + this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
+          game.boss._contactDmgCd = 8;
           game.boss.hitCooldown = 15;
           triggerHitstop(4);
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#bfb', 12, 5, 14));

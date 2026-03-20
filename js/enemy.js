@@ -29,6 +29,8 @@ class Enemy {
     this.patrolRight = x + 100;
     this.flashTimer = 0;
     this.damageIframes = 0;
+    this._slideDmgCd = 0;
+    this._contactDmgCd = 0;
     this.resistTimer = 0;
     this.burnTimer = 0;
     this.soakTimer = 0;
@@ -123,9 +125,10 @@ class Enemy {
         // Hit other enemies while sliding
         const slideCX = this.x + this.w / 2;
         for (const other of game.enemies) {
-          if (other === this || other.dead || other.damageIframes > 0) continue;
+          if (other === this || other.dead || other._slideDmgCd > 0) continue;
           if (rectOverlap(this, other)) {
             other.takeDamage(frozenDmg, game, slideCX);
+            other._slideDmgCd = 10;
             other.vx = Math.sign(this.vx) * 6;
             other.vy = -3;
             // If the other is also frozen, launch it too
@@ -150,9 +153,10 @@ class Enemy {
       } else {
         // Stationary frozen: still deal contact damage to overlapping enemies
         for (const other of game.enemies) {
-          if (other === this || other.dead || other.damageIframes > 0 || other.freezeTimer > 0) continue;
+          if (other === this || other.dead || other._slideDmgCd > 0 || other.freezeTimer > 0) continue;
           if (rectOverlap(this, other)) {
             other.takeDamage(frozenDmg, game, this.x + this.w / 2);
+            other._slideDmgCd = 10;
             const kbDir = Math.sign(other.x + other.w / 2 - (this.x + this.w / 2)) || 1;
             other.vx = kbDir * 4;
             other.vy = -2;
@@ -177,6 +181,8 @@ class Enemy {
         }
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
       if (this.hitCooldown > 0) this.hitCooldown--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
@@ -204,6 +210,8 @@ class Enemy {
         this.vy = 0;
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
       if (this.flashTimer > 0) this.flashTimer--;
       // Electric sparks
       if (Math.random() < 0.5) {
@@ -241,6 +249,8 @@ class Enemy {
         this.vy = 0;
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
       if (this.flashTimer > 0) this.flashTimer--;
       // Purple electric sparks
       if (Math.random() < 0.5) {
@@ -253,6 +263,8 @@ class Enemy {
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
+    if (this._slideDmgCd > 0) this._slideDmgCd--;
+    if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this.resistTimer > 0) this.resistTimer--;
 
     // Burn DOT
@@ -1060,14 +1072,47 @@ class Enemy {
   }
 
   takeDamage(amount, game, fromX, attackElement) {
-    if (this.dead) return;
-    if (this.damageIframes > 0) return;
-    if (this.friendly) return;
+    if (this.dead) return false;
+    if (this.friendly) return false;
+    // Elemental interaction — checked early so heals/resists bypass iframes
+    if (this.element && game) {
+      const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
+      if (atkEl && ELEMENT_MATRIX[atkEl]) {
+        let result = ELEMENT_MATRIX[atkEl][this.element];
+        // Steel (sword) attacks never heal — downgrade to resist
+        if (atkEl === 'steel' && result === 'heal') result = 'resist';
+        if (result === 'resist') {
+          // Colored shield pop — no damage
+          this.flashTimer = 6;
+          if (this.resistTimer <= 0) {
+            const col = this.elementColors.accent;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
+            this.resistTimer = 30;
+          }
+          return false;
+        }
+        if (result === 'heal') {
+          // Heal enemy instead of damaging
+          const healAmt = Math.min(amount, this.maxHp - this.hp);
+          if (healAmt > 0) {
+            this.hp += healAmt;
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 6, 2, 10));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 8, this.y - 10, '+' + Math.round(healAmt), '#4f4'));
+          } else {
+            // Already full HP — show absorb text
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 6, 2, 10));
+            game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'ABSORB', '#4f4'));
+          }
+          return false;
+        }
+      }
+    }
     // Attacker: invulnerable while enemies are in its aura
     if (this.type === 'attacker' && this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 5, 2, 6));
-      return;
+      return false;
     }
     // Protector aura: non-protector enemies near a protector can't be damaged
     if (this.type !== 'protector' && this.type !== 'attacker' && game) {
@@ -1079,7 +1124,7 @@ class Enemy {
           this.flashTimer = 4;
           other.deflectFlash = 0;
           game.effects.push(new Effect(this.x + this.w / 2, this.y - 4, '#4f8', 5, 2, 6));
-          return;
+          return false;
         }
       }
     }
@@ -1101,42 +1146,10 @@ class Enemy {
         amount = Math.max(1, Math.round(amount * 0.25));
       }
     }
-    // Elemental interaction — derive attack element if not passed
-    if (this.element && game) {
-      const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
-      if (atkEl && ELEMENT_MATRIX[atkEl]) {
-        let result = ELEMENT_MATRIX[atkEl][this.element];
-        // Steel (sword) attacks never heal — downgrade to resist
-        if (atkEl === 'steel' && result === 'heal') result = 'resist';
-        if (result === 'resist') {
-          // Colored shield pop — no damage
-          this.flashTimer = 6;
-          if (this.resistTimer <= 0) {
-            const col = this.elementColors.accent;
-            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
-            game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
-            this.resistTimer = 30;
-          }
-          return;
-        }
-        if (result === 'heal') {
-          // Heal enemy instead of damaging
-          const healAmt = Math.min(amount, this.maxHp - this.hp);
-          if (healAmt > 0) {
-            this.hp += healAmt;
-            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 6, 2, 10));
-            game.effects.push(new TextEffect(this.x + this.w / 2 - 8, this.y - 10, '+' + Math.round(healAmt), '#4f4'));
-          } else {
-            // Already full HP — small green flash
-            game.effects.push(new Effect(this.x + this.w / 2, this.y, '#4f4', 3, 1, 6));
-          }
-          return;
-        }
-      }
-    }
     this.hp -= amount;
     this.flashTimer = 6;
-    this.damageIframes = 15;
+    const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
+    game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
     let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
@@ -1152,6 +1165,7 @@ class Enemy {
       this.dead = true;
       this.onDeath(game);
     }
+    return true;
   }
 
   // Crystal ninja: freeze + launch into ice slide
@@ -1163,7 +1177,6 @@ class Enemy {
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : 1;
     this.vx = dir * 12;
     this.vy = -3;
-    this.damageIframes = 8;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 10, 4, 14));
   }
 
@@ -1387,7 +1400,6 @@ class Enemy {
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
 
     // Spawn pop-in scale
     const spawning = this.spawnTimer > 0;
@@ -1961,6 +1973,8 @@ class Boss extends Enemy {
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
+    if (this._contactDmgCd > 0) this._contactDmgCd--;
+    if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
       if (this.iceSliding) {
@@ -2002,6 +2016,8 @@ class Boss extends Enemy {
         }
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
       if (this.purpleParalyseTimer > 0) this.purpleParalyseTimer--;
@@ -2026,6 +2042,8 @@ class Boss extends Enemy {
         this.vy = 0;
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (Math.random() < 0.5) {
         const sx = this.x + Math.random() * this.w;
@@ -2062,6 +2080,8 @@ class Boss extends Enemy {
         this.vy = 0;
       }
       if (this.damageIframes > 0) this.damageIframes--;
+      if (this._contactDmgCd > 0) this._contactDmgCd--;
+      if (this._slideDmgCd > 0) this._slideDmgCd--;
       if (this.flashTimer > 0) this.flashTimer--;
       // Purple electric sparks
       if (Math.random() < 0.5) {
@@ -2085,8 +2105,15 @@ class Boss extends Enemy {
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
     }
 
-    // Burn DOT (reuse parent pattern) — bosses have no element, always burn normally
+    // Burn DOT — respects elemental affinity
     if (this.burnTimer > 0) {
+      if (this.element === 'water') { this.burnTimer = 0; }
+      else if (this.element === 'fire') {
+        this.burnTimer = 0;
+        const healAmt = Math.min(2, this.maxHp - this.hp);
+        if (healAmt > 0) { this.hp += healAmt; game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f4', 4, 2, 8)); }
+      }
+      else {
       this.burnTimer--;
       if (this.burnTimer % 5 === 0) {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f63', 6, 2, 10));
@@ -2097,6 +2124,7 @@ class Boss extends Enemy {
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+      }
       }
     }
 
@@ -2690,14 +2718,13 @@ class Boss extends Enemy {
   }
 
   takeDamage(amount, game, fromX) {
-    if (this.dead) return;
-    if (this.damageIframes > 0) return;
-    if (this.friendly) return;
+    if (this.dead) return false;
+    if (this.friendly) return false;
     // Attacker boss: invulnerable when enemies nearby
     if (this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
-      return;
+      return false;
     }
     // Shield check — hit-based pips + 75% damage reduction
     if (this.shieldHp > 0 && fromX !== undefined) {
@@ -2718,7 +2745,8 @@ class Boss extends Enemy {
     this.hp -= amount;
     this.hp = Math.round(this.hp);
     this.flashTimer = 8;
-    this.damageIframes = 12;
+    const atkEl = game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null;
+    game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 6, 3, 10));
     // Boss knockback (slight — bosses are heavy, flyer/flyshooter get more)
     const bDir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
@@ -2734,6 +2762,7 @@ class Boss extends Enemy {
       this.dead = true;
       this.onDeath(game);
     }
+    return true;
   }
 
   // Boss version: weaker slide (bosses are heavy)
@@ -2745,7 +2774,6 @@ class Boss extends Enemy {
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : 1;
     this.vx = dir * 5;
     if (!this.flying) this.vy = -2;
-    this.damageIframes = 8;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 10, 4, 14));
   }
 
@@ -3155,6 +3183,33 @@ class Boss extends Enemy {
     // Soak drip particles
     if (this.soakTimer > 0 && Math.random() < 0.15) {
       game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
+    }
+
+    // Elemental aura (matches Enemy render)
+    if (this.element && this.elementColors) {
+      const tick = game ? game.tick : 0;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
+      ctx.fillStyle = this.elementColors.glow;
+      ctx.beginPath();
+      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      if (Math.random() < 0.25) {
+        const px = this.x + Math.random() * this.w;
+        const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
+        game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
+      }
+      const pipX = sx + this.w / 2;
+      const pipY = sy - 36;
+      ctx.fillStyle = this.elementColors.accent;
+      ctx.beginPath();
+      ctx.moveTo(pipX, pipY - 4);
+      ctx.lineTo(pipX + 3, pipY);
+      ctx.lineTo(pipX, pipY + 4);
+      ctx.lineTo(pipX - 3, pipY);
+      ctx.closePath();
+      ctx.fill();
     }
 
     if (this.phase === 2) {

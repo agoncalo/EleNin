@@ -17,7 +17,7 @@ const ELEMENT_COLORS = {
   fire:      { body: '#d44', accent: '#f93', glow: '#f60', particle: '#fa3' },
   earth:     { body: '#96622d', accent: '#b8864e', glow: '#7a4a1a', particle: '#a67540' },
   water:     { body: '#46a', accent: '#6af', glow: '#38d', particle: '#4af' },
-  crystal:   { body: '#2bb', accent: '#aff', glow: '#0dd', particle: '#8ff' },
+  crystal:   { body: '#5cc', accent: '#dff', glow: '#6ee', particle: '#aef' },
   wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },
   lightning: { body: '#aa4', accent: '#ff8', glow: '#dd6', particle: '#ff4' },
   steel:     { body: '#899', accent: '#bcc', glow: '#8aa', particle: '#abb' },
