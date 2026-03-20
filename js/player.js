@@ -1336,9 +1336,12 @@ class Player {
       // Ground shockwave ring (SlamRing effect)
       game.effects.push(new SlamRing(slamCX, slamCY, slamColor, slamAccent));
 
-      // Earth: ground pound nearby boulders, extra slam damage
+      // Earth: ground pound nearby boulders, extra slam damage, crater
       if (this.ninjaType === 'earth') {
         slamDmg = Math.ceil(slamDmg * 1.5);
+        // Spawn damaging crater
+        const craterDmg = Math.ceil(slamDmg * 0.4);
+        game.effects.push(new EarthCrater(slamCX, slamCY, craterDmg, game));
         for (const b of game.stoneBlocks) {
           if (b.done) continue;
           if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
@@ -1571,6 +1574,11 @@ class Player {
     if (this.statusStun > 0) this.statusStun--;
     if (this.curseCooldown > 0) this.curseCooldown--;
     if (this.bleedCooldown > 0) this.bleedCooldown--;
+
+    // Slow passive mana recharge
+    if (this.mana < this.maxMana) {
+      this.mana = Math.min(this.mana + 0.003, this.maxMana);
+    }
 
     // Attack
     if (this.attacking) {
@@ -1853,10 +1861,29 @@ class Player {
     // Throw shuriken — recharge only starts when all shurikens are empty
     if (this.shurikens <= 0) {
       this.shurikenRechargeTimer++;
-      const rechargeTime = this.items.tripleShuriken ? 75 : 150;
+      const rechargeTime = this.items.tripleShuriken ? 120 : 240;
       if (this.shurikenRechargeTimer >= rechargeTime) {
         this.shurikens = this.maxShurikens;
         this.shurikenRechargeTimer = 0;
+        // Despawn all dropped shurikens
+        for (const p of game.projectiles) {
+          if (p.isShuriken && p.owner === 'player' && p.dropped) p.done = true;
+        }
+      }
+    }
+    // Pick up dropped shurikens
+    if (this.shurikens < this.maxShurikens) {
+      for (const p of game.projectiles) {
+        if (p.isShuriken && p.owner === 'player' && p.dropped && !p.done) {
+          if (rectOverlap(this, p)) {
+            p.done = true;
+            this.shurikens++;
+            this.shurikenRechargeTimer = 0;
+            game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#ccc', 4, 2, 8));
+            SFX.pickup();
+            if (this.shurikens >= this.maxShurikens) break;
+          }
+        }
       }
     }
     if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
@@ -2385,8 +2412,9 @@ class Player {
       const cx = this.x + this.w / 2;
       const cy = this.y + this.h / 2;
       const dmg = Math.ceil((t.attackDamage + this.bonusDamage) * 2);
-      const p = new Projectile(cx + this.facing * 6, cy - 8, this.facing * 12, 0, '#c8a878', dmg, 'player');
-      p.w = 16; p.h = 16; p.life = 6; p.isEarthPunch = true; p.noPlat = true;
+      const p = new Projectile(cx + this.facing * 8, cy - 16, this.facing * 12, 0, '#c8a878', dmg, 'player');
+      p.w = 26; p.h = 38; p.life = 10; p.isEarthPunch = true; p.noPlat = true;
+      triggerScreenShake(2, 4);
       game.projectiles.push(p);
       return;
     }
@@ -2588,8 +2616,8 @@ class Player {
         } else {
           // Air: stop midair briefly, spawn boulder rising from ground
           this.vy = 0;
-          this.earthAirHover = 20;
-          this.jumpsLeft = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
+          this.earthAirHover = 35;
+          this.jumpsLeft = this.maxJumps + 1 + (this.bubbleBuffTimer > 0 ? 1 : 0);
           const boulderX = this.x + this.w / 2 + this.facing * 30;
           let groundY = 480;
           for (const p of game.platforms) {
@@ -2967,6 +2995,10 @@ class Player {
     // Stun shake
     if (this.statusStun > 0) {
       sx += (this.statusStun % 4 < 2 ? 2 : -2);
+    }
+    // Earth punch recoil shake
+    if (this.ninjaType === 'earth' && this.attackCooldown > 0) {
+      sx += (this.attackCooldown % 2 === 0 ? 2 : -2);
     }
 
     // Fire dash: player inside fireball

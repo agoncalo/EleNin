@@ -346,6 +346,7 @@ class Enemy {
 
     switch (this.type) {
       case 'walker':
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         this.vx = this.facing * speed * windResist;
         if (this.vy >= 0 && this.vy < 1) {
           if (this.x <= this.patrolLeft) this.facing = 1;
@@ -362,6 +363,7 @@ class Enemy {
         }
         break;
       case 'shooter': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         const sDist = Math.abs(px - cx);
         if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
         const sRetreat = 160 + this.rangeOffset;
@@ -398,6 +400,7 @@ class Enemy {
         break;
       }
       case 'jumper':
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         this.vx = this.facing * speed * 1.2 * windResist;
         if (this.vy >= 0 && this.vy < 1) {
           if (this.x <= this.patrolLeft) this.facing = 1;
@@ -410,6 +413,7 @@ class Enemy {
         }
         break;
       case 'bouncer': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         const bDist = Math.abs(px - cx);
         if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
         const bRetreat = 180 + this.rangeOffset;
@@ -459,6 +463,7 @@ class Enemy {
         break;
       }
       case 'shielded': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         if (this.shieldHp > 0) {
           // Shield charge behavior
           if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
@@ -529,6 +534,7 @@ class Enemy {
         break;
       }
       case 'deflector': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         // A Friend's Letter: deflector becomes friendly
         if (game.player.items.friendsLetter) {
           this.friendly = true;
@@ -604,6 +610,7 @@ class Enemy {
         break;
       }
       case 'protector': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         if (this.shieldHp > 0) {
           // Shield charge behavior (slower, tankier)
           if (this.vy >= 0 && this.vy < 1 && Math.abs(px - cx) < 200) this.facing = px > cx ? 1 : -1;
@@ -1186,16 +1193,33 @@ class Enemy {
     if (!shieldBlocked) this.flashTimer = 6;
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
-    const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
-    let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
+    // Weight system: heavier enemies resist knockback more
+    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
+    const isBoss = this instanceof Boss;
+    let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
-    this.vx = dir * kb;
-    if (!this.flying) this.vy = -2;
-    if (this.flying) {
-      this.vy = -kb * 0.3;
-      this.knockbackTimer = 12;
-      this.flyerDashState = 'idle';
-      this.flyerDashTimer = 0;
+    if (sourceType === 'sword') {
+      // Sword hits: heavy knockback scaled inversely by weight
+      const swordKB = 14 / weight;
+      this.vx = dir * swordKB;
+      this.knockbackTimer = Math.max(this.knockbackTimer, Math.ceil(10 / weight));
+      if (!this.flying) this.vy = -7 / weight;
+      if (this.flying) {
+        this.vy = -swordKB * 0.3;
+        this.flyerDashState = 'idle';
+        this.flyerDashTimer = 0;
+      }
+    } else {
+      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
+      let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
+      this.vx = dir * kb;
+      this.knockbackTimer = Math.max(this.knockbackTimer, 6);
+      if (!this.flying) this.vy = -2;
+      if (this.flying) {
+        this.vy = -kb * 0.3;
+        this.flyerDashState = 'idle';
+        this.flyerDashTimer = 0;
+      }
     }
     if (this.hp <= 0) {
       this.dead = true;
@@ -2498,6 +2522,8 @@ class Boss extends Enemy {
       if (this.y > 440) this.y = 440;
     } else {
       // Ground boss AI — type-specific behavior
+      if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; }
+      else {
       const isDeflector = (this.bossType === 'deflector');
       const isProtector = (this.bossType === 'protector');
       const isShielded = (this.bossType === 'shielded');
@@ -2766,6 +2792,7 @@ class Boss extends Enemy {
       }
       }
     }
+    } // end knockbackTimer else
 
     // Descend platforms if player is below
     if (this.dropThrough > 0) this.dropThrough--;

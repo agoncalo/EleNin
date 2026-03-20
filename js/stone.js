@@ -311,13 +311,32 @@ class EarthBoulder {
     this.x += this.vx;
     this.y += this.vy;
     this.grounded = false;
+    if (!this._poundedPlats) this._poundedPlats = new Set();
     for (const p of game.platforms) {
-      if (p.thin) continue;
-      if (rectOverlap(this, p)) {
+      if (!rectOverlap(this, p)) continue;
+      if (this.pounded) {
+        // Pounded boulders smash through thin platforms, explode on thick (ground)
+        if (this.vy > 0 && !this._poundedPlats.has(p)) {
+          this._poundedPlats.add(p);
+          const impactX = this.x + this.w / 2;
+          const impactY = p.y;
+          damageInRadius(game, impactX, impactY, 80, this.launchDmg);
+          game.effects.push(new Effect(impactX, impactY, '#a87', 14, 5, 16));
+          game.effects.push(new EarthCrater(impactX, impactY, Math.ceil(this.launchDmg * 0.4), game));
+          triggerScreenShake(4, 6);
+          SFX.slam();
+          if (p.y >= 480) {
+            // Hit actual ground floor — explode
+            triggerHitstop(5);
+            this.hp = 0;
+          }
+        }
+      } else {
+        // Non-pounded: land normally on thick platforms
+        if (p.thin) continue;
         if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
           this.y = p.y - this.h;
-          if (this.pounded || this.vy > 6) {
-            // Landing impact
+          if (this.vy > 6) {
             damageInRadius(game, this.x + this.w / 2, this.y + this.h, 80, this.launchDmg);
             game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#a87', 14, 5, 16));
             triggerHitstop(5);

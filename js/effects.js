@@ -853,6 +853,112 @@ class SlamRing {
   }
 }
 
+// ── EarthCrater (persistent damaging ground crater from earth slam) ──
+class EarthCrater {
+  constructor(x, y, damage, game) {
+    this.x = x;
+    this.y = y;
+    this.damage = damage;
+    this.game = game;
+    this.radius = 60;
+    this.life = 180;
+    this.maxLife = 180;
+    this.done = false;
+    this.hitTimer = 0;
+    // Pre-generate random rock chunks jutting out of the ground
+    this.rocks = [];
+    for (let i = 0; i < 7; i++) {
+      const spread = (i / 6 - 0.5) * 2; // -1 to 1 across the width
+      const rx = spread * this.radius * (0.6 + Math.random() * 0.4);
+      const rw = 6 + Math.random() * 10;
+      const rh = 10 + Math.random() * 18;
+      const tilt = (Math.random() - 0.5) * 0.4;
+      const shade = Math.floor(Math.random() * 3); // 0=dark, 1=mid, 2=light
+      this.rocks.push({ rx, rw, rh, tilt, shade });
+    }
+  }
+  update() {
+    this.life--;
+    if (this.life <= 0) { this.done = true; return; }
+    if (this.hitTimer > 0) this.hitTimer--;
+    if (this.hitTimer <= 0) {
+      const game = this.game;
+      const cx = this.x, cy = this.y;
+      const r = this.radius;
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const dx = (e.x + e.w / 2) - cx;
+        const dy = (e.y + e.h) - cy;
+        if (dx * dx + dy * dy < r * r && Math.abs(dy) < 24) {
+          e.takeDamage(this.damage, game, cx, 'physical');
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h, '#a87', 4, 2, 6));
+          this.hitTimer = 30;
+          break;
+        }
+      }
+      if (this.hitTimer <= 0 && game.boss && !game.boss.dead) {
+        const dx = (game.boss.x + game.boss.w / 2) - cx;
+        const dy = (game.boss.y + game.boss.h) - cy;
+        if (dx * dx + dy * dy < r * r && Math.abs(dy) < 24) {
+          game.boss.takeDamage(this.damage, game, cx, 'physical');
+          game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h, '#a87', 4, 2, 6));
+          this.hitTimer = 30;
+        }
+      }
+    }
+  }
+  render(ctx, cam) {
+    if (this.done) return;
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const alpha = Math.min(1, this.life / 30);
+    const colors = ['#5a3a1a', '#8b5e3c', '#c8a878'];
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // Draw each rock chunk jutting upward from the ground
+    for (const rock of this.rocks) {
+      const bx = sx + rock.rx;
+      const by = sy;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(rock.tilt);
+      // Rock body — irregular polygon pointing up
+      ctx.fillStyle = colors[rock.shade];
+      ctx.beginPath();
+      ctx.moveTo(-rock.rw / 2, 0);
+      ctx.lineTo(-rock.rw * 0.3, -rock.rh);
+      ctx.lineTo(rock.rw * 0.2, -rock.rh * 0.85);
+      ctx.lineTo(rock.rw / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Highlight edge
+      ctx.strokeStyle = '#e8d0b0';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = alpha * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-rock.rw * 0.3, -rock.rh);
+      ctx.lineTo(rock.rw * 0.2, -rock.rh * 0.85);
+      ctx.stroke();
+      // Dark edge
+      ctx.strokeStyle = '#3a2210';
+      ctx.globalAlpha = alpha * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(-rock.rw / 2, 0);
+      ctx.lineTo(-rock.rw * 0.3, -rock.rh);
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.restore();
+    }
+    // Dust/debris at base
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.fillStyle = '#a08060';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + 2, this.radius * 0.7, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ── SpinningScythe (orbiting scythe during shadow chain strike) ──
 class SpinningScythe {
   constructor(owner, isUlt, game) {

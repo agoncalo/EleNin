@@ -313,6 +313,16 @@ class Projectile {
     this.piercing = false;
     this.hitSet = new Set();
   }
+  _dropOrDie() {
+    if (this.isShuriken && this.owner === 'player' && !this.isKunai && !this.dropped) {
+      this.dropped = true;
+      this.dropLife = 300;
+      this.vx = 0;
+      this.vy = 0;
+    } else {
+      this.done = true;
+    }
+  }
   update(game) {
     // Orbiting mode: circle the player, bypass terrain
     if (this.orbiting) {
@@ -377,9 +387,35 @@ class Projectile {
     }
     this.x += this.vx;
     this.y += this.vy;
+    // Dropped shuriken: fall with gravity, sit on platforms, wait for pickup
+    if (this.dropped) {
+      this.dropLife--;
+      if (this.dropLife <= 0) { this.done = true; return; }
+      this.vy += GRAVITY * 0.5;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.y += this.vy;
+      // Land on platforms
+      for (const p of game.platforms) {
+        if (p.thin && this.vy < 0) continue;
+        if (this.x + this.w > p.x && this.x < p.x + p.w && this.y + this.h > p.y && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          break;
+        }
+      }
+      return;
+    }
     this.life--;
     if (this.life <= 0) {
       if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
+      // Player shurikens drop instead of disappearing
+      if (this.isShuriken && this.owner === 'player' && !this.isKunai) {
+        this.dropped = true;
+        this.dropLife = 300; // 5 seconds to pick up
+        this.vx = 0;
+        this.vy = 0;
+        return;
+      }
       this.done = true; return;
     }
     if (this.isFireball && this.life % 2 === 0) {
@@ -409,9 +445,9 @@ class Projectile {
             }
             return;
           }
-          this.done = true;
+          this._dropOrDie();
           if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
-          game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
+          if (this.done) game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
           return;
         }
       }
@@ -474,8 +510,8 @@ class Projectile {
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
 
-          // Kunai is unblockable — skip all shield/deflect checks
-          if (!this.isKunai) {
+          // Kunai & earth punch are unblockable — skip all shield/deflect checks
+          if (!this.isKunai && !this.isEarthPunch) {
             // Shielded: block projectiles within shield arc (stops even piercing, no pip loss)
             if (e.type === 'shielded' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
               e.shieldFlash = 6;
@@ -484,7 +520,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
               ));
-              this.done = true;
+              this._dropOrDie();
               return;
             }
             // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
@@ -495,7 +531,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
               ));
-              this.done = true;
+              this._dropOrDie();
               return;
             }
 
@@ -583,14 +619,14 @@ class Projectile {
             triggerHitstop(4);
             SFX.hit();
           }
-          if (!this.piercing) { this.done = true; return; }
+          if (!this.piercing) { this._dropOrDie(); return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
       }
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
-        // Kunai is unblockable — skip all shield/deflect checks for bosses
-        if (!this.isKunai) {
+        // Kunai & earth punch are unblockable — skip all shield/deflect checks for bosses
+        if (!this.isKunai && !this.isEarthPunch) {
           // Shielded boss: block projectiles within shield arc (no pip loss)
           if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
             game.boss.shieldFlash = 6;
@@ -599,7 +635,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
             ));
-            this.done = true;
+            this._dropOrDie();
             return;
           }
           // Protector boss: block projectiles within shield arc (no pip loss)
@@ -610,7 +646,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
             ));
-            this.done = true;
+            this._dropOrDie();
             return;
           }
           // Deflector boss: deflect projectiles back when ready
@@ -681,7 +717,7 @@ class Projectile {
           triggerHitstop(4);
           SFX.hit();
         }
-        if (!this.piercing) { this.done = true; return; }
+        if (!this.piercing) { this._dropOrDie(); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
@@ -744,30 +780,35 @@ class Projectile {
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
     if (this.isEarthPunch) {
-      // Big stone fist — square punch with speed lines
+      // Tall stone fist — sweeping punch with speed lines
       ctx.save();
       ctx.fillStyle = this.color;
       ctx.fillRect(sx, sy, this.w, this.h);
       ctx.strokeStyle = '#5a3a1a';
       ctx.lineWidth = 2;
       ctx.strokeRect(sx + 0.5, sy + 0.5, this.w - 1, this.h - 1);
-      // Knuckle highlights
+      // Knuckle highlights (4 knuckles across the tall fist)
       ctx.fillStyle = '#e8d0b0';
       const kx = this.vx > 0 ? sx + this.w - 5 : sx + 1;
-      ctx.fillRect(kx, sy + 2, 4, 4);
-      ctx.fillRect(kx, sy + this.h - 6, 4, 4);
-      ctx.fillRect(kx, sy + this.h / 2 - 2, 4, 4);
+      const knuckleSpacing = this.h / 5;
+      for (let i = 1; i <= 4; i++) {
+        ctx.fillRect(kx, sy + knuckleSpacing * i - 2, 4, 4);
+      }
+      // Wrist band
+      const wx = this.vx > 0 ? sx : sx + this.w - 5;
+      ctx.fillStyle = '#5a3a1a';
+      ctx.fillRect(wx, sy + 4, 5, this.h - 8);
       // Speed lines trailing behind
       const dir = this.vx > 0 ? -1 : 1;
       ctx.strokeStyle = '#c8a878';
       ctx.lineWidth = 1.5;
       ctx.globalAlpha = 0.7;
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 7; i++) {
         const lx = (this.vx > 0 ? sx : sx + this.w) + dir * (4 + i * 5);
-        const ly = sy + 1 + i * 3;
+        const ly = sy + 2 + i * (this.h / 7);
         ctx.beginPath();
         ctx.moveTo(lx, ly);
-        ctx.lineTo(lx + dir * (10 + i * 2), ly);
+        ctx.lineTo(lx + dir * (12 + i * 2), ly);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -840,7 +881,15 @@ class Projectile {
       ctx.save();
       const scx = sx + this.w / 2, scy = sy + this.h / 2;
       ctx.translate(scx, scy);
-      ctx.rotate(this.life * 0.4);
+      if (this.dropped) {
+        // Dropped: blink when expiring soon, no spin, add glow
+        if (this.dropLife < 60 && Math.floor(this.dropLife / 4) % 2 === 0) { ctx.restore(); return; }
+        ctx.globalAlpha = Math.min(1, this.dropLife / 60);
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 6;
+      } else {
+        ctx.rotate(this.life * 0.4);
+      }
       ctx.fillStyle = '#ccc';
       for (let i = 0; i < 4; i++) {
         ctx.fillRect(-1, -5, 2, 5);
