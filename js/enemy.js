@@ -37,6 +37,9 @@ class Enemy {
     this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : (type === 'protector') ? (big ? 10 : 8) : 0;
     this.shieldMax = this.shieldHp;
+    this.shieldBump = 0;
+    this.shieldFlash = 0;
+    this.shieldAngle = (type === 'shielded' || type === 'protector') ? (Math.random() < 0.5 ? 0 : Math.PI) : 0;
     // Shield charge state
     this.chargeState = 'idle';
     this.chargeTimer = 0;
@@ -185,6 +188,7 @@ class Enemy {
       if (this._contactDmgCd > 0) this._contactDmgCd--;
       if (this.hitCooldown > 0) this.hitCooldown--;
       if (this.flashTimer > 0) this.flashTimer--;
+      if (this.shieldFlash > 0) this.shieldFlash--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
       if (this.purpleParalyseTimer > 0) this.purpleParalyseTimer--;
       return;
@@ -262,10 +266,20 @@ class Enemy {
     }
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
+    if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this.resistTimer > 0) this.resistTimer--;
+    if (this.shieldBump > 0) this.shieldBump--;
+    // Slow shield angle tracking
+    if (this.shieldHp > 0) {
+      const target = this._shieldAngle(game);
+      let diff = target - this.shieldAngle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.shieldAngle += diff * 0.06;
+    }
 
     // Burn DOT
     if (this.burnTimer > 0) {
@@ -1060,7 +1074,8 @@ class Enemy {
       game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
       if (isCharging) game.player.knockbackTimer = 10;
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
-      game.player.takeDamage(dmg, game, this.element || null, { type: this.type, element: this.element, isBoss: false });
+      const spikyMul = this.element === 'spiky' ? 1.5 : 1;
+      game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.hitCooldown = 30;
       if (isCharging) {
         this.chargeState = 'recoil';
@@ -1071,9 +1086,29 @@ class Enemy {
     }
   }
 
-  takeDamage(amount, game, fromX, attackElement) {
+  takeDamage(amount, game, fromX, attackElement, sourceType) {
     if (this.dead) return false;
     if (this.friendly) return false;
+    // Ghost: immune to blade & shuriken (only abilities/elemental can hurt)
+    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken')) {
+      this.flashTimer = 4;
+      if (this.resistTimer <= 0) {
+        game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'IMMUNE', '#c8a'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a8e8', 6, 2, 10));
+        this.resistTimer = 20;
+      }
+      return false;
+    }
+    // Spiky: reflect sword damage back to player
+    if (this.element === 'spiky' && sourceType === 'sword' && game && game.player) {
+      const reflDmg = Math.max(1, Math.round(amount * 0.5));
+      game.player.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
+      this.flashTimer = 6;
+      // still take half damage from the sword
+      amount = Math.max(1, Math.round(amount * 0.5));
+    }
     // Elemental interaction — checked early so heals/resists bypass iframes
     if (this.element && game) {
       const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
@@ -1128,26 +1163,27 @@ class Enemy {
         }
       }
     }
-    // Shielded / Protector: frontal shield hits lose pips + 75% damage reduction
-    if (this.shieldHp > 0 && fromX !== undefined) {
-      const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
-      if (hitFromFront) {
-        const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
-        this.shieldHp -= pickaxeHits;
-        this.flashTimer = 4;
-        const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#4f8' : '#5ff';
-        game.effects.push(new Effect(
-          this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 5, 2, 8
-        ));
-        if (this.shieldHp <= 0) {
-          this.shieldHp = 0;
-          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
-        }
-        amount = Math.max(1, Math.round(amount * 0.25));
+    // Shielded / Protector: shield blocks hits within its arc + 75% damage reduction
+    let shieldBlocked = false;
+    if (this._shieldBlocks(fromX, undefined, game)) {
+      shieldBlocked = true;
+      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+      this.shieldHp -= pickaxeHits;
+      this.shieldFlash = 6;
+      this.shieldBump = 6;
+      const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#4f8' : '#5ff';
+      const shAng = this.shieldAngle;
+      game.effects.push(new Effect(
+        this.x + this.w / 2 + Math.cos(shAng) * this.w * 0.6, this.y + this.h / 2 + Math.sin(shAng) * this.w * 0.6, shieldColor, 5, 2, 8
+      ));
+      if (this.shieldHp <= 0) {
+        this.shieldHp = 0;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
+      amount = Math.max(1, Math.round(amount * 0.25));
     }
     this.hp -= amount;
-    this.flashTimer = 6;
+    if (!shieldBlocked) this.flashTimer = 6;
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
@@ -1190,7 +1226,7 @@ class Enemy {
     if (this.type === 'deflector') game.player.defeatedDeflector = true;
     // Elemental Charm: 10% heal on kill of matching element
     if (this.element) {
-      const charmMap = { fire:'charmFire', earth:'charmEarth', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', steel:'charmSteel' };
+      const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
       const charmKey = charmMap[this.element];
       if (charmKey && game.player.items[charmKey]) {
         const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.1));
@@ -1272,19 +1308,20 @@ class Enemy {
           game.effects.push(new Effect(cx, cy, '#9e9', 10, 4, 14));
           break;
         }
-        case 'earth': {
-          // Scatter small spikes
+        case 'ghost': {
+          // Ghostly wisps: homing ethereal orbs that phase through walls
           for (let i = 0; i < count; i++) {
-            const offX = (i - Math.floor(count / 2)) * 18;
-            const spike = new StoneSpike(cx + offX - 8, cy - 8, game.wave || 1);
-            spike.w = 16; spike.h = 16;
-            spike.hp = 3; spike.maxHp = 3;
-            spike.vy = -(3 + Math.random() * 3);
-            spike.vx = (Math.random() - 0.5) * 4;
-            game.stoneBlocks.push(spike);
+            const a = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+            const spd = 2 + Math.random() * 1.5;
+            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#c8a', dmg, 'player');
+            proj.w = 8; proj.h = 8;
+            proj.homing = true;
+            proj.noPlat = true;
+            proj.life = 100;
+            game.projectiles.push(proj);
           }
-          game.effects.push(new Effect(cx, cy, '#b8864e', 14, 5, 16));
-          game.effects.push(new Effect(cx, cy, '#7a4a1a', 10, 4, 12));
+          game.effects.push(new Effect(cx, cy, '#c8a8e8', 16, 5, 18));
+          game.effects.push(new Effect(cx, cy, '#9070b0', 10, 4, 14));
           break;
         }
         case 'crystal': {
@@ -1304,19 +1341,19 @@ class Enemy {
           game.effects.push(new Effect(cx, cy, '#0dd', 10, 4, 18));
           break;
         }
-        case 'steel': {
-          // Scatter shuriken projectiles
+        case 'spiky': {
+          // Scatter spiky shrapnel in all directions
           const sCount = this.big ? 8 : 5;
           for (let i = 0; i < sCount; i++) {
             const a = (Math.PI * 2 / sCount) * i;
-            const spd = 5;
-            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#bcc', dmg + 1, 'player');
+            const spd = 5 + Math.random() * 2;
+            const proj = new Projectile(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, '#f64', dmg + 1, 'player');
             proj.w = 6; proj.h = 6;
-            proj.life = 60;
+            proj.life = 45;
             game.projectiles.push(proj);
           }
-          game.effects.push(new Effect(cx, cy, '#bcc', 16, 6, 14));
-          game.effects.push(new Effect(cx, cy, '#8aa', 10, 4, 10));
+          game.effects.push(new Effect(cx, cy, '#f86', 16, 6, 14));
+          game.effects.push(new Effect(cx, cy, '#c33', 10, 4, 10));
           break;
         }
       }
@@ -1368,6 +1405,33 @@ class Enemy {
     } else {                                                  // T4: element 2%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
     }
+  }
+
+  // Compute shield angle toward player (or facing fallback when stealthed)
+  _shieldAngle(game) {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const stealthed = game && game.player && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    if (!stealthed && game && game.player) {
+      const px = game.player.x + game.player.w / 2;
+      const py = game.player.y + game.player.h / 2;
+      return Math.atan2(py - cy, px - cx);
+    }
+    return this.facing > 0 ? 0 : Math.PI;
+  }
+
+  // Check if attack comes from shield side (within 90° arc of shield direction)
+  _shieldBlocks(fromX, fromY, game) {
+    if (this.shieldHp <= 0) return false;
+    if (fromX === undefined) return false;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const shAngle = this.shieldAngle;
+    const hitAngle = Math.atan2((fromY !== undefined ? fromY : cy) - cy, fromX - cx);
+    let diff = hitAngle - shAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return Math.abs(diff) < Math.PI / 2;
   }
 
   render(ctx, cam, game) {
@@ -1449,19 +1513,65 @@ class Enemy {
     // Elemental aura
     if (this.element && this.elementColors) {
       const tick = game ? game.tick : 0;
-      // Pulsing outer glow
-      ctx.save();
-      ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
-      ctx.fillStyle = this.elementColors.glow;
-      ctx.beginPath();
-      ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      // Ambient element particles
-      if (Math.random() < 0.25) {
-        const px = this.x + Math.random() * this.w;
-        const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
-        game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
+
+      if (this.element === 'ghost') {
+        // Ghost: flickering translucent body + wisp particles
+        ctx.save();
+        ctx.globalAlpha = 0.25 + 0.15 * Math.sin(tick * 0.1);
+        ctx.fillStyle = '#c8a8e8';
+        ctx.fillRect(sx - 2, sy - 2, this.w + 4, this.h + 4);
+        ctx.restore();
+        // Wisp trails rising upward
+        if (Math.random() < 0.35) {
+          const px = this.x + Math.random() * this.w;
+          const py = this.y + this.h * 0.5 + Math.random() * this.h * 0.3;
+          game.effects.push(new Effect(px, py, '#b898d8', 2, 0.6, 18));
+        }
+      } else if (this.element === 'spiky') {
+        // Spiky: thorns protruding from body
+        ctx.save();
+        ctx.fillStyle = this.elementColors.accent;
+        ctx.globalAlpha = 0.9;
+        const thornLen = this.big ? 7 : 5;
+        const thornW = this.big ? 3 : 2;
+        const cx = sx + this.w / 2;
+        const cy = sy + this.h / 2;
+        // 8 thorns around the body
+        for (let i = 0; i < 8; i++) {
+          const a = (Math.PI * 2 / 8) * i + Math.sin(tick * 0.04) * 0.1;
+          const bx = cx + Math.cos(a) * (this.w * 0.45);
+          const by = cy + Math.sin(a) * (this.h * 0.45);
+          const tx = cx + Math.cos(a) * (this.w * 0.45 + thornLen);
+          const ty = cy + Math.sin(a) * (this.h * 0.45 + thornLen);
+          ctx.beginPath();
+          ctx.moveTo(bx - Math.sin(a) * thornW, by + Math.cos(a) * thornW);
+          ctx.lineTo(tx, ty);
+          ctx.lineTo(bx + Math.sin(a) * thornW, by - Math.cos(a) * thornW);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+        // Spark particles from thorns
+        if (Math.random() < 0.2) {
+          const px = this.x + Math.random() * this.w;
+          const py = this.y + Math.random() * this.h;
+          game.effects.push(new Effect(px, py, '#f64', 1, 0.8, 10));
+        }
+      } else {
+        // Standard elemental aura: pulsing outer glow
+        ctx.save();
+        ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
+        ctx.fillStyle = this.elementColors.glow;
+        ctx.beginPath();
+        ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // Ambient element particles
+        if (Math.random() < 0.25) {
+          const px = this.x + Math.random() * this.w;
+          const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
+          game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
+        }
       }
       // Small element pip (diamond) above head
       const pipX = sx + this.w / 2;
@@ -1532,10 +1642,23 @@ class Enemy {
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
         break;
       }
-      case 'shielded':
+      case 'shielded': {
+        // Floating shield that tracks toward player
+        const shAng = this.shieldAngle;
+        const shDist = this.w * 0.6 + (this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.2) * 3 : 0);
+        const ecx = sx + this.w / 2, ecy = sy + this.h / 2;
         if (this.shieldHp > 0) {
-          ctx.fillStyle = `rgba(100,220,255,${0.4 + 0.2 * (this.shieldHp / this.shieldMax)})`;
-          ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, sy - 2, 5, this.h + 4);
+          ctx.save();
+          ctx.translate(ecx + Math.cos(shAng) * shDist, ecy + Math.sin(shAng) * shDist);
+          ctx.rotate(shAng);
+          const shAlpha = 0.4 + 0.2 * (this.shieldHp / this.shieldMax) + (this.shieldBump > 0 ? 0.2 : 0);
+          ctx.fillStyle = this.shieldFlash > 0 ? '#fff' : `rgba(100,220,255,${shAlpha})`;
+          ctx.fillRect(-2, -(this.h * 0.55), 5, this.h * 1.1);
+          // Edge glow
+          ctx.strokeStyle = this.shieldFlash > 0 ? '#fff' : `rgba(150,240,255,${shAlpha * 0.6})`;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(-2, -(this.h * 0.55), 5, this.h * 1.1);
+          ctx.restore();
           // Charge visual indicators
           if (this.chargeState === 'prepare') {
             const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
@@ -1545,27 +1668,23 @@ class Enemy {
             ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
             ctx.globalAlpha = 1;
           } else if (this.chargeState === 'charging') {
-            // Windshield arc effect
             const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
             const ang = Math.atan2(this._chargeVy, this._chargeVx);
             ctx.save();
             ctx.translate(wcx, wcy);
             ctx.rotate(ang);
-            // Filled glow
             ctx.globalAlpha = 0.25;
             ctx.fillStyle = '#5ff';
             ctx.beginPath();
             ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
             ctx.lineTo(this.w * 0.5, 0);
             ctx.fill();
-            // Arc shield
             ctx.globalAlpha = 0.7 + 0.2 * Math.sin(this.chargeTimer * 0.8);
             ctx.strokeStyle = '#aff';
             ctx.lineWidth = 4;
             ctx.beginPath();
             ctx.arc(this.w * 0.5, 0, this.h, -Math.PI * 0.5, Math.PI * 0.5);
             ctx.stroke();
-            // Wind streaks
             ctx.globalAlpha = 0.5;
             ctx.strokeStyle = '#dff';
             ctx.lineWidth = 2;
@@ -1583,6 +1702,7 @@ class Enemy {
         ctx.fillStyle = '#5a8';
         ctx.fillRect(sx + 2, sy, this.w - 4, 3);
         break;
+      }
       case 'deflector': {
         // Kasa (farmer hat) — bigger than player's
         ctx.fillStyle = '#aac';
@@ -1733,34 +1853,46 @@ class Enemy {
         ctx.fillRect(sx + 3, sy + this.h - 10, this.w / 2 - 5, 2);
         ctx.fillRect(sx + this.w / 2 + 2, sy + this.h - 10, this.w / 2 - 5, 2);
 
-        // Large tower shield in facing direction
-        const shX = this.facing > 0 ? sx + this.w - 2 : sx - 7;
+        // Floating tower shield that tracks toward player
+        const pShAng = this.shieldAngle;
+        const pShDist = this.w * 0.7 + (this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.2) * 4 : 0);
+        const pEcx = sx + this.w / 2, pEcy = sy + this.h / 2;
+        const pShX = pEcx + Math.cos(pShAng) * pShDist;
+        const pShY = pEcy + Math.sin(pShAng) * pShDist;
         if (this.shieldHp > 0) {
           const shieldAlpha = 0.5 + 0.5 * (this.shieldHp / this.shieldMax);
           ctx.save();
+          ctx.translate(pShX, pShY);
+          ctx.rotate(pShAng);
           ctx.globalAlpha = shieldAlpha;
-          ctx.fillStyle = '#3b7';
-          ctx.fillRect(shX, sy - 6, 9, this.h + 12);
+          const pShFlash = this.shieldFlash > 0;
+          // Shield body
+          ctx.fillStyle = pShFlash ? '#fff' : '#3b7';
+          ctx.fillRect(-2, -(this.h * 0.6 + 3), 9, this.h * 1.2 + 6);
           // Shield border
-          ctx.strokeStyle = '#2a5';
+          ctx.strokeStyle = pShFlash ? '#fff' : '#2a5';
           ctx.lineWidth = 1.5;
-          ctx.strokeRect(shX + 0.5, sy - 5.5, 8, this.h + 11);
+          ctx.strokeRect(-1.5, -(this.h * 0.6 + 2.5), 8, this.h * 1.2 + 5);
           // Shield emblem (cross)
-          ctx.fillStyle = '#8d8';
-          ctx.fillRect(shX + 3, sy + 2, 3, this.h - 2);
-          ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 7, 3);
+          ctx.fillStyle = pShFlash ? '#fff' : '#8d8';
+          ctx.fillRect(1, -(this.h * 0.35), 3, this.h * 0.7);
+          ctx.fillRect(-1, -1.5, 7, 3);
           // Shield rivets
-          ctx.fillStyle = '#5a7';
-          ctx.fillRect(shX + 1, sy - 2, 2, 2);
-          ctx.fillRect(shX + 6, sy - 2, 2, 2);
-          ctx.fillRect(shX + 1, sy + this.h + 2, 2, 2);
-          ctx.fillRect(shX + 6, sy + this.h + 2, 2, 2);
+          ctx.fillStyle = pShFlash ? '#fff' : '#5a7';
+          ctx.fillRect(-1, -(this.h * 0.55), 2, 2);
+          ctx.fillRect(4, -(this.h * 0.55), 2, 2);
+          ctx.fillRect(-1, this.h * 0.45, 2, 2);
+          ctx.fillRect(4, this.h * 0.45, 2, 2);
           ctx.restore();
         } else {
-          // Broken shield — just a stub
+          // Broken shield stub
+          ctx.save();
+          ctx.translate(pShX, pShY);
+          ctx.rotate(pShAng);
           ctx.globalAlpha = 0.3;
           ctx.fillStyle = '#2a5';
-          ctx.fillRect(shX + 1, sy + this.h / 2 - 4, 7, 8);
+          ctx.fillRect(-1, -4, 7, 8);
+          ctx.restore();
           ctx.globalAlpha = 1;
         }
 
@@ -1875,7 +2007,8 @@ class Enemy {
       const pipW = this.type === 'protector' ? 3 : 5;
       const pipGap = this.type === 'protector' ? 5 : 7;
       const totalW = this.shieldMax * pipGap;
-      const pipStartX = sx + this.w / 2 - totalW / 2;
+      const pipBump = this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.5) * 2 : 0;
+      const pipStartX = sx + this.w / 2 - totalW / 2 + pipBump;
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
         ctx.fillRect(pipStartX + i * pipGap, sy - 16, pipW, 3);
@@ -1972,9 +2105,19 @@ class Boss extends Enemy {
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
+    if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
+    if (this.shieldBump > 0) this.shieldBump--;
+    // Slow shield angle tracking
+    if (this.shieldHp > 0) {
+      const target = this._shieldAngle(game);
+      let diff = target - this.shieldAngle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.shieldAngle += diff * 0.06;
+    }
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
       if (this.iceSliding) {
@@ -2717,34 +2860,51 @@ class Boss extends Enemy {
     }
   }
 
-  takeDamage(amount, game, fromX) {
+  takeDamage(amount, game, fromX, attackElement, sourceType) {
     if (this.dead) return false;
     if (this.friendly) return false;
+    // Ghost: immune to blade & shuriken
+    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken')) {
+      this.flashTimer = 4;
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'IMMUNE', '#c8a'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a8e8', 6, 2, 10));
+      return false;
+    }
+    // Spiky: reflect sword damage back to player
+    if (this.element === 'spiky' && sourceType === 'sword' && game && game.player) {
+      const reflDmg = Math.max(1, Math.round(amount * 0.5));
+      game.player.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
+      this.flashTimer = 6;
+      amount = Math.max(1, Math.round(amount * 0.5));
+    }
     // Attacker boss: invulnerable when enemies nearby
     if (this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
       return false;
     }
-    // Shield check — hit-based pips + 75% damage reduction
-    if (this.shieldHp > 0 && fromX !== undefined) {
-      const hitFromFront = (fromX > this.x + this.w / 2) === (this.facing === 1);
-      if (hitFromFront) {
-        const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
-        this.shieldHp -= pickaxeHits;
-        this.flashTimer = 4;
-        const shieldColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
-        game.effects.push(new Effect(this.x + (this.facing > 0 ? this.w : 0), this.y + this.h / 2, shieldColor, 6, 3, 10));
-        if (this.shieldHp <= 0) {
-          this.shieldHp = 0;
-          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
-        }
-        amount = Math.max(1, Math.round(amount * 0.25));
+    // Shield check — blocks hits within its arc + 75% damage reduction
+    let shieldBlocked = false;
+    if (this._shieldBlocks(fromX, undefined, game)) {
+      shieldBlocked = true;
+      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+      this.shieldHp -= pickaxeHits;
+      this.shieldFlash = 6;
+      this.shieldBump = 8;
+      const shieldColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
+      const shAng = this.shieldAngle;
+      game.effects.push(new Effect(this.x + this.w / 2 + Math.cos(shAng) * this.w * 0.7, this.y + this.h / 2 + Math.sin(shAng) * this.w * 0.7, shieldColor, 6, 3, 10));
+      if (this.shieldHp <= 0) {
+        this.shieldHp = 0;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
+      amount = Math.max(1, Math.round(amount * 0.25));
     }
     this.hp -= amount;
     this.hp = Math.round(this.hp);
-    this.flashTimer = 8;
+    if (!shieldBlocked) this.flashTimer = 8;
     const atkEl = game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null;
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 6, 3, 10));
@@ -2899,26 +3059,40 @@ class Boss extends Enemy {
       ctx.fillStyle = '#4a7';
       ctx.fillRect(sx + 3, sy + this.h - 11, this.w / 2 - 5, 11);
       ctx.fillRect(sx + this.w / 2 + 2, sy + this.h - 11, this.w / 2 - 5, 11);
-      // Tower shield
-      const shX = this.facing > 0 ? sx + this.w - 2 : sx - 9;
+      // Floating tower shield that tracks toward player
+      const bpAng = this.shieldAngle;
+      const bpDist = this.w * 0.7 + (this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.2) * 5 : 0);
+      const bpEcx = sx + this.w / 2, bpEcy = sy + this.h / 2;
+      const bpShX = bpEcx + Math.cos(bpAng) * bpDist;
+      const bpShY = bpEcy + Math.sin(bpAng) * bpDist;
       if (this.shieldHp > 0) {
         const shieldAlpha = 0.5 + 0.5 * (this.shieldHp / this.shieldMax);
         ctx.save();
+        ctx.translate(bpShX, bpShY);
+        ctx.rotate(bpAng);
         ctx.globalAlpha = shieldAlpha;
-        ctx.fillStyle = '#3b7';
-        ctx.fillRect(shX, sy - 8, 11, this.h + 16);
-        ctx.strokeStyle = '#2a5';
+        const bpShFlash = this.shieldFlash > 0;
+        // Shield body
+        ctx.fillStyle = bpShFlash ? '#fff' : '#3b7';
+        ctx.fillRect(-3, -(this.h * 0.6 + 4), 11, this.h * 1.2 + 8);
+        // Shield border
+        ctx.strokeStyle = bpShFlash ? '#fff' : '#2a5';
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(shX + 0.5, sy - 7.5, 10, this.h + 15);
-        ctx.fillStyle = '#8d8';
-        ctx.fillRect(shX + 4, sy + 2, 3, this.h - 2);
-        ctx.fillRect(shX + 1, sy + this.h / 2 - 3, 9, 3);
+        ctx.strokeRect(-2.5, -(this.h * 0.6 + 3.5), 10, this.h * 1.2 + 7);
+        // Shield emblem (cross)
+        ctx.fillStyle = bpShFlash ? '#fff' : '#8d8';
+        ctx.fillRect(1, -(this.h * 0.35), 3, this.h * 0.7);
+        ctx.fillRect(-2, -1.5, 9, 3);
         ctx.restore();
       } else {
         // Broken shield stub
+        ctx.save();
+        ctx.translate(bpShX, bpShY);
+        ctx.rotate(bpAng);
         ctx.globalAlpha = 0.3;
         ctx.fillStyle = '#2a5';
-        ctx.fillRect(shX + 2, sy + this.h / 2 - 5, 7, 10);
+        ctx.fillRect(-1, -5, 7, 10);
+        ctx.restore();
         ctx.globalAlpha = 1;
       }
       // Boss protector charge indicators
@@ -3067,11 +3241,21 @@ class Boss extends Enemy {
         }
       }
 
-      // Shield
+      // Floating shield that tracks toward player
       if (this.shieldHp > 0) {
-        const shieldAlpha = 0.4 + 0.3 * (this.shieldHp / this.shieldMax);
-        ctx.fillStyle = `rgba(100,220,255,${shieldAlpha})`;
-        ctx.fillRect(this.facing > 0 ? sx + this.w - 4 : sx, sy - 4, 6, this.h + 8);
+        const bsAng = this.shieldAngle;
+        const bsDist = this.w * 0.65 + (this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.2) * 4 : 0);
+        const bsEcx = sx + this.w / 2, bsEcy = sy + this.h / 2;
+        const shieldAlpha = 0.4 + 0.3 * (this.shieldHp / this.shieldMax) + (this.shieldBump > 0 ? 0.2 : 0);
+        ctx.save();
+        ctx.translate(bsEcx + Math.cos(bsAng) * bsDist, bsEcy + Math.sin(bsAng) * bsDist);
+        ctx.rotate(bsAng);
+        ctx.fillStyle = this.shieldFlash > 0 ? '#fff' : `rgba(100,220,255,${shieldAlpha})`;
+        ctx.fillRect(-3, -(this.h * 0.55), 6, this.h * 1.1);
+        ctx.strokeStyle = this.shieldFlash > 0 ? '#fff' : `rgba(150,240,255,${shieldAlpha * 0.6})`;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-3, -(this.h * 0.55), 6, this.h * 1.1);
+        ctx.restore();
         // Shielded boss charge indicators
         if (this.chargeState === 'prepare') {
           const pulse = Math.sin(this.chargeTimer * 0.4) * 0.4 + 0.6;
@@ -3081,7 +3265,6 @@ class Boss extends Enemy {
           ctx.fillText('!', sx + this.w / 2 - 5, sy - 14);
           ctx.globalAlpha = 1;
         } else if (this.chargeState === 'charging') {
-          // Windshield arc effect
           const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
           const ang = Math.atan2(this._chargeVy, this._chargeVx);
           ctx.save();
@@ -3251,7 +3434,8 @@ class Boss extends Enemy {
       const barW = this.w + 20;
       const pipW = Math.max(2, Math.floor(barW / this.shieldMax) - 1);
       const pipGap = barW / this.shieldMax;
-      const pipStartX = sx + this.w / 2 - barW / 2;
+      const bpipBump = this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.5) * 3 : 0;
+      const pipStartX = sx + this.w / 2 - barW / 2 + bpipBump;
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
         ctx.fillRect(pipStartX + i * pipGap, sy - 32, pipW, 3);

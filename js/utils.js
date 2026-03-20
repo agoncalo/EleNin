@@ -436,12 +436,12 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
       break;
     }
     case 'charmFire':
-    case 'charmEarth':
+    case 'charmGhost':
     case 'charmWater':
     case 'charmCrystal':
     case 'charmWind':
     case 'charmLightning':
-    case 'charmSteel': {
+    case 'charmSpiky': {
       // Diamond shape with inner element symbol
       ctx.fillStyle = color;
       ctx.beginPath();
@@ -472,14 +472,17 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
         ctx.quadraticCurveTo(-s * 0.05, -s * 0.3, -s * 0.1, -s * 0.15);
         ctx.quadraticCurveTo(-s * 0.2, 0, 0, s * 0.25);
         ctx.fill();
-      } else if (itemId === 'charmEarth') {
-        // Rock/mountain
+      } else if (itemId === 'charmGhost') {
+        // Ghost wisp / eye
         ctx.beginPath();
-        ctx.moveTo(-s * 0.25, s * 0.2);
-        ctx.lineTo(-s * 0.08, -s * 0.2);
-        ctx.lineTo(s * 0.08, -s * 0.05);
-        ctx.lineTo(s * 0.2, -s * 0.25);
-        ctx.lineTo(s * 0.25, s * 0.2);
+        ctx.arc(0, -s * 0.05, s * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.12, s * 0.07);
+        ctx.lineTo(-s * 0.12, s * 0.22);
+        ctx.quadraticCurveTo(-s * 0.06, s * 0.15, 0, s * 0.22);
+        ctx.quadraticCurveTo(s * 0.06, s * 0.15, s * 0.12, s * 0.22);
+        ctx.lineTo(s * 0.12, s * 0.07);
         ctx.closePath();
         ctx.fill();
       } else if (itemId === 'charmWater') {
@@ -519,19 +522,17 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
         ctx.lineTo(-s * 0.02, s * 0.02);
         ctx.closePath();
         ctx.fill();
-      } else if (itemId === 'charmSteel') {
-        // Gear cog
-        ctx.lineWidth = Math.max(1, size / 16);
-        ctx.strokeStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.12, 0, Math.PI * 2);
-        ctx.stroke();
+      } else if (itemId === 'charmSpiky') {
+        // Spiky thorns / star burst
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2;
           ctx.beginPath();
-          ctx.moveTo(Math.cos(a) * s * 0.12, Math.sin(a) * s * 0.12);
-          ctx.lineTo(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22);
-          ctx.stroke();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a - 0.15) * s * 0.1, Math.sin(a - 0.15) * s * 0.1);
+          ctx.lineTo(Math.cos(a) * s * 0.25, Math.sin(a) * s * 0.25);
+          ctx.lineTo(Math.cos(a + 0.15) * s * 0.1, Math.sin(a + 0.15) * s * 0.1);
+          ctx.closePath();
+          ctx.fill();
         }
       }
       ctx.globalAlpha = 1;

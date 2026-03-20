@@ -395,8 +395,8 @@ class DamageNumber {
     this.amount = Math.round(amount);
     this.text = String(this.amount);
     const elColors = {
-      fire: '#f93', earth: '#da6', water: '#6af', crystal: '#aef',
-      wind: '#bfb', lightning: '#ff8', steel: '#cdd', physical: '#faa',
+      fire: '#f93', ghost: '#c8a', water: '#6af', crystal: '#aef',
+      wind: '#bfb', lightning: '#ff8', spiky: '#f86', physical: '#faa',
     };
     this.color = element && elColors[element] ? elColors[element] : '#fff';
     this.baseSize = Math.min(24, 10 + Math.ceil(amount / 4));

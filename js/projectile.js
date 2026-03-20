@@ -118,14 +118,14 @@ class Trimerang {
   _damageEnemies(game) {
     for (const e of game.enemies) {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
-        e.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x);
+        e.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
         this.hitSet.add(e);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
         game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
       }
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
-      game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x);
+      game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
       this.hitSet.add(game.boss);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
       game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
@@ -436,24 +436,27 @@ class Projectile {
     if (this.owner === 'player') {
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
-          const hitFromFront = (this.x + this.w / 2 > e.x + e.w / 2) === (e.facing === 1);
 
           // Kunai is unblockable — skip all shield/deflect checks
           if (!this.isKunai) {
-            // Shielded: block projectiles from the front (shield stops even piercing)
-            if (e.type === 'shielded' && e.shieldHp > 0 && hitFromFront) {
-              e.flashTimer = 4;
+            // Shielded: block projectiles within shield arc (stops even piercing, no pip loss)
+            if (e.type === 'shielded' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
+              e.shieldFlash = 6;
+              e.shieldBump = 6;
+              const shAng = e.shieldAngle;
               game.effects.push(new Effect(
-                e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#5ff', 8, 3, 10
+                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
               ));
               this.done = true;
               return;
             }
-            // Protector: block projectiles from the front (shield stops even piercing)
-            if (e.type === 'protector' && e.shieldHp > 0 && hitFromFront) {
-              e.flashTimer = 4;
+            // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
+            if (e.type === 'protector' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
+              e.shieldFlash = 6;
+              e.shieldBump = 6;
+              const shAng = e.shieldAngle;
               game.effects.push(new Effect(
-                e.x + (e.facing > 0 ? e.w : 0), e.y + e.h / 2, '#4f8', 8, 3, 10
+                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
               ));
               this.done = true;
               return;
@@ -477,7 +480,8 @@ class Projectile {
             }
           }
 
-          const _dmgHit = e.takeDamage(this.damage, game, this.x);
+          const _srcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
+          const _dmgHit = e.takeDamage(this.damage, game, this.x, undefined, _srcType);
           if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
@@ -538,23 +542,26 @@ class Projectile {
       }
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
-        const bossHitFromFront = (this.x + this.w / 2 > game.boss.x + game.boss.w / 2) === (game.boss.facing === 1);
         // Kunai is unblockable — skip all shield/deflect checks for bosses
         if (!this.isKunai) {
-          // Shielded boss: block projectiles from the front
-          if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && bossHitFromFront) {
-            game.boss.flashTimer = 4;
+          // Shielded boss: block projectiles within shield arc (no pip loss)
+          if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
+            game.boss.shieldFlash = 6;
+            game.boss.shieldBump = 8;
+            const shAng = game.boss.shieldAngle;
             game.effects.push(new Effect(
-              game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#5ff', 8, 3, 10
+              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
             ));
             this.done = true;
             return;
           }
-          // Protector boss: block projectiles from the front
-          if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && bossHitFromFront) {
-            game.boss.flashTimer = 4;
+          // Protector boss: block projectiles within shield arc (no pip loss)
+          if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
+            game.boss.shieldFlash = 6;
+            game.boss.shieldBump = 8;
+            const shAng = game.boss.shieldAngle;
             game.effects.push(new Effect(
-              game.boss.x + (game.boss.facing > 0 ? game.boss.w : 0), game.boss.y + game.boss.h / 2, '#4f8', 8, 3, 10
+              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
             ));
             this.done = true;
             return;
@@ -575,7 +582,8 @@ class Projectile {
             return;
           }
         }
-        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x);
+        const _bossSrcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
+        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, undefined, _bossSrcType);
         if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {

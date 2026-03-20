@@ -146,10 +146,10 @@ class Player {
     this.statusFloat = 0;   // wind reduced gravity timer
     this.statusParalyse = 0; // lightning: steel tools cause stun
     this.statusStun = 0;    // brief full-stop stun (from paralyse)
-    this.statusHeavy = 0;   // earth: heavier gravity
-    this.statusSteel = 0;   // steel: invulnerable but can't move
-    this.heavyCooldown = 0; // cooldown before heavy can reapply
-    this.steelCooldown = 0; // cooldown before steel can reapply
+    this.statusCurse = 0;    // ghost: DOT (curse)
+    this.statusBleed = 0;    // spiky: DOT (bleed)
+    this.curseCooldown = 0;  // cooldown before curse can reapply
+    this.bleedCooldown = 0;  // cooldown before bleed can reapply
     this.freezeNudge = 0;   // visual nudge from mashing out of freeze
     this.maxShurikens = 3;
     this.shurikenLevel = 1;
@@ -555,7 +555,7 @@ class Player {
         this.vx = 0; this.vy = 0;
         this.invincibleTimer = 90;
         this.statusBurn = 0; this.statusFreeze = 0; this.statusFloat = 0;
-        this.statusParalyse = 0; this.statusStun = 0; this.statusHeavy = 0; this.statusSteel = 0;
+        this.statusParalyse = 0; this.statusStun = 0; this.statusCurse = 0; this.statusBleed = 0;
       }
       return;
     }
@@ -1032,36 +1032,42 @@ class Player {
       }
     }
 
-    // Steel: invulnerable but can't move
-    if (this.statusSteel > 0) {
-      this.vx = 0;
-      this.vy += GRAVITY;
-      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
-      this.y += this.vy;
-      for (const p of game.platforms) {
-        if (rectOverlap(this, p)) {
-          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
-            this.y = p.y - this.h; this.vy = 0; this.grounded = true;
-          }
-        }
+    // Curse (ghost): DOT — drains HP over time, purple wisps
+    if (this.statusCurse > 0) {
+      this.statusCurse--;
+      if (this.curseCooldown > 0) this.curseCooldown--;
+      if (this.statusCurse % 40 === 0 && this.statusCurse > 0) {
+        const curseDmg = Math.max(1, Math.round(this.maxHp * 0.03));
+        this.hp -= curseDmg;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a', 5, 2, 8));
+        game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, curseDmg, 'ghost'));
       }
-      this.invincibleTimer = 2; // stay invulnerable while steel'd
-      this.statusSteel--;
-      if (this.steelCooldown > 0) this.steelCooldown--;
-      if (this.statusBurn > 0) this.statusBurn--;
-      if (this.statusFreeze > 0) this.statusFreeze--;
-      if (this.statusFloat > 0) this.statusFloat--;
-      if (this.statusHeavy > 0) this.statusHeavy--;
-      if (this.statusParalyse > 0) this.statusParalyse--;
-      // Metal gleam particles
-      if (Math.random() < 0.3) {
+      if (Math.random() < 0.2) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + this.h - Math.random() * this.h * 0.5,
+          '#b898d8', 2, 0.6, 14
+        ));
+      }
+    }
+
+    // Bleed (spiky): DOT — thorn damage over time, red particles
+    if (this.statusBleed > 0) {
+      this.statusBleed--;
+      if (this.bleedCooldown > 0) this.bleedCooldown--;
+      if (this.statusBleed % 30 === 0 && this.statusBleed > 0) {
+        const bleedDmg = Math.max(1, Math.round(this.maxHp * 0.04));
+        this.hp -= bleedDmg;
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 4, 2, 8));
+        game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, bleedDmg, 'spiky'));
+      }
+      if (Math.random() < 0.25) {
         game.effects.push(new Effect(
           this.x + Math.random() * this.w,
           this.y + Math.random() * this.h,
-          '#ccc', 2, 1, 8
+          '#f86', 1.5, 0.8, 10
         ));
       }
-      return;
     }
 
     // Stun: can't move or act, only gravity applies
@@ -1092,10 +1098,10 @@ class Player {
       }
       if (this.statusFreeze > 0) this.statusFreeze--;
       if (this.statusFloat > 0) this.statusFloat--;
-      if (this.statusHeavy > 0) this.statusHeavy--;
-      if (this.statusSteel > 0) this.statusSteel--;
-      if (this.heavyCooldown > 0) this.heavyCooldown--;
-      if (this.steelCooldown > 0) this.steelCooldown--;
+      if (this.statusCurse > 0) this.statusCurse--;
+      if (this.statusBleed > 0) this.statusBleed--;
+      if (this.curseCooldown > 0) this.curseCooldown--;
+      if (this.bleedCooldown > 0) this.bleedCooldown--;
       // Spark particles
       if (Math.random() < 0.4) {
         game.effects.push(new Effect(
@@ -1163,7 +1169,6 @@ class Player {
     // Gravity
     let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
     if (this.statusFloat > 0) grav *= 0.35;
-    if (this.statusHeavy > 0) grav *= 2.5;
     if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing) {
       this.vy += grav;
     }
@@ -1570,10 +1575,9 @@ class Player {
     }
     if (this.statusFloat > 0) this.statusFloat--;
     if (this.statusParalyse > 0) this.statusParalyse--;
-    if (this.statusHeavy > 0) this.statusHeavy--;
     if (this.statusStun > 0) this.statusStun--;
-    if (this.heavyCooldown > 0) this.heavyCooldown--;
-    if (this.steelCooldown > 0) this.steelCooldown--;
+    if (this.curseCooldown > 0) this.curseCooldown--;
+    if (this.bleedCooldown > 0) this.bleedCooldown--;
 
     // Attack
     if (this.attacking) {
@@ -1629,7 +1633,7 @@ class Player {
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
             }
-            e.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
+            e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
               const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -1754,7 +1758,7 @@ class Player {
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += this.crystalCastle ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
-          game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel');
+          game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
           // Vampire Teeth: heal 1% HP per hit (min 1)
           if (this.items.vampireTeeth) {
             const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -1864,6 +1868,7 @@ class Player {
           x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
         });
         if (sProj) {
+          sProj.isShuriken = true;
           if (this.ninjaType === 'crystal') sProj.freezeDust = true;
           if (this.ninjaType === 'storm') sProj.soaking = true;
           if (this.ninjaType === 'shadow') sProj.shadowParalyse = true;
@@ -2365,7 +2370,7 @@ class Player {
     this.attackCooldown = 15;
     SFX.attack();
 
-    if (this.ninjaType === 'wind' && !this.statusHeavy && !this.statusFreeze) {
+    if (this.ninjaType === 'wind' && !this.statusCurse && !this.statusFreeze) {
       this.windDashing = true;
       this.windDashTimer = 15;
       this.vx = this.facing * 15;
@@ -2604,7 +2609,7 @@ class Player {
           this.statusFreeze = 0;
           this.statusFloat = 0;
           this.statusParalyse = 0;
-          this.statusHeavy = 0;
+          this.statusCurse = 0;
           this.statusStun = 0;
           game.effects.push(new SubstitutionLog(oldX, oldY, this.w, this.h));
           game.effects.push(new Effect(oldX + this.w / 2, oldY + this.h / 2, '#ccc', 10, 3, 15));
@@ -2684,7 +2689,7 @@ class Player {
     // Elemental Charms: immune to matching affliction
     const charmImmunity = {
       fire: 'charmFire', water: 'charmWater', crystal: 'charmCrystal',
-      wind: 'charmWind', lightning: 'charmLightning', earth: 'charmEarth', steel: 'charmSteel'
+      wind: 'charmWind', lightning: 'charmLightning', ghost: 'charmGhost', spiky: 'charmSpiky'
     };
     if (charmImmunity[element] && this.items[charmImmunity[element]]) return;
     // Protective Charm: halve duration
@@ -2701,17 +2706,17 @@ class Player {
     } else if (element === 'lightning') {
       this.statusParalyse = Math.round(180 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PARALYSE!', '#ff0'));
-    } else if (element === 'earth') {
-      if (this.heavyCooldown <= 0) {
-        this.statusHeavy = Math.round(150 * dMul);
-        this.heavyCooldown = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'HEAVY!', '#a84'));
+    } else if (element === 'ghost') {
+      if (this.curseCooldown <= 0) {
+        this.statusCurse = Math.round(150 * dMul);
+        this.curseCooldown = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'CURSE!', '#c8a'));
       }
-    } else if (element === 'steel') {
-      if (this.steelCooldown <= 0) {
-        this.statusSteel = Math.round(120 * dMul);
-        this.steelCooldown = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STEEL!', '#aaa'));
+    } else if (element === 'spiky') {
+      if (this.bleedCooldown <= 0) {
+        this.statusBleed = Math.round(120 * dMul);
+        this.bleedCooldown = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BLEED!', '#f64'));
       }
     }
   }
@@ -2784,7 +2789,7 @@ class Player {
     }
     const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
     // Elemental Charms: halve damage from matching element
-    const charmMap = { fire:'charmFire', earth:'charmEarth', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', steel:'charmSteel' };
+    const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
     if (element && charmMap[element] && this.items[charmMap[element]]) {
       amount = Math.max(1, Math.round(amount * 0.5));
     }
@@ -3353,17 +3358,17 @@ class Player {
       }
       ctx.restore();
     }
-    if (this.statusHeavy > 0) {
-      // Body color override handled below (dark lead)
+    if (this.statusCurse > 0) {
+      // Purple wisps around cursed player
     }
-    if (this.statusSteel > 0) {
-      // Body color override handled below (grey)
+    if (this.statusBleed > 0) {
+      // Red tint handled below
     }
 
-    // Body — color changes for steel (grey) and heavy (dark lead)
+    // Body — color changes for curse (purple tint) and bleed (red tint)
     let bodyColor = t.color;
-    if (this.statusSteel > 0) bodyColor = '#aaa';
-    else if (this.statusHeavy > 0) bodyColor = '#556';
+    if (this.statusBleed > 0) bodyColor = '#a44';
+    else if (this.statusCurse > 0) bodyColor = '#86a';
     ctx.fillStyle = bodyColor;
     ctx.fillRect(sx, sy, this.w, this.h);
 

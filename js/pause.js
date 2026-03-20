@@ -761,12 +761,30 @@ function drawMiniEnemy(ctx, cx, cy, w, h, entry) {
   // Element pip + aura
   if (entry.element) {
     const elC = ELEMENT_COLORS[entry.element];
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = elC.glow;
-    ctx.beginPath();
-    ctx.arc(bx_ + bw_ / 2, by_ + bh_ / 2, bw_ * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    if (entry.element === 'ghost') {
+      // Ghost: translucent shimmer
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = '#c8a8e8';
+      ctx.fillRect(bx_ - 2, by_ - 2, bw_ + 4, bh_ + 4);
+      ctx.globalAlpha = 1;
+    } else if (entry.element === 'spiky') {
+      // Spiky: small thorns around body
+      ctx.fillStyle = '#f86';
+      const tl = 3;
+      ctx.fillRect(bx_ - tl, by_ + bh_ * 0.3, tl, 2);
+      ctx.fillRect(bx_ - tl, by_ + bh_ * 0.6, tl, 2);
+      ctx.fillRect(bx_ + bw_, by_ + bh_ * 0.3, tl, 2);
+      ctx.fillRect(bx_ + bw_, by_ + bh_ * 0.6, tl, 2);
+      ctx.fillRect(bx_ + bw_ * 0.3, by_ - tl, 2, tl);
+      ctx.fillRect(bx_ + bw_ * 0.6, by_ - tl, 2, tl);
+    } else {
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = elC.glow;
+      ctx.beginPath();
+      ctx.arc(bx_ + bw_ / 2, by_ + bh_ / 2, bw_ * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     const px = cx + w / 2, py = cy + 3;
     ctx.fillStyle = elC.accent;
     ctx.beginPath();
@@ -821,7 +839,7 @@ function renderBestiaryPopup(ctx) {
   }
 
   // Row labels
-  const rowLabels = ['Normal', 'Big', 'Boss', 'Fire', 'Earth', 'Water', 'Crystal', 'Wind', 'Lightn.', 'Steel'];
+  const rowLabels = ['Normal', 'Big', 'Boss', 'Fire', 'Ghost', 'Water', 'Crystal', 'Wind', 'Lightn.', 'Spiky'];
   for (let r = 0; r < 10; r++) {
     const ry = gridStartY + r * (cellH + gapY);
     ctx.fillStyle = r < 3 ? '#aaa' : ELEMENT_COLORS[ENEMY_ELEMENTS[r - 3]].accent;
@@ -924,12 +942,12 @@ function renderBestiaryDetail(ctx, bx, by, bw, bh, entry, data) {
     ctx.font = '11px monospace';
     const ELEMENT_DESCS = {
       fire: 'Immune to burn \u2014 fire damage heals it. Weak to water.',
-      earth: 'Resistant to most elements except earth and steel.',
+      ghost: 'Immune to blade & shuriken. Only abilities can damage it. Inflicts Curse.',
       water: 'Fully immune to burn. Resists fire. Weak to wind and lightning.',
       crystal: 'Heals from crystal attacks. Weak to fire.',
-      wind: 'Resists water. Weak to earth.',
-      lightning: 'Weak to earth (grounded). Strong against water.',
-      steel: 'Resists fire. Steel attacks never heal \u2014 only resist.',
+      wind: 'Resists water. Healed by wind attacks.',
+      lightning: 'Strong against water. Healed by lightning.',
+      spiky: 'Reflects sword damage back at you. Higher contact damage. Inflicts Bleed.',
     };
     const desc = `${elName} variant of ${stats.name}. ${ELEMENT_DESCS[entry.element] || ''}`;
     const descLines = wrapText(ctx, desc, bw - 80);

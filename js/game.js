@@ -2247,17 +2247,17 @@ class Game {
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }
-    if (pl.statusHeavy > 0) {
+    if (pl.statusCurse > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.05 + 0.03 * Math.sin(pl.statusHeavy * 0.12);
-      ctx.fillStyle = '#a64';
+      ctx.globalAlpha = 0.05 + 0.03 * Math.sin(pl.statusCurse * 0.12);
+      ctx.fillStyle = '#928';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }
-    if (pl.statusSteel > 0) {
+    if (pl.statusBleed > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.08 + 0.04 * Math.sin(pl.statusSteel * 0.15);
-      ctx.fillStyle = '#999';
+      ctx.globalAlpha = 0.06 + 0.03 * Math.sin(pl.statusBleed * 0.15);
+      ctx.fillStyle = '#a22';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }

@@ -10,17 +10,17 @@ const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'st
 
 // ── Elemental Affinities ─────────────────────────────────────
 // Elements that enemies can have (shadow is NOT an affinity)
-const ENEMY_ELEMENTS = ['fire', 'earth', 'water', 'crystal', 'wind', 'lightning', 'steel'];
+const ENEMY_ELEMENTS = ['fire', 'ghost', 'water', 'crystal', 'wind', 'lightning', 'spiky'];
 
 // Colors for each element
 const ELEMENT_COLORS = {
   fire:      { body: '#d44', accent: '#f93', glow: '#f60', particle: '#fa3' },
-  earth:     { body: '#96622d', accent: '#b8864e', glow: '#7a4a1a', particle: '#a67540' },
+  ghost:     { body: '#8a6aaf', accent: '#c8a8e8', glow: '#9070b0', particle: '#b898d8' },
   water:     { body: '#46a', accent: '#6af', glow: '#38d', particle: '#4af' },
   crystal:   { body: '#5cc', accent: '#dff', glow: '#6ee', particle: '#aef' },
   wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },
   lightning: { body: '#aa4', accent: '#ff8', glow: '#dd6', particle: '#ff4' },
-  steel:     { body: '#899', accent: '#bcc', glow: '#8aa', particle: '#abb' },
+  spiky:     { body: '#a44', accent: '#f86', glow: '#c33', particle: '#f64' },
 };
 
 // Interaction matrix: attackElement -> enemyElement -> result
@@ -29,66 +29,66 @@ const ELEMENT_COLORS = {
 const ELEMENT_MATRIX = {
   fire: {
     fire: 'heal',      // fire heals fire
-    earth: 'normal',
+    ghost: 'normal',   // fire hurts ghosts
     water: 'resist',   // water resists fire
     crystal: 'normal', // fire beats crystal (melts)
     wind: 'normal',
     lightning: 'normal',
-    steel: 'normal',
+    spiky: 'normal',
   },
   earth: {
     fire: 'normal',
-    earth: 'normal',   // earth vs earth = normal, not heal (like steel)
+    ghost: 'normal',
     water: 'normal',
     crystal: 'normal',
     wind: 'normal',
     lightning: 'normal',
-    steel: 'normal',   // steel vs earth = normal
+    spiky: 'normal',
   },
   water: {
     fire: 'normal',    // water beats fire
-    earth: 'resist',   // earth resists water
+    ghost: 'normal',
     water: 'heal',     // water heals water
     crystal: 'normal',
     wind: 'resist',    // wind resists water (blows it away)
     lightning: 'normal',
-    steel: 'normal',
+    spiky: 'normal',
   },
   crystal: {
     fire: 'resist',    // fire resists crystal (melts)
-    earth: 'normal',
+    ghost: 'normal',
     water: 'normal',
     crystal: 'heal',   // crystal heals crystal
     wind: 'normal',
     lightning: 'normal',
-    steel: 'normal',
+    spiky: 'normal',
   },
   wind: {
     fire: 'normal',
-    earth: 'resist',   // earth resists wind (too heavy)
+    ghost: 'normal',
     water: 'normal',   // wind beats water (evaporates)
     crystal: 'normal',
     wind: 'heal',      // wind heals wind
     lightning: 'normal',
-    steel: 'normal',
+    spiky: 'normal',
   },
   lightning: {
     fire: 'normal',
-    earth: 'resist',   // earth grounds lightning
+    ghost: 'normal',
     water: 'normal',   // lightning beats water
     crystal: 'normal',
     wind: 'normal',
     lightning: 'heal',
-    steel: 'normal',
+    spiky: 'normal',
   },
   steel: {
-    fire: 'normal',    // fire melts steel
-    earth: 'resist',   // steel beats earth
+    fire: 'normal',
+    ghost: 'resist',   // blades pass through ghosts
     water: 'normal',
     crystal: 'normal',
     wind: 'normal',
     lightning: 'normal',
-    steel: 'resist',   // steel vs steel = normal, not heal
+    spiky: 'normal',   // sword vs spiky handled in takeDamage
   },
 };
 
@@ -331,12 +331,12 @@ const BOSS_ITEMS = {
   deathsKey:      { name: "Death's Key",        icon: '🗝', color: '#a6f', desc: 'Once per run, revive at 50% HP.' },
   protectiveCharm:{ name: 'Protective Charm',  icon: '♣', color: '#4f4', desc: 'Halves affliction duration.' },
   charmFire:      { name: 'Fire Charm',        icon: '◈', color: '#f44', desc: 'Halves fire damage, immune to burn, 10% heal on fire kill.' },
-  charmEarth:     { name: 'Earth Charm',       icon: '◈', color: '#a67', desc: 'Halves earth damage, immune to heavy, 10% heal on earth kill.' },
+  charmGhost:     { name: 'Ghost Charm',       icon: '◈', color: '#a8e', desc: 'Halves ghost damage, immune to curse, 10% heal on ghost kill.' },
   charmWater:     { name: 'Water Charm',       icon: '◈', color: '#4af', desc: 'Halves water damage, immune to freeze, 10% heal on water kill.' },
   charmCrystal:   { name: 'Crystal Charm',     icon: '◈', color: '#0dd', desc: 'Halves crystal damage, immune to freeze, 10% heal on crystal kill.' },
   charmWind:      { name: 'Wind Charm',        icon: '◈', color: '#6b6', desc: 'Halves wind damage, immune to float, 10% heal on wind kill.' },
   charmLightning: { name: 'Lightning Charm',   icon: '◈', color: '#ff4', desc: 'Halves lightning damage, immune to paralyse, 10% heal on lightning kill.' },
-  charmSteel:     { name: 'Steel Charm',       icon: '◈', color: '#abb', desc: 'Halves steel damage, immune to steel, 10% heal on steel kill.' },
+  charmSpiky:     { name: 'Spiky Charm',       icon: '◈', color: '#f86', desc: 'Halves spiky damage, immune to bleed, 10% heal on spiky kill.' },
   leatherBoots:   { name: 'Leather Boots',     icon: '👢', color: '#a86', desc: '5% chance to evade attacks.' },
   friendsLetter:  { name: "A Friend's Letter", icon: '✉', color: '#fda', desc: "'I hope it will reach him.'" },
   theKunai:       { name: 'The Kunai',         icon: '🗡', color: '#f66', desc: 'Last shuriken is a kunai that always explodes. More shurikens = bigger blast.' },
@@ -346,12 +346,12 @@ const BOSS_ITEMS = {
 // Which item(s) each boss drops (first uncollected in order)
 const BOSS_ITEM_DROPS = {
   walker:     ['pickaxe', 'charmFire'],
-  shooter:    ['tripleShuriken', 'charmEarth'],
+  shooter:    ['tripleShuriken', 'charmGhost'],
   jumper:     ['leatherBoots', 'charmWater'],
   flyer:      ['homingShuriken', 'charmCrystal'],
   deflector:  ['friendsLetter', 'iaito', 'charmWind'],
   bouncer:    ['spikedArmor', 'x2Orb', 'charmLightning'],
-  shielded:   ['protectiveCharm', 'deathsKey', 'charmSteel'],
+  shielded:   ['protectiveCharm', 'deathsKey', 'charmSpiky'],
   protector:  ['redMagnet', 'theCode'],
   attacker:   ['vampireTeeth'],
   flyshooter: ['theKunai'],
