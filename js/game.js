@@ -515,23 +515,56 @@ class Game {
       return pool;
     };
 
-    const buckets = [];
-    for (let b = 0; b < 3; b++) {
+    const _makeBucket = () => {
       const pool = _basePool();
       const orbs = {};
       let remaining = budget;
       let elementCount = 0;
+      const slotCount = 1 + Math.floor(Math.random() * 2); // 1 or 2
+      const slots = [];
+      for (let s = 0; s < slotCount && pool.length > 0; s++) {
+        const type = _pick(pool);
+        if (!slots.includes(type)) slots.push(type);
+        const idx = pool.findIndex(p => p.type === type);
+        if (idx >= 0) pool.splice(idx, 1);
+      }
       for (let safety = 0; safety < 200 && remaining > 0; safety++) {
-        const affordable = pool.filter(p => {
-          if (ORB_META[p.type].cost > remaining) return false;
-          if (p.type === 'element' && elementCount >= 2) return false;
+        const affordable = slots.filter(t => {
+          if (ORB_META[t].cost > remaining) return false;
+          if (t === 'element' && elementCount >= 2) return false;
           return true;
         });
         if (!affordable.length) break;
-        const type = _pick(affordable);
+        const type = affordable[safety % affordable.length];
         orbs[type] = (orbs[type] || 0) + 1;
         remaining -= ORB_META[type].cost;
         if (type === 'element') elementCount++;
+      }
+      return orbs;
+    };
+
+    // Check if bucket a is dominated by bucket b (b has >= of every type in a)
+    const _dominated = (a, b) => {
+      for (const t of Object.keys(a)) {
+        if ((b[t] || 0) < a[t]) return false;
+      }
+      return true;
+    };
+
+    const buckets = [];
+    for (let b = 0; b < 3; b++) {
+      let orbs;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        orbs = _makeBucket();
+        // Ensure this bucket isn't dominated by any existing one,
+        // and no existing one is dominated by this one
+        let dominated = false;
+        for (const other of buckets) {
+          if (_dominated(orbs, other) || _dominated(other, orbs)) {
+            dominated = true; break;
+          }
+        }
+        if (!dominated) break;
       }
       buckets.push(orbs);
     }
