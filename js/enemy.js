@@ -2757,35 +2757,18 @@ class Boss extends Enemy {
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 20, 5, 25));
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
-    // Boss death does NOT count as a waveKill — but drops a few orbs
-    const count = game.wave + Math.floor(Math.random() * 3);
-    for (let i = 0; i < count; i++) {
-      const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 100;
-      const oy = this.y + (Math.random() - 0.5) * 100;
-      const r = Math.random();
-      let orbType;
-      if (r < 0.30) orbType = 'heal';
-      else if (r < 0.48) orbType = 'shield';
-      else if (r < 0.58) orbType = 'maxhp';
-      else if (r < 0.68) orbType = 'shuriken';
-      else if (r < 0.78) orbType = 'ultcharge';
-      else if (r < 0.84) orbType = 'damage';
-      else if (r < 0.87) orbType = 'elDmg';
-      else if (r < 0.91) orbType = 'speed';
-      else if (r < 0.95) orbType = 'reach';
-      else if (r < 0.98) orbType = 'armor';
-      else orbType = 'element';
-      game.orbs.push(new Orb(ox, oy, orbType));
-    }
-    // Drop boss item (any uncollected item)
+    // Auto-grant boss item (shown in bucket choice menu)
     const allItemIds = Object.keys(BOSS_ITEMS);
     const pl = game.player;
     const uncollected = allItemIds.filter(id => !pl.items[id]);
     if (uncollected.length > 0) {
       const itemId = uncollected[Math.floor(Math.random() * uncollected.length)];
-      const ix = this.x + this.w / 2 - 8;
-      const iy = this.y - 10;
-      game.bossItems.push(new BossItem(ix, iy, itemId));
+      pl.items[itemId] = true;
+      if (itemId === 'deathsKey') pl.deathsKeyUsed = false;
+      game.bossRewardItem = itemId;
+      recordItemFound(itemId);
+    } else {
+      game.bossRewardItem = null;
     }
   }
 
@@ -3207,13 +3190,13 @@ class Boss extends Enemy {
       ctx.fillRect(this.facing > 0 ? sx + this.w - 3 : sx, swordY - 3, 4, sw + 6);
     }
 
-    // Shield pips for boss
+    // Shield pips for boss (match HP bar width)
     if (this.shieldMax > 0) {
       const pipColor = this.bossType === 'protector' ? '#4f8' : '#5ff';
-      const pipW = 2;
-      const pipGap = 4;
-      const totalW = this.shieldMax * pipGap;
-      const pipStartX = sx + this.w / 2 - totalW / 2;
+      const barW = this.w + 20;
+      const pipW = Math.max(2, Math.floor(barW / this.shieldMax) - 1);
+      const pipGap = barW / this.shieldMax;
+      const pipStartX = sx + this.w / 2 - barW / 2;
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
         ctx.fillRect(pipStartX + i * pipGap, sy - 32, pipW, 3);
@@ -3276,11 +3259,6 @@ class Boss extends Enemy {
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.lineWidth = 1;
       ctx.strokeRect(barX, barY, barW, barH);
-      ctx.fillStyle = '#fff';
-      ctx.font = '8px monospace';
-      const hpText = `${Math.round(this.hp)}/${Math.round(this.maxHp)}`;
-      const htw = ctx.measureText(hpText).width;
-      ctx.fillText(hpText, sx + this.w / 2 - htw / 2, barY - 2);
     }
 
     // Restore fade alpha

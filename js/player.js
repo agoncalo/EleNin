@@ -189,7 +189,10 @@ class Player {
 
   // Mecha hand punch hit detection
   _mechaHandHit(game, g, hand) {
-    const hitBox = { x: hand.x - 32, y: hand.y - 32, w: 64, h: 64 };
+    // Hitbox spans from golem body top down to hand position for full coverage
+    const topY = Math.min(g.y, hand.y - 32);
+    const botY = Math.max(g.y + g.h, hand.y + 32);
+    const hitBox = { x: hand.x - 32, y: topY, w: 64, h: botY - topY };
     const dmg = (this.type.attackDamage + this.bonusElemental) * 3;
     const gcx = g.x + g.w / 2;
     for (const e of game.enemies) {

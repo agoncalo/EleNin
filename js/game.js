@@ -46,6 +46,8 @@ class Game {
     this.waveMessageTimer = 0;
     this.gameWon = false;
     this.itemPickupOverlay = null; // { itemId, timer }
+    this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
+    this.bossRewardItem = null;
 
     // Phrase system
     this.phraseText = '';
@@ -446,6 +448,117 @@ class Game {
     }
   }
 
+  // ── Orb Bucket Generation ──
+  _generateOrbBuckets() {
+    const pl = this.player;
+
+    // How far behind the expected curve is the player?
+    let cumDrops = 0;
+    for (let i = 0; i < this.wave && i < WAVE_DEFS.length; i++) {
+      cumDrops += WAVE_DEFS[i].killsForBoss + (i + 2);
+    }
+    const expectedAll = cumDrops * (0.10 + 0.36 + 0.10 + 0.06 + 0.03 + 0.04 + 0.04 + 0.03 + 0.02);
+    const actualAll = (pl.maxHp - 10) + pl.maxShield / 2 + (pl.maxShurikens - 3) +
+      pl.bonusDamage + pl.bonusElemental + pl.bonusSpeed + pl.bonusReach +
+      pl.bonusArmor + pl.bonusMana;
+    const deficit = Math.max(0, expectedAll - actualAll);
+    const deficitRatio = expectedAll > 0 ? Math.min(1, deficit / expectedAll) : 1;
+    const permTotal = pl.bonusDamage + pl.bonusElemental + pl.bonusSpeed + pl.bonusReach + pl.bonusArmor + pl.bonusMana;
+
+    // Orb pricing — element=50 is the reference unit
+    // Budget: 1 element minimum (50), 2 elements max (100) when no perms
+    // Scales up with wave and deficit
+    const baseBudget = 50 + this.wave * 8;
+    const budget = Math.round(baseBudget * (1 + deficitRatio * 0.6));
+
+    const ORB_META = {
+      heal:      { icon: '\u2665', color: '#f44', label: 'HP',       per: 3,  cost: 3 },
+      maxhp:     { icon: '+',  color: '#4f4', label: 'MAX HP',   per: 1,  cost: 8 },
+      shield:    { icon: '\u25c6', color: '#4af', label: 'SHIELD',   per: 2,  cost: 5 },
+      damage:    { icon: '!',  color: '#f80', label: 'ATK',      per: 1,  cost: 18 },
+      elDmg:     { icon: '\u2737', color: '#c4f', label: 'EL.DMG',  per: 1,  cost: 20 },
+      speed:     { icon: '\u00bb', color: '#0f0', label: 'SPD',      per: 1,  cost: 16 },
+      reach:     { icon: '\u2194', color: '#fa0', label: 'REACH',    per: 1,  cost: 16 },
+      armor:     { icon: '\u25a0', color: '#88f', label: 'ARMOR',    per: 1,  cost: 18 },
+      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKEN', per: 1,  cost: 8 },
+      ultcharge: { icon: '\u2605', color: '#ff0', label: 'ULT',      per: 50, cost: 6 },
+      element:   { icon: '\u25c8', color: '#f0f', label: 'SPECIAL',  per: 1,  cost: 50 },
+    };
+
+    // Filter useless orbs
+    const hpFull = pl.hp >= pl.maxHp;
+    const shieldFull = pl.maxShield > 0 && pl.shield >= pl.maxShield;
+    const ultFull = pl.ultimateReady || pl.ultimateActive || pl.ultimateCharge >= pl.ultimateMax;
+
+    const _pick = (pool) => {
+      const total = pool.reduce((s, p) => s + p.w, 0);
+      let r = Math.random() * total;
+      for (const p of pool) { r -= p.w; if (r <= 0) return p.type; }
+      return pool[pool.length - 1].type;
+    };
+
+    const rareBoost = 1 + deficitRatio * 3;
+    const _basePool = () => {
+      const pool = [];
+      if (!hpFull) pool.push({ type: 'heal', w: 20 });
+      pool.push({ type: 'maxhp', w: 14 });
+      if (!shieldFull) pool.push({ type: 'shield', w: 15 });
+      else pool.push({ type: 'shield', w: 4 });
+      pool.push({ type: 'shuriken', w: 12 });
+      if (!ultFull) pool.push({ type: 'ultcharge', w: 10 });
+      pool.push({ type: 'damage', w: 6 * rareBoost });
+      pool.push({ type: 'elDmg', w: 4 * rareBoost });
+      pool.push({ type: 'speed', w: 6 * rareBoost });
+      pool.push({ type: 'reach', w: 6 * rareBoost });
+      pool.push({ type: 'armor', w: 5 * rareBoost });
+      if (permTotal === 0) pool.push({ type: 'element', w: 6 * rareBoost });
+      return pool;
+    };
+
+    const buckets = [];
+    for (let b = 0; b < 3; b++) {
+      const pool = _basePool();
+      const orbs = {};
+      let remaining = budget;
+      let elementCount = 0;
+      for (let safety = 0; safety < 200 && remaining > 0; safety++) {
+        const affordable = pool.filter(p => {
+          if (ORB_META[p.type].cost > remaining) return false;
+          if (p.type === 'element' && elementCount >= 2) return false;
+          return true;
+        });
+        if (!affordable.length) break;
+        const type = _pick(affordable);
+        orbs[type] = (orbs[type] || 0) + 1;
+        remaining -= ORB_META[type].cost;
+        if (type === 'element') elementCount++;
+      }
+      buckets.push(orbs);
+    }
+    return { buckets, selected: 0, meta: ORB_META };
+  }
+
+  _applyOrbBucket(orbs) {
+    const pl = this.player;
+    for (const [type, count] of Object.entries(orbs)) {
+      for (let i = 0; i < count; i++) {
+        switch (type) {
+          case 'heal':      pl.hp = Math.min(pl.hp + 3, pl.maxHp); break;
+          case 'maxhp':     pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); break;
+          case 'shield':    pl.maxShield += 2; pl.shield = Math.min(pl.shield + 3, pl.maxShield); break;
+          case 'damage':    pl.bonusDamage += 1; break;
+          case 'elDmg':     pl.bonusElemental += 1; break;
+          case 'speed':     pl.bonusSpeed += 1; break;
+          case 'reach':     pl.bonusReach += 1; break;
+          case 'armor':     pl.bonusArmor += 1; break;
+          case 'shuriken':  pl.maxShurikens += 1; pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens); break;
+          case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50); break;
+          case 'element':   pl.bonusMana += 1; pl.maxMana += 1; pl.mana = pl.maxMana; break;
+        }
+      }
+    }
+  }
+
   advanceWave() {
     if (this.wave >= TOTAL_WAVES) {
       if (this.cheated) {
@@ -527,6 +640,27 @@ class Game {
       return;
     }
 
+    // Orb bucket choice menu
+    if (this.orbBucketChoice) {
+      const obc = this.orbBucketChoice;
+      if (obc.delay > 0) {
+        obc.delay--;
+        // Consume stale inputs during delay
+        consumePress('ArrowLeft'); consumePress('KeyA');
+        consumePress('ArrowRight'); consumePress('KeyD');
+        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
+      } else {
+        if (consumePress('ArrowLeft') || consumePress('KeyA')) obc.selected = (obc.selected + 2) % 3;
+        if (consumePress('ArrowRight') || consumePress('KeyD')) obc.selected = (obc.selected + 1) % 3;
+        if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
+          this._applyOrbBucket(obc.buckets[obc.selected]);
+          this.orbBucketChoice = null;
+          this.advanceWave();
+        }
+      }
+      return;
+    }
+
     // Ninja switching
     if (consumePress('Digit1')) this.player.switchNinja('fire');
     if (consumePress('Digit2')) this.player.switchNinja('earth');
@@ -548,46 +682,36 @@ class Game {
       this.player.switchNinja(NINJA_ORDER[(idx + 1) % 7]);
     }
 
-    // Cheat: + to skip wave
+    // Cheat: + to skip wave (grant average stats for the wave being skipped)
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       this.cheated = true;
       recordCheatUsed();
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
-      // Grant average stats for the wave being skipped
       const waveDef = WAVE_DEFS[this.wave - 1];
       if (waveDef) {
-        const kills = waveDef.killsForBoss;
-        // Orb drop rates per kill: 0.13 maxhp, 0.10 damage, 0.08 shield, 0.12 shuriken
         const pl = this.player;
-        const avgMaxHp = Math.round(kills * 0.13);
-        const avgDmg = Math.round(kills * 0.10);
-        const avgShield = Math.round(kills * 0.08);
-        const avgShuriken = Math.round(kills * 0.12);
-        const avgSpeed = Math.round(kills * 0.04);
-        const avgReach = Math.round(kills * 0.04);
-        const avgUlt = Math.round(kills * 0.04) * 50;
-        const avgArmor = Math.round(kills * 0.04);
-        pl.maxHp += avgMaxHp;
-        pl.hp = Math.min(pl.hp + avgMaxHp, pl.maxHp);
-        pl.bonusDamage += avgDmg;
-        pl.bonusElemental += avgDmg;
-        pl.maxShield += avgShield * 2;
-        pl.shield = Math.min(pl.shield + avgShield * 3, pl.maxShield);
-        pl.maxShurikens += avgShuriken;
-        pl.shurikens = pl.maxShurikens;
-        pl.bonusSpeed += avgSpeed;
-        pl.bonusReach += avgReach;
-        pl.bonusArmor += avgArmor;
-        // Mana: +1 max and refill
-        pl.bonusMana += 1;
-        pl.maxMana += 1;
-        pl.mana = pl.maxMana;
-        // Assume one ultimate activation per wave: scale requirement and refill
-        pl.ultimateMax = Math.round(pl.ultimateMax * 1.2);
-        pl.ultimateCharge = 0;
-        pl.ultimateReady = false;
+        const kills = waveDef.killsForBoss;
+        const bossOrbs = this.wave + 1; // avg boss orb count (wave + random 0-2)
+        const drops = kills + bossOrbs;
+        // Actual drop table rates × orb stat values per drop
+        pl.maxHp          += Math.round(drops * 0.10);  // maxhp: 10% × +1
+        pl.hp              = pl.maxHp;
+        pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
+        pl.bonusElemental += Math.round(drops * 0.03);  // elDmg: 3% × +1
+        pl.maxShield      += Math.round(drops * 0.18) * 2; // shield: 18% × +2
+        pl.shield          = pl.maxShield;
+        pl.maxShurikens   += Math.round(drops * 0.10);  // shuriken: 10% × +1
+        pl.shurikens       = pl.maxShurikens;
+        pl.bonusSpeed     += Math.round(drops * 0.04);  // speed: 4% × +1
+        pl.bonusReach     += Math.round(drops * 0.04);  // reach: 4% × +1
+        pl.bonusArmor     += Math.round(drops * 0.03);  // armor: 3% × +1
+        pl.bonusMana      += Math.round(drops * 0.02);  // element: 2% × +1
+        pl.maxMana        += Math.round(drops * 0.02);
+        pl.mana            = pl.maxMana;
+        pl.ultimateCharge  = 0;
+        pl.ultimateReady   = false;
       }
-      // Give a random uncollected item
+      // Give a random uncollected boss item
       const allItemKeys = Object.keys(BOSS_ITEMS);
       const uncollected = allItemKeys.filter(k => !this.player.items[k]);
       if (uncollected.length > 0) {
@@ -610,34 +734,34 @@ class Game {
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
       this.cheated = true;
       recordCheatUsed();
-      // Set player stats to average for end of current wave
       const pl = this.player;
-      const _ehp = [0,16,24,34,46,60,73,89,107,127,148];
-      const _arm = [0,1,2,4,6,8,10,13,15,18,21];
-      const w = Math.min(this.wave, 10);
-      // Cumulative kills up to this wave
-      let cumKills = 0;
-      for (let i = 0; i < this.wave && i < WAVE_DEFS.length; i++) cumKills += WAVE_DEFS[i].killsForBoss;
-      const avgMaxHp = 10 + Math.round(cumKills * 0.13);
-      const avgShieldMax = Math.round(cumKills * 0.08) * 2;
-      const avgDmg = Math.round(cumKills * 0.10);
-      const avgShuriken = Math.round(cumKills * 0.12);
-      const avgSpeed = Math.round(cumKills * 0.04);
-      const avgReach = Math.round(cumKills * 0.04);
-      const avgArmor = _arm[w] || 21;
-      pl.maxHp = avgMaxHp;
-      pl.hp = avgMaxHp;
-      pl.maxShield = avgShieldMax;
-      pl.shield = avgShieldMax;
-      pl.bonusDamage = avgDmg;
-      pl.bonusElemental = avgDmg;
-      pl.maxShurikens = 3 + avgShuriken;
-      pl.shurikens = pl.maxShurikens;
-      pl.bonusSpeed = avgSpeed;
-      pl.bonusReach = avgReach;
-      pl.bonusArmor = avgArmor;
+      // Total orb sources: completed waves (enemies + boss orbs) + current wave enemies
+      let totalDrops = 0;
+      for (let i = 0; i < this.wave - 1 && i < WAVE_DEFS.length; i++) {
+        totalDrops += WAVE_DEFS[i].killsForBoss + (i + 2); // enemies + avg boss orbs (wave i+1, avg = i+2)
+      }
+      if (this.wave - 1 < WAVE_DEFS.length) {
+        totalDrops += WAVE_DEFS[this.wave - 1].killsForBoss; // current wave enemies only (boss not fought)
+      }
+      // Set absolute stats: base + average gains from all drops
+      pl.maxHp          = 10 + Math.round(totalDrops * 0.10);  // base 10 + maxhp orbs
+      pl.hp             = pl.maxHp;
+      pl.displayHp      = pl.maxHp;
+      pl.bonusDamage    = Math.round(totalDrops * 0.06);
+      pl.bonusElemental = Math.round(totalDrops * 0.03);
+      pl.maxShield      = Math.round(totalDrops * 0.18) * 2;
+      pl.shield         = pl.maxShield;
+      pl.displayShield  = pl.maxShield;
+      pl.maxShurikens   = 3 + Math.round(totalDrops * 0.10);  // base 3
+      pl.shurikens      = pl.maxShurikens;
+      pl.bonusSpeed     = Math.round(totalDrops * 0.04);
+      pl.bonusReach     = Math.round(totalDrops * 0.04);
+      pl.bonusArmor     = Math.round(totalDrops * 0.03);
+      pl.bonusMana      = Math.round(totalDrops * 0.02);
+      pl.maxMana        = 2 + pl.bonusMana;
+      pl.mana           = pl.maxMana;
       pl.ultimateCharge = 0;
-      pl.ultimateReady = false;
+      pl.ultimateReady  = false;
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
@@ -733,8 +857,11 @@ class Game {
           this.spawnEnemy();
         }
       }
-      if (this.boss && this.boss.dead) {
-        this.advanceWave();
+      if (this.boss && this.boss.dead && !this.orbBucketChoice) {
+        this.orbBucketChoice = this._generateOrbBuckets();
+        this.orbBucketChoice.delay = 120; // 3 second delay before selection allowed
+        this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
+        this.bossRewardItem = null;
       }
     }
 
@@ -2269,6 +2396,19 @@ class Game {
     const t = pl.type;
     const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
+    // Timer (top left)
+    {
+      const totalSec = Math.floor(this.tick / 60);
+      const min = Math.floor(totalSec / 60);
+      const sec = totalSec % 60;
+      const timeStr = min + ':' + (sec < 10 ? '0' : '') + sec;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(4, 4, 52, 18);
+      ctx.fillStyle = '#ccc';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(timeStr, 10, 17);
+    }
+
     // Ninja bar at top, status bars stacked up from bottom
     const ninjaBarY = 4;
     const gap = 6;
@@ -2606,16 +2746,36 @@ class Game {
       ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
 
-    // Boss name label (top center)
+    // Boss HUD (top center): HP bar matching progress bar size
     if (this.boss && !this.boss.dead) {
-      ctx.fillStyle = '#f44';
-      ctx.font = 'bold 12px monospace';
-      const bossLabel = `${this.boss.name} [${this.wave}/${TOTAL_WAVES}]`;
-      const blw = ctx.measureText(bossLabel).width;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(CANVAS_W / 2 - blw / 2 - 6, 36, blw + 12, 20);
-      ctx.fillStyle = '#f44';
-      ctx.fillText(bossLabel, CANVAS_W / 2 - blw / 2, 50);
+      const b = this.boss;
+      const pbW = 400, pbH = 18;
+      const pbX = CANVAS_W / 2 - pbW / 2;
+      const pbY = 38;
+      const hpRatio = b.hp / b.maxHp;
+      const displayRatio = b.displayHp / b.maxHp;
+      // Background
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
+      ctx.fillStyle = '#222';
+      ctx.fillRect(pbX, pbY, pbW, pbH);
+      // Trailing damage bar
+      if (displayRatio > hpRatio) {
+        ctx.fillStyle = '#f84';
+        ctx.fillRect(pbX, pbY, pbW * displayRatio, pbH);
+      }
+      // HP fill
+      ctx.fillStyle = b.phase === 2 ? '#f22' : '#e44';
+      ctx.fillRect(pbX, pbY, pbW * hpRatio, pbH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pbX, pbY, pbW, pbH);
+      // Boss name label on top of bar
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px monospace';
+      const bossLabel = `${b.name} [${this.wave}/${TOTAL_WAVES}]`;
+      const tw = ctx.measureText(bossLabel).width;
+      ctx.fillText(bossLabel, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
 
     // Map transition overlay
@@ -2812,6 +2972,103 @@ class Game {
         }
         if (line) ctx.fillText(line, boxX + 52, lineY);
         ctx.globalAlpha = 1;
+      }
+    }
+
+    // Orb bucket choice overlay
+    if (this.orbBucketChoice) {
+      const obc = this.orbBucketChoice;
+      const meta = obc.meta;
+      // Darken
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      // Boss item reward (shown at top)
+      let headerH = 80;
+      if (obc.rewardItem) {
+        const def = BOSS_ITEMS[obc.rewardItem];
+        if (def) {
+          headerH = 110;
+          // Item box
+          const ibW = 340, ibH = 50;
+          const ibX = CANVAS_W / 2 - ibW / 2, ibY = 45;
+          ctx.fillStyle = 'rgba(0,0,0,0.7)';
+          ctx.fillRect(ibX, ibY, ibW, ibH);
+          ctx.strokeStyle = def.color;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(ibX, ibY, ibW, ibH);
+          // Icon
+          ctx.shadowColor = def.color;
+          ctx.shadowBlur = 10;
+          drawItemIcon(ctx, obc.rewardItem, ibX + 24, ibY + ibH / 2, 28, def.color);
+          ctx.shadowBlur = 0;
+          // Name
+          ctx.fillStyle = def.color;
+          ctx.font = 'bold 13px monospace';
+          ctx.fillText(def.name, ibX + 46, ibY + 20);
+          // Description
+          ctx.fillStyle = '#ccc';
+          ctx.font = '10px monospace';
+          ctx.fillText(def.desc, ibX + 46, ibY + 36);
+        }
+      }
+      // Title
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px monospace';
+      const title = 'Choose Your Reward';
+      const titleW = ctx.measureText(title).width;
+      ctx.fillText(title, CANVAS_W / 2 - titleW / 2, headerH + 20);
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#aaa';
+      const sub = obc.delay > 0
+        ? '...' + Math.ceil(obc.delay / 60)
+        : '\u2190 A/D \u2192 to browse, Z/Enter to pick';
+      const subW = ctx.measureText(sub).width;
+      ctx.fillText(sub, CANVAS_W / 2 - subW / 2, headerH + 40);
+      // Draw 3 buckets
+      const boxW = 200, boxH = 200, boxGap = 30;
+      const totalW = boxW * 3 + boxGap * 2;
+      const startX = CANVAS_W / 2 - totalW / 2;
+      const startY = headerH + 56;
+      for (let b = 0; b < 3; b++) {
+        const bx = startX + b * (boxW + boxGap);
+        const by = startY;
+        const isSel = b === obc.selected;
+        // Box bg
+        ctx.fillStyle = isSel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.6)';
+        ctx.fillRect(bx, by, boxW, boxH);
+        ctx.strokeStyle = isSel ? '#ff0' : '#555';
+        ctx.lineWidth = isSel ? 3 : 1;
+        ctx.strokeRect(bx, by, boxW, boxH);
+        // Bucket number
+        ctx.fillStyle = isSel ? '#ff0' : '#888';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText((b + 1) + '', bx + boxW / 2 - 4, by + 20);
+        // Orb entries — sorted by rarity (rarest first)
+        const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','shield','heal'];
+        const entries = Object.entries(obc.buckets[b])
+          .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
+        let ey = by + 38;
+        for (const [type, count] of entries) {
+          const m = meta[type];
+          if (!m) continue;
+          const totalVal = count * m.per;
+          // Icon
+          ctx.fillStyle = m.color;
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText(m.icon, bx + 14, ey + 5);
+          // Label
+          ctx.fillStyle = m.color;
+          ctx.font = '12px monospace';
+          const valStr = '+' + totalVal + ' ' + m.label;
+          ctx.fillText(valStr, bx + 36, ey + 4);
+          // Count hint
+          if (count > 1) {
+            ctx.fillStyle = '#888';
+            ctx.font = '10px monospace';
+            ctx.fillText('x' + count, bx + boxW - 30, ey + 4);
+          }
+          ey += 24;
+        }
       }
     }
 
