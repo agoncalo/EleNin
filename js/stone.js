@@ -256,7 +256,7 @@ class EarthBoulder {
           break;
         }
       }
-      if (this.hoverTimer <= 0) this.hovering = false;
+      if (this.hoverTimer <= 0) { this.hp = 0; this.explode(game); }
       return;
     }
     if (this.launched) {

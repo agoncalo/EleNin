@@ -1709,17 +1709,34 @@ class Player {
             } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
               let nearest = null, nd = Infinity;
               const bcx = b.x + b.w / 2;
+              const bcy = b.y + b.h / 2;
+              // Line-of-sight check: ensure no thick platform blocks the path
+              const hasLOS = (tx, ty) => {
+                const dx = tx - bcx, dy = ty - bcy;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                const steps = Math.ceil(dist / TILE);
+                for (let i = 1; i < steps; i++) {
+                  const t = i / steps;
+                  const px = bcx + dx * t, py = bcy + dy * t;
+                  for (const pl of game.platforms) {
+                    if (pl.thin) continue;
+                    if (px >= pl.x && px <= pl.x + pl.w && py >= pl.y && py <= pl.y + pl.h) return false;
+                  }
+                }
+                return true;
+              };
               for (const e of game.enemies) {
                 if (e.done) continue;
-                const ex = e.x + e.w / 2;
+                const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
                 if ((ex - bcx) * this.facing < 0) continue;
-                const d = Math.hypot(ex - bcx, e.y + e.h / 2 - b.y);
+                if (!hasLOS(ex, ey)) continue;
+                const d = Math.hypot(ex - bcx, ey - bcy);
                 if (d < nd) { nd = d; nearest = e; }
               }
               if (game.boss && !game.boss.done) {
-                const bx = game.boss.x + game.boss.w / 2;
-                if ((bx - bcx) * this.facing >= 0) {
-                  const d = Math.hypot(bx - bcx, game.boss.y + game.boss.h / 2 - b.y);
+                const bx = game.boss.x + game.boss.w / 2, by = game.boss.y + game.boss.h / 2;
+                if ((bx - bcx) * this.facing >= 0 && hasLOS(bx, by)) {
+                  const d = Math.hypot(bx - bcx, by - bcy);
                   if (d < nd) { nd = d; nearest = game.boss; }
                 }
               }
