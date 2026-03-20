@@ -2606,24 +2606,16 @@ class Game {
       ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
 
-    // Boss HP bar (top center)
+    // Boss name label (top center)
     if (this.boss && !this.boss.dead) {
-      const bw = 300;
-      const bx = CANVAS_W / 2 - bw / 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(bx - 4, 34, bw + 8, 24);
       ctx.fillStyle = '#f44';
       ctx.font = 'bold 12px monospace';
       const bossLabel = `${this.boss.name} [${this.wave}/${TOTAL_WAVES}]`;
-      ctx.fillText(bossLabel, bx, 48);
-      const labelW = ctx.measureText(bossLabel).width + 8;
-      ctx.fillStyle = '#400';
-      ctx.fillRect(bx + labelW, 38, bw - labelW, 14);
-      ctx.fillStyle = this.boss.phase === 2 ? '#f22' : '#e44';
-      ctx.fillRect(bx + labelW, 38, (bw - labelW) * (this.boss.hp / this.boss.maxHp), 14);
-      ctx.fillStyle = '#fff';
-      ctx.font = '10px monospace';
-      ctx.fillText(`${Math.round(this.boss.hp)}/${Math.round(this.boss.maxHp)}`, bx + bw - 55, 49);
+      const blw = ctx.measureText(bossLabel).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(CANVAS_W / 2 - blw / 2 - 6, 36, blw + 12, 20);
+      ctx.fillStyle = '#f44';
+      ctx.fillText(bossLabel, CANVAS_W / 2 - blw / 2, 50);
     }
 
     // Map transition overlay

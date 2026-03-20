@@ -11,6 +11,7 @@ class Enemy {
     this.vx = 0; this.vy = 0;
     this.hp = (big ? base.hp * 4 : base.hp) * this.wave;
     this.maxHp = this.hp;
+    this.displayHp = this.hp;
     // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
@@ -93,6 +94,7 @@ class Enemy {
 
   update(game) {
     if (this.dead) return;
+    this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
@@ -324,7 +326,7 @@ class Enemy {
           if (this.x >= this.patrolRight) this.facing = -1;
         }
         // Lunge at player if facing them and close
-        if (this.vy >= 0 && this.vy < 1) {
+        if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
           const wDist = Math.abs(px - cx);
           const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
@@ -489,7 +491,7 @@ class Enemy {
             if (this.x <= this.patrolLeft) this.facing = 1;
             if (this.x >= this.patrolRight) this.facing = -1;
           }
-          if (this.vy >= 0 && this.vy < 1) {
+          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
             const wDist = Math.abs(px - cx);
             const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
             if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
@@ -638,7 +640,7 @@ class Enemy {
             if (this.x <= this.patrolLeft) this.facing = 1;
             if (this.x >= this.patrolRight) this.facing = -1;
           }
-          if (this.vy >= 0 && this.vy < 1) {
+          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
             const wDist = Math.abs(px - cx);
             const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
             if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
@@ -1011,7 +1013,7 @@ class Enemy {
           const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
           const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
-            if (facingPlayer && this.vy >= 0 && this.vy < 1) {
+            if (!playerStealthed && facingPlayer && this.vy >= 0 && this.vy < 1) {
               this.vy = -8;
               this.vx = this.facing * speed * 2.5;
             } else {
@@ -1838,12 +1840,21 @@ class Enemy {
       ctx.fillRect(this.facing > 0 ? sx + this.w - 2 : sx, swordY - 2, 3, sw + 4);
     }
 
-    // HP bar
+    // HP bar (floating above head)
     if (this.hp < this.maxHp) {
+      const barW = this.w + 6;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - 10;
       ctx.fillStyle = '#400';
-      ctx.fillRect(sx, sy - 8, this.w, 4);
+      ctx.fillRect(barX, barY, barW, 4);
+      const displayRatio = this.displayHp / this.maxHp;
+      const hpRatio = this.hp / this.maxHp;
+      if (displayRatio > hpRatio) {
+        ctx.fillStyle = '#f84';
+        ctx.fillRect(barX, barY, barW * displayRatio, 4);
+      }
       ctx.fillStyle = '#f44';
-      ctx.fillRect(sx, sy - 8, this.w * (this.hp / this.maxHp), 4);
+      ctx.fillRect(barX, barY, barW * hpRatio, 4);
     }
 
     // Shield pips
@@ -1855,7 +1866,7 @@ class Enemy {
       const pipStartX = sx + this.w / 2 - totalW / 2;
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
-        ctx.fillRect(pipStartX + i * pipGap, sy - 14, pipW, 3);
+        ctx.fillRect(pipStartX + i * pipGap, sy - 16, pipW, 3);
       }
     }
 
@@ -1894,6 +1905,7 @@ class Boss extends Enemy {
     if (bossType === 'attacker') this.hp = Math.max(this.hp, 500);
     if (bossType === 'flyshooter') this.hp = Math.max(this.hp, 1000);
     this.maxHp = this.hp;
+    this.displayHp = this.hp;
     // Override contact damage — boss takes 3 hits to kill player
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(wave, 10)] || 21;
@@ -1945,6 +1957,7 @@ class Boss extends Enemy {
 
   update(game) {
     if (this.dead) return;
+    this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.hitCooldown > 0) this.hitCooldown--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.damageIframes > 0) this.damageIframes--;
@@ -2090,13 +2103,14 @@ class Boss extends Enemy {
     // Soak decay
     if (this.soakTimer > 0) this.soakTimer--;
 
-    const px = game.player.x + game.player.w / 2;
-    const py = game.player.y + game.player.h / 2;
+    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
+    const py = playerStealthed ? this.y : (game.player.y + game.player.h / 2);
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const dx = px - cx;
     const dy = py - cy;
-    this.facing = dx > 0 ? 1 : -1;
+    if (!playerStealthed) this.facing = dx > 0 ? 1 : -1;
     this.stateTimer++;
     this.actionTimer++;
 
@@ -2744,12 +2758,24 @@ class Boss extends Enemy {
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
     // Boss death does NOT count as a waveKill — but drops a few orbs
-    const orbTypes = ['heal', 'maxhp', 'damage', 'elDmg', 'shield', 'shuriken', 'speed', 'reach', 'ultcharge', 'armor'];
-    const count = 3 * game.wave + Math.floor(Math.random() * 3); // 3-5 orbs
+    const count = game.wave + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
       const ox = this.x + this.w / 2 - 5 + (Math.random() - 0.5) * 100;
       const oy = this.y + (Math.random() - 0.5) * 100;
-      game.orbs.push(new Orb(ox, oy, orbTypes[Math.floor(Math.random() * orbTypes.length)]));
+      const r = Math.random();
+      let orbType;
+      if (r < 0.30) orbType = 'heal';
+      else if (r < 0.48) orbType = 'shield';
+      else if (r < 0.58) orbType = 'maxhp';
+      else if (r < 0.68) orbType = 'shuriken';
+      else if (r < 0.78) orbType = 'ultcharge';
+      else if (r < 0.84) orbType = 'damage';
+      else if (r < 0.87) orbType = 'elDmg';
+      else if (r < 0.91) orbType = 'speed';
+      else if (r < 0.95) orbType = 'reach';
+      else if (r < 0.98) orbType = 'armor';
+      else orbType = 'element';
+      game.orbs.push(new Orb(ox, oy, orbType));
     }
     // Drop boss item (any uncollected item)
     const allItemIds = Object.keys(BOSS_ITEMS);
@@ -3151,7 +3177,7 @@ class Boss extends Enemy {
     if (this.phase === 2) {
       ctx.fillStyle = '#f44';
       ctx.font = '10px monospace';
-      ctx.fillText('ENRAGED!', sx + this.w / 2 - 28, sy - 14);
+      ctx.fillText('ENRAGED!', sx + this.w / 2 - 28, sy - 34);
     }
 
     // Crystal ninja: melee warning "!"
@@ -3190,7 +3216,7 @@ class Boss extends Enemy {
       const pipStartX = sx + this.w / 2 - totalW / 2;
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
-        ctx.fillRect(pipStartX + i * pipGap, sy - 18, pipW, 3);
+        ctx.fillRect(pipStartX + i * pipGap, sy - 32, pipW, 3);
       }
     }
 
@@ -3230,6 +3256,33 @@ class Boss extends Enemy {
       }
       ctx.restore();
     }
+
+    // Boss HP bar (above head)
+    {
+      const barW = this.w + 20;
+      const barH = 6;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - 24;
+      ctx.fillStyle = '#400';
+      ctx.fillRect(barX, barY, barW, barH);
+      const displayRatio = this.displayHp / this.maxHp;
+      const hpRatio = this.hp / this.maxHp;
+      if (displayRatio > hpRatio) {
+        ctx.fillStyle = '#f84';
+        ctx.fillRect(barX, barY, barW * displayRatio, barH);
+      }
+      ctx.fillStyle = this.phase === 2 ? '#f22' : '#e44';
+      ctx.fillRect(barX, barY, barW * hpRatio, barH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#fff';
+      ctx.font = '8px monospace';
+      const hpText = `${Math.round(this.hp)}/${Math.round(this.maxHp)}`;
+      const htw = ctx.measureText(hpText).width;
+      ctx.fillText(hpText, sx + this.w / 2 - htw / 2, barY - 2);
+    }
+
     // Restore fade alpha
     if (_fading) ctx.restore();
   }
