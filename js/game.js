@@ -511,7 +511,7 @@ class Game {
       pool.push({ type: 'speed', w: 6 * rareBoost });
       pool.push({ type: 'reach', w: 6 * rareBoost });
       pool.push({ type: 'armor', w: 5 * rareBoost });
-      if (permTotal === 0) pool.push({ type: 'element', w: 6 * rareBoost });
+      pool.push({ type: 'element', w: 6 * rareBoost });
       return pool;
     };
 
@@ -532,6 +532,8 @@ class Game {
         const affordable = slots.filter(t => {
           if (ORB_META[t].cost > remaining) return false;
           if (t === 'element' && elementCount >= 2) return false;
+          // Don't offer more heal than missing HP
+          if (t === 'heal' && (orbs['heal'] || 0) * 3 >= pl.maxHp - pl.hp) return false;
           return true;
         });
         if (!affordable.length) break;
