@@ -78,6 +78,7 @@ class Enemy {
     this._dashVx = 0;
     this._dashVy = 0;
     this.knockbackTimer = 0;
+    this.stunTimer = 0;
     // Attacker state
     this.attackerInvulnerable = (type === 'attacker');
     // Protector: always huge
@@ -344,7 +345,8 @@ class Enemy {
       if (towardPlayer) windResist = 0.45;
     }
 
-    switch (this.type) {
+    if (this.stunTimer > 0) { this.stunTimer--; this.vx *= 0.9; }
+    else switch (this.type) {
       case 'walker':
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         this.vx = this.facing * speed * windResist;
@@ -445,16 +447,17 @@ class Enemy {
             const dx = px - cx;
             const dy = py - cy;
             const spread = (Math.random() - 0.5) * 1.2;
-            const lobSpd = 5.5 + Math.random() * 1.5;
+            const lobSpd = (5.5 + Math.random() * 1.5) * 0.65;
             const aimAngle = Math.atan2(dy, Math.abs(dx));
             // Bias upward: use an angle between aimed and -70°
             const highAngle = Math.min(aimAngle, -Math.PI * 0.25) - Math.PI * 0.1;
             const dir = dx > 0 ? 1 : -1;
             const shots = this.big ? 2 : 1;
             for (let si = 0; si < shots; si++) {
-              const sSpread = spread + si * dir * 0.8;
-              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5), this.element ? this.elementColors.accent : '#f6f', this.contactDmg, 'enemy');
+              const sSpread = (spread + si * dir * 0.8) * 0.65;
+              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5 * 0.65), this.element ? this.elementColors.accent : '#f6f', this.contactDmg, 'enemy');
               p.bouncy = true;
+              p.gravScale = 0.42;
               if (this.element) p.element = this.element;
               game.projectiles.push(p);
             }
@@ -484,13 +487,22 @@ class Enemy {
             if (this.chargeTimer >= 18) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 80;
+              this.chargeCooldown = 140;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
             this.chargeTimer++;
             if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+              this.chargeState = 'stunned';
+              this.chargeTimer = 0;
+              this.vx = 0;
+            }
+          } else if (this.chargeState === 'stunned') {
+            this.vx = 0;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 180) {
               this.chargeState = 'idle';
+              this.chargeCooldown = 140;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -498,7 +510,7 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 15 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 80;
+              this.chargeCooldown = 140;
               this.vx = 0;
             }
           } else {
@@ -635,13 +647,22 @@ class Enemy {
             if (this.chargeTimer >= 20) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 100;
+              this.chargeCooldown = 160;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
             this.chargeTimer++;
             if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+              this.chargeState = 'stunned';
+              this.chargeTimer = 0;
+              this.vx = 0;
+            }
+          } else if (this.chargeState === 'stunned') {
+            this.vx = 0;
+            this.chargeTimer++;
+            if (this.chargeTimer >= 180) {
               this.chargeState = 'idle';
+              this.chargeCooldown = 160;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -649,7 +670,7 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 18 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 100;
+              this.chargeCooldown = 160;
               this.vx = 0;
             }
           } else {
@@ -1170,9 +1191,9 @@ class Enemy {
         }
       }
     }
-    // Shielded / Protector: only swords remove shield pips
+    // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
-    if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'boulder') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
       const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
@@ -1185,6 +1206,9 @@ class Enemy {
       ));
       if (this.shieldHp <= 0) {
         this.shieldHp = 0;
+        this.stunTimer = Math.max(this.stunTimer, 90);
+        this.chargeState = 'idle';
+        this.chargeTimer = 0;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
@@ -1198,8 +1222,8 @@ class Enemy {
     const isBoss = this instanceof Boss;
     let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
-    if (sourceType === 'sword') {
-      // Sword hits: heavy knockback scaled inversely by weight
+    if (sourceType === 'sword' || sourceType === 'boulder') {
+      // Sword/boulder hits: heavy knockback scaled inversely by weight
       const swordKB = 14 / weight;
       this.vx = dir * swordKB;
       this.knockbackTimer = Math.max(this.knockbackTimer, Math.ceil(10 / weight));
@@ -1706,6 +1730,18 @@ class Enemy {
             ctx.font = 'bold 14px monospace';
             ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
             ctx.globalAlpha = 1;
+          } else if (this.chargeState === 'stunned') {
+            // Dizzy stars
+            const scx = sx + this.w / 2, scy = sy - 4;
+            ctx.save();
+            ctx.font = '10px monospace';
+            ctx.fillStyle = '#ff0';
+            for (let i = 0; i < 3; i++) {
+              const a = (game.tick * 0.08) + i * (Math.PI * 2 / 3);
+              ctx.globalAlpha = 0.6 + 0.3 * Math.sin(game.tick * 0.15 + i);
+              ctx.fillText('*', scx + Math.cos(a) * 12 - 3, scy + Math.sin(a) * 6);
+            }
+            ctx.restore();
           } else if (this.chargeState === 'charging') {
             const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
             const ang = Math.atan2(this._chargeVy, this._chargeVx);
@@ -2072,6 +2108,19 @@ class Enemy {
         }
       }
     }
+    // General stun stars (boulders, slams, meteors, etc.)
+    if (this.stunTimer > 0) {
+      const scx = sx + this.w / 2, scy = sy - 4;
+      ctx.save();
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#ff0';
+      for (let i = 0; i < 3; i++) {
+        const a = (game.tick * 0.08) + i * (Math.PI * 2 / 3);
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(game.tick * 0.15 + i);
+        ctx.fillText('*', scx + Math.cos(a) * 12 - 3, scy + Math.sin(a) * 6);
+      }
+      ctx.restore();
+    }
     if (spawning) ctx.restore();
   }
 }
@@ -2378,6 +2427,7 @@ class Boss extends Enemy {
         }
       } else {
       if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; }
+      else if (this.stunTimer > 0) { this.stunTimer--; this.vx *= 0.9; this.vy *= 0.9; }
       else {
       if (this.flyerDashCooldown > 0) this.flyerDashCooldown--;
 
@@ -2478,12 +2528,13 @@ class Boss extends Enemy {
                 for (let si = 0; si < shots; si++) {
                   const spread = (si - (shots - 1) / 2) * 0.2;
                   const dir = dx > 0 ? 1 : -1;
-                  const lobSpd = 6 + Math.random() * 1.5;
+                  const lobSpd = (6 + Math.random() * 1.5) * 0.65;
                   const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
-                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread;
+                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread * 0.65;
                   const bvy = Math.sin(highAngle) * lobSpd;
                   const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
                   p.bouncy = true;
+                  p.gravScale = 0.42;
                   p.w = 8; p.h = 8;
                   p.bouncesLeft = this.phase === 2 ? 5 : 3;
                   p.life = 200;
@@ -2523,6 +2574,7 @@ class Boss extends Enemy {
     } else {
       // Ground boss AI — type-specific behavior
       if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; }
+      else if (this.stunTimer > 0) { this.stunTimer--; this.vx *= 0.9; }
       else {
       const isDeflector = (this.bossType === 'deflector');
       const isProtector = (this.bossType === 'protector');
@@ -2614,7 +2666,15 @@ class Boss extends Enemy {
           this.vx *= 0.88;
           this.chargeTimer++;
           if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+            this.chargeState = 'stunned';
+            this.chargeTimer = 0;
+            this.vx = 0;
+          }
+        } else if (this.chargeState === 'stunned') {
+          this.chargeTimer++;
+          if (this.chargeTimer >= 180) {
             this.chargeState = 'idle';
+            this.chargeCooldown = 70;
           }
         } else if (this.chargeState === 'recoil') {
           const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -2677,7 +2737,15 @@ class Boss extends Enemy {
           this.vx *= 0.88;
           this.chargeTimer++;
           if (this.chargeTimer >= 20 || Math.abs(this.vx) < 0.5) {
+            this.chargeState = 'stunned';
+            this.chargeTimer = 0;
+            this.vx = 0;
+          }
+        } else if (this.chargeState === 'stunned') {
+          this.chargeTimer++;
+          if (this.chargeTimer >= 180) {
             this.chargeState = 'idle';
+            this.chargeCooldown = 90;
           }
         } else if (this.chargeState === 'recoil') {
           const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -2753,12 +2821,13 @@ class Boss extends Enemy {
                 for (let si = 0; si < shots; si++) {
                   const spread = (si - (shots - 1) / 2) * 0.2;
                   const dir = dx > 0 ? 1 : -1;
-                  const lobSpd = 6 + Math.random() * 1.5;
+                  const lobSpd = (6 + Math.random() * 1.5) * 0.65;
                   const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
-                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread;
+                  const bvx = dir * Math.cos(highAngle) * lobSpd + spread * 0.65;
                   const bvy = Math.sin(highAngle) * lobSpd;
                   const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
                   p.bouncy = true;
+                  p.gravScale = 0.42;
                   p.w = 8; p.h = 8;
                   p.bouncesLeft = this.phase === 2 ? 5 : 3;
                   p.life = 200;
@@ -2940,6 +3009,9 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2 + Math.cos(shAng) * this.w * 0.7, this.y + this.h / 2 + Math.sin(shAng) * this.w * 0.7, shieldColor, 6, 3, 10));
       if (this.shieldHp <= 0) {
         this.shieldHp = 0;
+        this.stunTimer = Math.max(this.stunTimer, 120);
+        this.chargeState = 'idle';
+        this.chargeTimer = 0;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
@@ -3171,6 +3243,17 @@ class Boss extends Enemy {
           ctx.font = 'bold 18px monospace';
           ctx.fillText('!', sx + this.w / 2 - 5, sy - 20);
           ctx.globalAlpha = 1;
+        } else if (this.chargeState === 'stunned') {
+          const scx = sx + this.w / 2, scy = sy - 12;
+          ctx.save();
+          ctx.font = '14px monospace';
+          ctx.fillStyle = '#ff0';
+          for (let i = 0; i < 3; i++) {
+            const a = (game.tick * 0.08) + i * (Math.PI * 2 / 3);
+            ctx.globalAlpha = 0.6 + 0.3 * Math.sin(game.tick * 0.15 + i);
+            ctx.fillText('*', scx + Math.cos(a) * 16 - 4, scy + Math.sin(a) * 8);
+          }
+          ctx.restore();
         } else if (this.chargeState === 'charging') {
           // Windshield arc effect
           const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
@@ -3331,6 +3414,17 @@ class Boss extends Enemy {
           ctx.font = 'bold 18px monospace';
           ctx.fillText('!', sx + this.w / 2 - 5, sy - 14);
           ctx.globalAlpha = 1;
+        } else if (this.chargeState === 'stunned') {
+          const scx = sx + this.w / 2, scy = sy - 8;
+          ctx.save();
+          ctx.font = '14px monospace';
+          ctx.fillStyle = '#ff0';
+          for (let i = 0; i < 3; i++) {
+            const a = (game.tick * 0.08) + i * (Math.PI * 2 / 3);
+            ctx.globalAlpha = 0.6 + 0.3 * Math.sin(game.tick * 0.15 + i);
+            ctx.fillText('*', scx + Math.cos(a) * 16 - 4, scy + Math.sin(a) * 8);
+          }
+          ctx.restore();
         } else if (this.chargeState === 'charging') {
           const wcx = sx + this.w / 2, wcy = sy + this.h / 2;
           const ang = Math.atan2(this._chargeVy, this._chargeVx);
@@ -3574,6 +3668,19 @@ class Boss extends Enemy {
       ctx.strokeRect(barX, barY, barW, barH);
     }
 
+    // General stun stars (boulders, slams, meteors, etc.)
+    if (this.stunTimer > 0) {
+      const scx = sx + this.w / 2, scy = sy - 8;
+      ctx.save();
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#ff0';
+      for (let i = 0; i < 3; i++) {
+        const a = (game.tick * 0.08) + i * (Math.PI * 2 / 3);
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(game.tick * 0.15 + i);
+        ctx.fillText('*', scx + Math.cos(a) * 16 - 4, scy + Math.sin(a) * 8);
+      }
+      ctx.restore();
+    }
     // Restore fade alpha
     if (_fading) ctx.restore();
   }

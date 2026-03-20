@@ -178,8 +178,8 @@ class Player {
     this.deathsKeyUsed = false;
     this.autoSwingTimer = 0; // for The Code
     this.codeComboCount = 0; // 3-hit combo tracker for The Code
-    this.codeCounterCharge = 0; // recharge timer for The Code counter
     this.codeCounterMax = 600; // ~10 seconds at 60fps
+    this.codeCounterCharge = this.codeCounterMax; // start fully charged
     this.evasionRng = Math.random; // for Leather Boots
   }
 
@@ -595,6 +595,16 @@ class Player {
             m.done = true;
             if (m.big) {
               damageInRadius(game, m.targetX, m.targetY, 150, (this.type.attackDamage + this.bonusElemental + 6) * 3, m.targetX);
+              // Big meteor stun
+              for (const e of game.enemies) {
+                if (e.dead) continue;
+                const sdx = (e.x + e.w / 2) - m.targetX, sdy = (e.y + e.h / 2) - m.targetY;
+                if (Math.sqrt(sdx * sdx + sdy * sdy) < 150) e.stunTimer = Math.max(e.stunTimer, 120);
+              }
+              if (game.boss && !game.boss.dead) {
+                const sdx = (game.boss.x + game.boss.w / 2) - m.targetX, sdy = (game.boss.y + game.boss.h / 2) - m.targetY;
+                if (Math.sqrt(sdx * sdx + sdy * sdy) < 150) game.boss.stunTimer = Math.max(game.boss.stunTimer, 90);
+              }
               if (game.boss && game.boss.health <= 0) {
                 game.effects.push(new KanjiEffect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#f33', game.camera));
               }
@@ -611,6 +621,16 @@ class Player {
               triggerHitstop(12);
             } else {
               damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusElemental + 6, m.targetX);
+              // Regular meteor stun
+              for (const e of game.enemies) {
+                if (e.dead) continue;
+                const sdx = (e.x + e.w / 2) - m.targetX, sdy = (e.y + e.h / 2) - m.targetY;
+                if (Math.sqrt(sdx * sdx + sdy * sdy) < 80) e.stunTimer = Math.max(e.stunTimer, 50);
+              }
+              if (game.boss && !game.boss.dead) {
+                const sdx = (game.boss.x + game.boss.w / 2) - m.targetX, sdy = (game.boss.y + game.boss.h / 2) - m.targetY;
+                if (Math.sqrt(sdx * sdx + sdy * sdy) < 80) game.boss.stunTimer = Math.max(game.boss.stunTimer, 30);
+              }
               game.effects.push(new Effect(m.targetX, m.targetY, '#f93', 20, 6, 18));
               game.effects.push(new Effect(m.targetX, m.targetY, '#f44', 14, 4, 12));
               SFX.slam();
@@ -1366,6 +1386,7 @@ class Player {
           e.takeDamage(slamDmg, game, slamCX, 'physical');
           e.vy = -5;
           e.vx = Math.sign(dx) * 4;
+          e.stunTimer = Math.max(e.stunTimer, 45);
 
           // Per-ninja slam effects
           switch (this.ninjaType) {
@@ -1432,6 +1453,7 @@ class Player {
         const dy = (game.boss.y + game.boss.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
           game.boss.takeDamage(slamDmg, game, slamCX, 'physical');
+          game.boss.stunTimer = Math.max(game.boss.stunTimer, 30);
           switch (this.ninjaType) {
             case 'fire':
               game.boss.burnTimer = 150;
@@ -1605,6 +1627,7 @@ class Player {
         for (const e of game.enemies) {
           if (!e.dead && e.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, e)) {
             let dmg = t.attackDamage + this.bonusDamage;
+            if (this.ninjaType === 'earth') dmg = Math.ceil(dmg * 2);
             if (this.ninjaType === 'shadow') {
               if (this.backstabReady || e.hp <= this.shadowKillThreshold) {
                 dmg = 9999;
@@ -1790,6 +1813,7 @@ class Player {
         // Hit boss
         if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
           let dmg = t.attackDamage + this.bonusDamage;
+          if (this.ninjaType === 'earth') dmg = Math.ceil(dmg * 2);
           if (this.ninjaType === 'shadow' && this.backstabReady) {
             dmg = 9999;
             if (!this.chainStriking) {
@@ -2445,24 +2469,10 @@ class Player {
   }
 
   attack(game) {
-    // Earth: big stone fist punch
-    if (this.ninjaType === 'earth') {
-      this.attackCooldown = 10;
-      SFX.attack();
-      const t = this.type;
-      const cx = this.x + this.w / 2;
-      const cy = this.y + this.h / 2;
-      const dmg = Math.ceil((t.attackDamage + this.bonusDamage) * 2);
-      const p = new Projectile(cx + this.facing * 8, cy - 16, this.facing * 12, 0, '#c8a878', dmg, 'player');
-      p.w = 26; p.h = 38; p.life = 10; p.isEarthPunch = true; p.noPlat = true;
-      triggerScreenShake(2, 4);
-      game.projectiles.push(p);
-      return;
-    }
-
     this.attacking = true;
     this.attackTimer = 10;
-    this.attackCooldown = 15;
+    this.attackCooldown = this.ninjaType === 'earth' ? 10 : 15;
+    if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();
 
     if (this.ninjaType === 'wind' && !this.statusCurse && !this.statusFreeze) {
@@ -2502,6 +2512,27 @@ class Player {
     const shadowFullStealth = this.ninjaType === 'shadow' && this.shadowStealth >= 240;
     const shadowUltBonus = this.ninjaType === 'shadow' && this.shadowUltBuff;
     this._scytheAttack = shadowFullStealth || shadowUltBonus; // remember for render
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    // Earth: straight rectangular punch hitbox (starts inside player, extends outward)
+    if (this.ninjaType === 'earth') {
+      const punchReach = 50 + this.bonusReach * 4;
+      const fistW = 36; const fistH = 52 + this.bonusReach * 3;
+      const totalW = fistW + punchReach;
+      this.attackBox = {
+        x: this.facing > 0 ? cx - 8 : cx + 8 - totalW,
+        y: cy - fistH / 2 - 4,
+        w: totalW,
+        h: fistH
+      };
+      game.effects.push(new Effect(
+        cx + this.facing * (punchReach / 2 + 8), cy - 4,
+        this.type.accentColor, 5, 3, 8
+      ));
+      return;
+    }
+
     const stormReach = this.ninjaType === 'storm' ? 40 : 0;
     const reach = (stormReach || (shadowUltBonus ? 95 : (shadowFullStealth ? 68 : 36))) + this.bonusReach * 4;
     const isScythe = this._scytheAttack;
@@ -2523,8 +2554,6 @@ class Player {
     if (isScythe) maxY = arcR;
     // Generous padding
     const pad = 6;
-    const cx = this.x + this.w / 2;
-    const cy = this.y + this.h / 2;
     this.attackBox = {
       x: cx + (this.facing > 0 ? minX : -maxX) - pad,
       y: cy + minY - pad,
@@ -3778,6 +3807,51 @@ class Player {
       const isCrystal = this.ninjaType === 'crystal';
       const isEarth = this.ninjaType === 'earth';
 
+      // Earth: straight stone fist punch render
+      if (isEarth) {
+        const punchExt = Math.sin(slashProgress * Math.PI) * (50 + this.bonusReach * 4);
+        const fistW = 26, fistH = 38 + this.bonusReach * 3;
+        const fx = cx + dir * (8 + punchExt);
+        const fy = cy - fistH / 2 - 4;
+        ctx.save();
+        // Stone fist body
+        ctx.fillStyle = '#c8a878';
+        ctx.fillRect(fx - (dir > 0 ? 0 : fistW), fy, fistW, fistH);
+        ctx.strokeStyle = '#5a3a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) + 0.5, fy + 0.5, fistW - 1, fistH - 1);
+        // Knuckle highlights (4 across the tall fist)
+        ctx.fillStyle = '#e8d0b0';
+        const kx = dir > 0 ? fx + fistW - 5 : fx - fistW + 1;
+        const knuckleSpacing = fistH / 5;
+        for (let i = 1; i <= 4; i++) {
+          ctx.fillRect(kx, fy + knuckleSpacing * i - 2, 4, 4);
+        }
+        // Wrist band
+        const wx = dir > 0 ? fx : fx - 5;
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(wx, fy + 4, 5, fistH - 8);
+        // Green accent band
+        ctx.fillStyle = '#2e9e2e';
+        const gx = dir > 0 ? fx + 3 : fx - fistW + 3;
+        ctx.fillRect(gx, fy + 2, 4, fistH - 4);
+        // Speed lines trailing behind
+        const sDir = -dir;
+        ctx.strokeStyle = '#c8a878';
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.7 * Math.sin(slashProgress * Math.PI);
+        for (let i = 0; i < 7; i++) {
+          const lx = (dir > 0 ? fx : fx) + sDir * (4 + i * 5);
+          const ly = fy + 2 + i * (fistH / 7);
+          ctx.beginPath();
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(lx + sDir * (12 + i * 2), ly);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      } else {
+
       // Weapon swinging
       ctx.save();
       ctx.translate(cx, cy);
@@ -4095,6 +4169,7 @@ class Player {
         };
       }
       if (slashProgress >= 0.99) this._cutSpawned = false;
+    } // end else (non-earth weapon render)
     }
     if (!this.attacking) this._cutSpawned = false;
 
@@ -4434,6 +4509,7 @@ class CrystalCastle {
         const falloff = 1 - (d / explodeRadius) * 0.5;
         e.takeDamage(Math.floor(this.baseDamage * 1.5 * falloff), game, cx);
         e.freezeTimer = Math.max(e.freezeTimer || 0, 150);
+        e.stunTimer = Math.max(e.stunTimer, 90);
         if (d > 0) { e.vx += (dx / d) * 10; e.vy += (dy / d) * 6 - 4; }
       }
     }
@@ -4444,6 +4520,7 @@ class CrystalCastle {
       if (d < explodeRadius) {
         game.boss.takeDamage(Math.floor(this.baseDamage * 1.2), game, cx);
         game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 90);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer, 60);
       }
     }
     SFX.parry();

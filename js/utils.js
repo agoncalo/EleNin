@@ -123,7 +123,7 @@ function renderHpBar(ctx, cam, entity, barWidth) {
   const sy = entity.y - cam.y;
   ctx.fillStyle = '#400';
   ctx.fillRect(sx, sy - 8, w, 4);
-  ctx.fillStyle = '#f44';
+  ctx.fillStyle = entity.friendly ? '#4f4' : '#f44';
   ctx.fillRect(sx, sy - 8, w * (entity.hp / entity.maxHp), 4);
 }
 

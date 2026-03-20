@@ -69,17 +69,19 @@ class EarthWall {
     if (this.launched) {
       for (const e of game.enemies) {
         if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
-          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 10, 3, 12));
           if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
           e.hitCooldown = 10;
+          e.stunTimer = Math.max(e.stunTimer, 40);
         }
       }
       if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
-        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 14, 4, 16));
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
         game.boss.hitCooldown = 10;
+        game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
       }
       if (Math.abs(this.vx) < 0.5 && this.grounded) {
         this.launched = false;
@@ -204,8 +206,12 @@ class EarthBoulder {
       for (const e of game.enemies) {
         if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
           e.takeDamage(3 * this.wave, game, this.x + this.w / 2);
+          const rDir = Math.sign(e.x + e.w / 2 - (this.x + this.w / 2)) || 1;
+          e.vx += rDir * 10;
           e.vy = -6;
+          e.knockbackTimer = Math.max(e.knockbackTimer, 14);
           e.hitCooldown = 15;
+          e.stunTimer = Math.max(e.stunTimer, 30);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 8, 3, 10));
         }
       }
@@ -256,7 +262,7 @@ class EarthBoulder {
           break;
         }
       }
-      if (this.hoverTimer <= 0) { this.hp = 0; this.explode(game); }
+      if (this.hoverTimer <= 0) { this.hovering = false; }
       return;
     }
     if (this.launched) {
@@ -270,7 +276,12 @@ class EarthBoulder {
       this.vx *= 0.99;
       for (const e of game.enemies) {
         if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
-          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
+          // Extra boulder knockback on top of sword KB
+          const bDir = Math.sign(this.vx) || Math.sign(e.x + e.w / 2 - (this.x + this.w / 2));
+          e.vx += bDir * 8;
+          e.knockbackTimer = Math.max(e.knockbackTimer, 14);
+          e.stunTimer = Math.max(e.stunTimer, 40);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 12, 4, 14));
           if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
           e.hitCooldown = 10;
@@ -278,7 +289,11 @@ class EarthBoulder {
         }
       }
       if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
-        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
+        const bDir = Math.sign(this.vx) || Math.sign(game.boss.x + game.boss.w / 2 - (this.x + this.w / 2));
+        game.boss.vx += bDir * 6;
+        game.boss.knockbackTimer = Math.max(game.boss.knockbackTimer, 14);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 16, 5, 18));
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
         game.boss.hitCooldown = 10;

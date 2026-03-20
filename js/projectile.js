@@ -368,7 +368,7 @@ class Projectile {
       }
       return;
     }
-    if (this.bouncy) this.vy += 0.15;
+    if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
     if (this.homing && this.owner === 'player') {
       const target = findNearestTarget(this.x, this.y, game, 0);
@@ -469,49 +469,11 @@ class Projectile {
       }
     }
     if (this.owner === 'player') {
-      // Earth punches interact with stone blocks (wall/boulder)
-      if (this.isEarthPunch) {
-        for (const b of game.stoneBlocks) {
-          if (b.done) continue;
-          if (rectOverlap(this, b)) {
-            if (b instanceof EarthWall && !b.launched) {
-              b.launch(game.player.facing);
-              game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 10, 4, 14));
-              SFX.hit();
-              triggerHitstop(3);
-            } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
-              let nearest = null, bestDist = 999;
-              const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2;
-              const facing = game.player.facing;
-              for (const e of game.enemies) {
-                if (e.dead) continue;
-                const ex = e.x + e.w / 2;
-                if ((ex - bcx) * facing < 0) continue;
-                const d = Math.sqrt((ex - bcx) ** 2 + (e.y + e.h / 2 - bcy) ** 2);
-                if (d < bestDist) { bestDist = d; nearest = e; }
-              }
-              if (!nearest && game.boss && !game.boss.dead) {
-                const bx = game.boss.x + game.boss.w / 2;
-                if ((bx - bcx) * facing >= 0) nearest = game.boss;
-              }
-              if (nearest) {
-                b.launchAt(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2);
-              } else {
-                b.launchAt(bcx + facing * 300, bcy);
-              }
-              game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 12, 5, 16));
-              triggerHitstop(3);
-            }
-            this.done = true;
-            return;
-          }
-        }
-      }
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
 
-          // Kunai & earth punch are unblockable — skip all shield/deflect checks
-          if (!this.isKunai && !this.isEarthPunch) {
+          // Kunai is unblockable — skip all shield/deflect checks
+          if (!this.isKunai) {
             // Shielded: block projectiles within shield arc (stops even piercing, no pip loss)
             if (e.type === 'shielded' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
               e.shieldFlash = 6;
@@ -607,17 +569,7 @@ class Projectile {
           }
           // Ultimate charge gain: projectile hit
           if (!game.player.ultimateReady && !game.player.ultimateActive) {
-            game.player.addUltimateCharge(this.isEarthPunch ? 4 : 2);
-          }
-          // Earth punch: melee-like effects (mana, vampire, hitstop)
-          if (this.isEarthPunch) {
-            game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
-            if (game.player.items.vampireTeeth) {
-              const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.01));
-              game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
-            }
-            triggerHitstop(4);
-            SFX.hit();
+            game.player.addUltimateCharge(2);
           }
           if (!this.piercing) { this._dropOrDie(); return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
@@ -625,8 +577,8 @@ class Projectile {
       }
       // Hit boss
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
-        // Kunai & earth punch are unblockable — skip all shield/deflect checks for bosses
-        if (!this.isKunai && !this.isEarthPunch) {
+        // Kunai is unblockable — skip all shield/deflect checks for bosses
+        if (!this.isKunai) {
           // Shielded boss: block projectiles within shield arc (no pip loss)
           if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
             game.boss.shieldFlash = 6;
@@ -705,17 +657,7 @@ class Projectile {
         }
         // Ultimate charge gain: projectile hit boss
         if (!game.player.ultimateReady && !game.player.ultimateActive) {
-          game.player.addUltimateCharge(this.isEarthPunch ? 5 : 3);
-        }
-        // Earth punch: melee-like effects on boss hit
-        if (this.isEarthPunch) {
-          game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
-          if (game.player.items.vampireTeeth) {
-            const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.01));
-            game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
-          }
-          triggerHitstop(4);
-          SFX.hit();
+          game.player.addUltimateCharge(3);
         }
         if (!this.piercing) { this._dropOrDie(); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
@@ -779,42 +721,7 @@ class Projectile {
 
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
-    if (this.isEarthPunch) {
-      // Tall stone fist — sweeping punch with speed lines
-      ctx.save();
-      ctx.fillStyle = this.color;
-      ctx.fillRect(sx, sy, this.w, this.h);
-      ctx.strokeStyle = '#5a3a1a';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx + 0.5, sy + 0.5, this.w - 1, this.h - 1);
-      // Knuckle highlights (4 knuckles across the tall fist)
-      ctx.fillStyle = '#e8d0b0';
-      const kx = this.vx > 0 ? sx + this.w - 5 : sx + 1;
-      const knuckleSpacing = this.h / 5;
-      for (let i = 1; i <= 4; i++) {
-        ctx.fillRect(kx, sy + knuckleSpacing * i - 2, 4, 4);
-      }
-      // Wrist band
-      const wx = this.vx > 0 ? sx : sx + this.w - 5;
-      ctx.fillStyle = '#5a3a1a';
-      ctx.fillRect(wx, sy + 4, 5, this.h - 8);
-      // Speed lines trailing behind
-      const dir = this.vx > 0 ? -1 : 1;
-      ctx.strokeStyle = '#c8a878';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.7;
-      for (let i = 0; i < 7; i++) {
-        const lx = (this.vx > 0 ? sx : sx + this.w) + dir * (4 + i * 5);
-        const ly = sy + 2 + i * (this.h / 7);
-        ctx.beginPath();
-        ctx.moveTo(lx, ly);
-        ctx.lineTo(lx + dir * (12 + i * 2), ly);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
-      return;
-    }
+
     if (this.freezeDust) {
       // Sparkly dust cloud
       ctx.save();

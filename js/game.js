@@ -1468,6 +1468,19 @@ class Game {
   }
 
   render() {
+    // ── Music state management ──
+    if (this.menuActive || this.controlsScreen) {
+      Music.play('menu');
+    } else if (this.gameWon || this.gameOver) {
+      if (Music.playing) Music.stop();
+    } else if (this.bossActive) {
+      Music.play(this.wave >= TOTAL_WAVES ? 'finalBoss' : 'boss');
+    } else {
+      if (this.wave <= 3) Music.play('stage1');
+      else if (this.wave <= 6) Music.play('stage2');
+      else Music.play('stage3');
+    }
+
     if (this.menuActive) {
       this.renderMenu();
       return;
