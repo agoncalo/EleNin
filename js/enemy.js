@@ -1163,9 +1163,9 @@ class Enemy {
         }
       }
     }
-    // Shielded / Protector: shield blocks hits within its arc + 75% damage reduction
+    // Shielded / Protector: only swords remove shield pips
     let shieldBlocked = false;
-    if (this._shieldBlocks(fromX, undefined, game)) {
+    if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
       const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
@@ -2885,9 +2885,9 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
       return false;
     }
-    // Shield check — blocks hits within its arc + 75% damage reduction
+    // Shield check — only swords remove shield pips
     let shieldBlocked = false;
-    if (this._shieldBlocks(fromX, undefined, game)) {
+    if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
       const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
