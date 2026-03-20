@@ -2723,6 +2723,7 @@ class Player {
     if (this.bubbleRide) {
       this.bubbleRide.hp -= amount;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
+      game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, element || null));
       SFX.playerHurt();
       triggerHitstop(3);
       return;
@@ -2776,6 +2777,7 @@ class Player {
         this.windPower = 0;
         SFX.playerHurt();
         triggerHitstop(6);
+        game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, absorbed, element || null));
         this.applyElementalStatus(element, game);
         return;
       }
@@ -2824,6 +2826,7 @@ class Player {
     triggerHitstop(6);
     triggerScreenShake(4, 8);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
+    game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, element || null));
     this.applyElementalStatus(element, game);
     // Spiked Armor: damage all nearby enemies when taking damage
     if (this.items.spikedArmor) {
