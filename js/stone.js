@@ -414,3 +414,297 @@ class EarthBoulder {
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
 }
+
+// ── IceBlock — crystal special, freezes enemies, deflects projectiles, shatterable ──
+class IceBlock {
+  constructor(x, y, facing, wave, baseDmg, midair) {
+    this.w = Math.round(TILE * 1.4);
+    this.h = Math.round(TILE * 1.4);
+    this.x = x - this.w / 2;
+    this.y = y - this.h;
+    this.wave = wave;
+    this.baseDmg = baseDmg;
+    this.hp = 3; this.maxHp = 3;
+    this.vx = 0; this.vy = 0;
+    this.done = false;
+    this.grounded = false;
+    this.hitCooldown = 0;
+    this.timer = 360; // 6 seconds lifetime
+    this.frozenEnemies = new Set();
+    this.falling = !!midair;
+    this.facing = facing;
+    this.landed = false;
+    this.freezeCooldown = 0;
+    this.shimmer = 0;
+    this.hoverPause = midair ? 25 : 0;
+  }
+
+  isCollidable() { return this.landed; }
+
+  playerHit(game) {
+    if (this.hitCooldown > 0) return;
+    this.hp--;
+    this.hitCooldown = 15;
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
+    triggerHitstop(3);
+    SFX.hit();
+    if (this.hp <= 0) this.shatter(game);
+  }
+
+  shatter(game) {
+    this.done = true;
+    // Launch 3 DiamondShards from the ice block position
+    if (!game.diamondShards) game.diamondShards = [];
+    for (let i = 0; i < 3; i++) {
+      const sx = this.x + this.w / 2;
+      const sy = this.y + this.h / 2 + (i - 1) * 16;
+      game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+    }
+    // Visual explosion
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 18, 6, 18));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 12, 4, 14));
+    triggerHitstop(4);
+    triggerScreenShake(3, 5);
+    SFX.parry();
+    // Ice shards particles
+    for (let i = 0; i < 8; i++) {
+      game.effects.push(new Effect(
+        this.x + this.w / 2 + (Math.random() - 0.5) * this.w,
+        this.y + this.h / 2 + (Math.random() - 0.5) * this.h,
+        '#cff', 4 + Math.random() * 4, 2, 12
+      ));
+    }
+  }
+
+  update(game) {
+    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.freezeCooldown > 0) this.freezeCooldown--;
+    this.shimmer += 0.06;
+    this.timer--;
+
+    // Deflect enemy projectiles
+    for (const p of game.projectiles) {
+      if (p.done || p.owner === 'player') continue;
+      if (rectOverlap(this, p)) {
+        p.vx = -p.vx;
+        p.vy = -p.vy;
+        p.owner = 'player';
+        p.reflected = true;
+        p.color = '#aff';
+        game.effects.push(new Effect(p.x, p.y, '#aff', 6, 2, 8));
+        SFX.reflect();
+      }
+    }
+
+    // Falling behavior (midair spawn — acts like boulder)
+    if (this.falling) {
+      // Brief hover before falling
+      if (this.hoverPause > 0) {
+        this.hoverPause--;
+        this.vy = 0;
+        this.vx = 0;
+        return;
+      }
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.x += this.vx;
+      this.y += this.vy;
+
+      // Freeze + damage enemies while falling
+      for (const e of game.enemies) {
+        if (e.dead || e.hitCooldown > 0) continue;
+        if (rectOverlap(this, e)) {
+          e.takeDamage(this.baseDmg, game, this.x + this.w / 2);
+          e.freezeTimer = Math.max(e.freezeTimer, 90);
+          const dir = Math.sign(e.x + e.w / 2 - (this.x + this.w / 2)) || 1;
+          e.vx += dir * 6;
+          e.vy = -4;
+          e.knockbackTimer = Math.max(e.knockbackTimer, 12);
+          e.stunTimer = Math.max(e.stunTimer, 40);
+          e.hitCooldown = 15;
+          this.frozenEnemies.add(e);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 4, 12));
+        }
+      }
+      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.baseDmg, game, this.x + this.w / 2);
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 50);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
+        game.boss.hitCooldown = 15;
+        this.frozenEnemies.add(game.boss);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
+      }
+
+      // Land on platforms
+      for (const p of game.platforms) {
+        if (p.thin) continue;
+        if (rectOverlap(this, p) && this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          const impactVy = this.vy;
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.vx = 0;
+          this.falling = false;
+          this.landed = true;
+          this.grounded = true;
+          if (impactVy > 6) {
+            damageInRadius(game, this.x + this.w / 2, p.y, 70, this.baseDmg);
+            triggerScreenShake(3, 5);
+          }
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
+          SFX.slam();
+          break;
+        }
+      }
+      // Also land on thin platforms from above
+      for (const p of game.platforms) {
+        if (!p.thin) continue;
+        if (rectOverlap(this, p) && this.vy > 0 && this.y + this.h - this.vy <= p.y + 2) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.vx = 0;
+          this.falling = false;
+          this.landed = true;
+          this.grounded = true;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
+          SFX.slam();
+          break;
+        }
+      }
+
+      if (this.y > CANVAS_H + 200) this.done = true;
+      return;
+    }
+
+    // Grounded: if not landed yet (spawned on ground), snap to ground
+    if (!this.landed) {
+      // Apply gravity to settle
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.y += this.vy;
+      for (const p of game.platforms) {
+        if (rectOverlap(this, p) && this.vy >= 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.landed = true;
+          this.grounded = true;
+          break;
+        }
+      }
+      if (this.y > CANVAS_H + 200) { this.done = true; return; }
+    }
+
+    // Freeze enemies on contact (grounded)
+    if (this.landed && this.freezeCooldown <= 0) {
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        if (rectOverlap(this, e)) {
+          e.freezeTimer = Math.max(e.freezeTimer, 60);
+          e.stunTimer = Math.max(e.stunTimer, 30);
+          this.frozenEnemies.add(e);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 4, 2, 6));
+        }
+      }
+      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 40);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer, 20);
+        this.frozenEnemies.add(game.boss);
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 4, 2, 6));
+      }
+      this.freezeCooldown = 30;
+    }
+
+    // Auto-shatter if all frozen enemies are dead (and at least one was frozen)
+    if (this.frozenEnemies.size > 0 && !this.done) {
+      let allDead = true;
+      for (const e of this.frozenEnemies) {
+        if (!e.dead) { allDead = false; break; }
+      }
+      if (allDead) this.shatter(game);
+    }
+
+    // Time expired
+    if (this.timer <= 0 && !this.done) this.shatter(game);
+
+    // Frost particles
+    if (this.landed && this.timer > 30 && Math.random() < 0.3) {
+      game.effects.push(new Effect(
+        this.x + Math.random() * this.w,
+        this.y + Math.random() * this.h,
+        '#cff', 2, 1, 10
+      ));
+    }
+  }
+
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const cx = sx + this.w / 2;
+    const cy = sy + this.h / 2;
+    const pulse = Math.sin(this.shimmer) * 0.08;
+
+    ctx.save();
+    ctx.globalAlpha = 0.75 + pulse;
+    // Main ice body
+    ctx.fillStyle = '#88eeff';
+    ctx.shadowColor = '#0ff';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(sx + 2, sy + 2, this.w - 4, this.h - 4);
+    ctx.shadowBlur = 0;
+
+    // Glass-like highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(sx + 4, sy + 4, this.w * 0.4, this.h * 0.3);
+
+    // Inner crystal lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx + this.w * 0.2, sy + this.h * 0.3);
+    ctx.lineTo(sx + this.w * 0.5, sy + this.h * 0.6);
+    ctx.lineTo(sx + this.w * 0.8, sy + this.h * 0.35);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(sx + this.w * 0.35, sy + this.h * 0.7);
+    ctx.lineTo(sx + this.w * 0.65, sy + this.h * 0.5);
+    ctx.stroke();
+
+    // Frost border
+    ctx.strokeStyle = '#cff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 1, sy + 1, this.w - 2, this.h - 2);
+
+    // Cracks for damage
+    if (this.hp < this.maxHp) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      if (this.hp <= 2) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, cy - 10);
+        ctx.lineTo(cx + 2, cy);
+        ctx.lineTo(cx + 10, cy + 8);
+        ctx.stroke();
+      }
+      if (this.hp <= 1) {
+        ctx.beginPath();
+        ctx.moveTo(cx + 6, cy - 8);
+        ctx.lineTo(cx - 4, cy + 4);
+        ctx.lineTo(cx - 10, cy + 12);
+        ctx.stroke();
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Flashing when about to expire
+    if (this.timer < 60 && Math.floor(this.timer / 6) % 2 === 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.restore();
+    }
+
+    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
+  }
+}

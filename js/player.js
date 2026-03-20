@@ -41,6 +41,7 @@ class Player {
     // Earth ultimate: stone golem mecha
     this.earthGolem = null; // { timer, facing, punchTimer, shootTimer, x, y, w, h, hp }
     this.earthAirHover = 0; // timer for midair hover when using air special
+    this.iceHover = 0; // timer for midair hover when using crystal special
 
     // Bubble ultimate: bubbles on every enemy + underwater
     this.bubbleRide = null; // kept for switchNinja cleanup
@@ -1198,8 +1199,12 @@ class Player {
     // Gravity
     let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
     if (this.statusFloat > 0) grav *= 0.35;
-    if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing && this.earthAirHover <= 0) {
+    if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing && this.earthAirHover <= 0 && !(this.iceHover > 0)) {
       this.vy += grav;
+    }
+    if (this.iceHover > 0) {
+      this.vy *= 0.8;
+      this.iceHover--;
     }
     if (this.stopMidair) {
       this.vy += GRAVITY * 0.1;
@@ -1223,12 +1228,12 @@ class Player {
     this.onWall = 0;
     for (const p of game.platforms) {
       if (rectOverlap(this, p)) {
+        this.jumpsLeft = maxJ;
         if (p.thin) {
           if (this.vy > 0 && !holdingDown && !this.slamming && this.y + this.h - this.vy <= p.y + 4) {
             this.y = p.y - this.h;
             this.vy = 0;
             this.grounded = true;
-            this.jumpsLeft = maxJ;
           }
           continue;
         }
@@ -1292,12 +1297,12 @@ class Player {
         } else if (this.vy < 0 && this.y - this.vy >= b.y + b.h - 4) {
           this.y = b.y + b.h;
           this.vy = 0;
-        } else if (this.vx > 0) {
+        } else if (this.vx > 0 && this.x + this.w - this.vx <= b.x + 4) {
           this.x = b.x - this.w;
-          this.onWall = 1;
-        } else if (this.vx < 0) {
+          this.vx = 0;
+        } else if (this.vx < 0 && this.x - this.vx >= b.x + b.w - 4) {
           this.x = b.x + b.w;
-          this.onWall = -1;
+          this.vx = 0;
         }
       }
     }
@@ -1745,6 +1750,8 @@ class Player {
             if (b instanceof EarthWall && !b.launched) {
               b.launch(this.facing);
               triggerHitstop(3);
+            } else if (b instanceof IceBlock && b.landed) {
+              b.playerHit(game);
             } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
               let nearest = null, nd = Infinity;
               const bcx = b.x + b.w / 2;
@@ -2751,15 +2758,20 @@ class Player {
         break;
       }
       case 'crystal': {
-        // Spawn 3 diamond shards
-        if (!game.diamondShards) game.diamondShards = [];
-        for (let i = 0; i < 3; i++) {
-          const sx = this.x + this.w / 2 + this.facing * 16;
-          const sy = this.y + this.h / 2 + (i - 1) * 20;
-          game.diamondShards.push(new DiamondShard(sx, sy, 'player', game));
+        // Spawn ice block in front of the player
+        const ibx = this.x + this.w / 2 + this.facing * (TILE * 1.2);
+        const iby = this.grounded ? this.y + this.h : this.y + this.h / 2;
+        const ibMidair = !this.grounded;
+        const iceBlock = new IceBlock(ibx, iby, this.facing, this.wave || 1, this.type.attackDamage + this.bonusElemental, ibMidair);
+        game.stoneBlocks.push(iceBlock);
+        if (ibMidair) {
+          this.vy = 0;
+          this.vx *= 0.3;
+          this.iceHover = 25;
+          this.jumpsLeft = Math.min(this.jumpsLeft + 1, 3);
         }
         SFX.special();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 4, 15));
+        game.effects.push(new Effect(ibx, iby - TILE * 0.7, '#aff', 14, 5, 16));
         break;
       }
       case 'wind':

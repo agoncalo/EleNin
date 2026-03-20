@@ -1,9 +1,15 @@
+// ── Main Menu Options ────────────────────────────────────────
+const MAIN_MENU_OPTIONS = ['Play', 'Controls', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
+
 // ── Game ──────────────────────────────────────────────────────
 class Game {
   constructor() {
     this.tick = 0;
     this.menuActive = true;
     this.controlsScreen = false;
+    this.mainMenuScreen = false;
+    this.mainMenuSelected = 0;
+    this.mainMenuPopup = null;
     this.controlsTick = 0;
     this.menuTick = 0;
     this.camera = { x: 0, y: 0 };
@@ -324,15 +330,21 @@ class Game {
 
     // Floor 2 — right only with wall ledge
     P(550, 310, 140, 16, '#777');
-    P(704, 300, 16, 50, '#686');
+    P(704, 270, 16, 60, '#686');
+
+    // Vertical wall — left side divider
+    P(180, 320, 16, 70, '#585');
 
     // Floor 3 — center narrow
     P(300, 250, 120, 16, '#777');
 
     // Floor 4 — left with L
     P(50, 190, 130, 16, '#888');
-    P(50, 170, 16, 40, '#686');
+    P(50, 150, 16, 60, '#686');
     TP(450, 200, 80);
+
+    // Vertical wall — right side divider
+    P(600, 170, 16, 80, '#585');
 
     // Floor 5 — right only
     P(580, 130, 130, 16, '#777');
@@ -341,10 +353,16 @@ class Game {
     P(200, 60, 110, 16, '#888');
     TP(550, 70, 80);
 
+    // Vertical wall — center pillar
+    P(390, 20, 16, 70, '#585');
+
     // Floor 7 — left with wall climb
     P(80, -10, 120, 16, '#777');
     P(650, -20, 70, 16, '#686');
-    P(704, -20, 16, 40, '#686');
+    P(704, -20, 16, 50, '#686');
+
+    // Vertical wall — left barrier
+    P(220, -60, 16, 70, '#585');
 
     // Floor 8 — center
     P(320, -80, 130, 16, '#888');
@@ -352,6 +370,9 @@ class Game {
     // Floor 9 — right only
     P(550, -150, 120, 16, '#777');
     TP(150, -140, 80);
+
+    // Vertical wall — right barrier
+    P(500, -190, 16, 60, '#585');
 
     // Floor 10 — left
     P(80, -220, 130, 16, '#888');
@@ -426,6 +447,7 @@ class Game {
     this.bossMessage = 180;
     this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, this.boss.element ? this.boss.elementColors.particle : '#f44', 25, 6, 25));
     SFX.bossSpawn();
+    SFX.bossRoar();
     this.showWaveMessage(this.boss.name + ` (${this.wave}/${TOTAL_WAVES})`);
     // Boss entrance phrase
     this.ninjaResponseActive = false;
@@ -1178,6 +1200,232 @@ class Game {
       ctx.fillRect(sx + 9, silY + bob + 3, 2, 2);
     }
     ctx.globalAlpha = 1;
+
+    // ── Audio/Music toggle buttons (top-right) ──
+    const btnW = 84, btnH = 26, btnY = 10;
+    const musicBtnX = CANVAS_W - 180;
+    const sfxBtnX = CANVAS_W - 88;
+
+    ctx.fillStyle = Music.muted ? '#333' : '#224';
+    ctx.fillRect(musicBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = Music.muted ? '#555' : '#68f';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(musicBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = Music.muted ? '#666' : '#adf';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Music.muted ? 'MUSIC: OFF' : 'MUSIC: ON', musicBtnX + btnW / 2, btnY + 17);
+
+    ctx.fillStyle = SFX.muted ? '#333' : '#224';
+    ctx.fillRect(sfxBtnX, btnY, btnW, btnH);
+    ctx.strokeStyle = SFX.muted ? '#555' : '#68f';
+    ctx.strokeRect(sfxBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = SFX.muted ? '#666' : '#adf';
+    ctx.fillText(SFX.muted ? 'SFX: OFF' : 'SFX: ON', sfxBtnX + btnW / 2, btnY + 17);
+
+    ctx.textAlign = 'left';
+  }
+
+  renderMainMenu() {
+    // Dark background
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, '#06061a');
+    grad.addColorStop(1, '#12122e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Background stars
+    ctx.fillStyle = '#fff';
+    const t = this.menuTick;
+    this.menuTick++;
+    for (let i = 0; i < 60; i++) {
+      const seed = i * 137 + 29;
+      const sx = (seed * 7.3) % CANVAS_W;
+      const sy = (seed * 3.1) % CANVAS_H;
+      const twinkle = 0.2 + Math.sin(t * 0.02 + i) * 0.3 + 0.3;
+      ctx.globalAlpha = twinkle;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+    ctx.globalAlpha = 1;
+
+    // If a popup is active, render the popup on top
+    if (this.mainMenuPopup) {
+      // Reuse pause menu popup system
+      pauseMenu.popup = this.mainMenuPopup;
+      renderPopup(ctx);
+      pauseMenu.popup = null;
+      return;
+    }
+
+    // ── ELENIN logo with rectangular letters ──
+    const ninjaColors = [
+      { body: '#e33', accent: '#f93' },
+      { body: '#a0622a', accent: '#2e9e2e' },
+      { body: '#48f', accent: '#8cf' },
+      { body: '#726', accent: '#a4e' },
+      { body: '#2dd', accent: '#aff' },
+      { body: '#8d8', accent: '#bfb' },
+    ];
+
+    const letterW = 32, letterH = 42;
+    const gap = 9;
+    const totalW = 6 * letterW + 5 * gap;
+    const startX = (CANVAS_W - totalW) / 2;
+    const startY = 22;
+    const drawE = (x, y, color, accentColor) => {
+      const pillar = 8;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, pillar, letterH);
+      ctx.fillRect(x + pillar, y, letterW - pillar, 7);
+      ctx.fillRect(x + pillar, y + letterH / 2 - 3, (letterW - pillar) * 0.75, 7);
+      ctx.fillRect(x + pillar, y + letterH - 7, letterW - pillar, 7);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, y, letterW - pillar, 2);
+      ctx.fillRect(x + pillar, y + letterH - 2, letterW - pillar, 2);
+      ctx.fillRect(x, y, pillar, 2);
+    };
+    const drawLower_l = (x, y, color, accentColor) => {
+      const pillarW = 12;
+      const px = x + (letterW - pillarW) / 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(px, y, pillarW, letterH);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(px - 3, y + letterH - 3, pillarW + 6, 3);
+      ctx.fillRect(px, y, pillarW, 2);
+    };
+    const drawLower_e = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      const h = letterH - topOff;
+      const yy = y + topOff;
+      const pillar = 7;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, yy, pillar, h);
+      ctx.fillRect(x + pillar, yy, letterW - pillar, 5);
+      ctx.fillRect(x + pillar, yy + h / 2 - 3, letterW - pillar, 5);
+      ctx.fillRect(x + pillar, yy + h - 5, (letterW - pillar) * 0.75, 5);
+      ctx.fillRect(x + letterW - pillar, yy, pillar, h / 2 - 3);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, yy, letterW - pillar, 2);
+      ctx.fillRect(x + pillar, yy + h / 2 - 3, letterW - pillar, 2);
+      ctx.fillRect(x, yy, pillar, 2);
+    };
+    const drawN = (x, y, color, accentColor) => {
+      const pillar = 8;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, pillar, letterH);
+      ctx.fillRect(x + letterW - pillar, y, pillar, letterH);
+      ctx.fillStyle = accentColor;
+      const steps = 5;
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const bx = x + pillar - 2 + frac * (letterW - pillar * 2 + 4 - 7);
+        const by = y + frac * (letterH - 7);
+        ctx.fillRect(bx, by, 7, 7);
+      }
+      ctx.fillRect(x, y, pillar, 2);
+      ctx.fillRect(x + letterW - pillar, y + letterH - 2, pillar, 2);
+    };
+    const drawLower_i = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      const pillarW = 12;
+      const px = x + (letterW - pillarW) / 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(px, y + topOff, pillarW, letterH - topOff);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(px - 2, y + letterH - 2, pillarW + 4, 2);
+      ctx.fillRect(px, y + topOff, pillarW, 2);
+    };
+    const drawLower_n = (x, y, color, accentColor) => {
+      const topOff = Math.floor(letterH * 0.28);
+      const h = letterH - topOff;
+      const yy = y + topOff;
+      const pillar = 7;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, yy, pillar, h);
+      ctx.fillRect(x + letterW - pillar, yy + 5, pillar, h - 5);
+      ctx.fillRect(x + pillar, yy, letterW - pillar * 2, 7);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(x + pillar, yy, letterW - pillar * 2, 2);
+      ctx.fillRect(x, yy, pillar, 2);
+    };
+
+    const letters = [
+      { draw: drawE }, { draw: drawLower_l }, { draw: drawLower_e },
+      { draw: drawN }, { draw: drawLower_i }, { draw: drawLower_n },
+    ];
+
+    for (let i = 0; i < 6; i++) {
+      const lx = startX + i * (letterW + gap);
+      const floatY = Math.sin(t * 0.035 + i * 0.8) * 3;
+      const ly = startY + floatY;
+      const c = ninjaColors[i];
+      ctx.save();
+      ctx.shadowColor = c.accent;
+      ctx.shadowBlur = 10 + Math.sin(t * 0.05 + i) * 4;
+      letters[i].draw(lx, ly, c.body, c.accent);
+      ctx.restore();
+      letters[i].draw(lx, ly, c.body, c.accent);
+      if (i === 4) {
+        const hatCx = lx + letterW / 2;
+        const hatBaseY = ly + letterH * 0.3 - 3;
+        ctx.fillStyle = c.accent;
+        ctx.beginPath();
+        ctx.moveTo(hatCx - 11, hatBaseY);
+        ctx.lineTo(hatCx, hatBaseY - 15);
+        ctx.lineTo(hatCx + 11, hatBaseY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = c.body;
+        ctx.fillRect(hatCx - 11, hatBaseY - 2, 22, 3);
+      }
+    }
+
+    // Subtitle
+    ctx.globalAlpha = 0.5 + Math.sin(t * 0.04) * 0.2;
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('~ an elemental ninja platformer ~', CANVAS_W / 2, startY + letterH + 20);
+    ctx.globalAlpha = 1;
+
+    // Menu box
+    const options = MAIN_MENU_OPTIONS;
+    const bw = 280, bh = 40 + options.length * 28 + 24;
+    const bx = CANVAS_W / 2 - bw / 2;
+    const by = startY + letterH + 34;
+    drawBox(ctx, bx, by, bw, bh);
+
+    // Options
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'left';
+    for (let i = 0; i < options.length; i++) {
+      const oy = by + 26 + i * 28;
+      if (i === this.mainMenuSelected) {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(bx + 20, oy - 14, bw - 40, 24);
+        ctx.fillStyle = '#ffd700';
+        ctx.fillText('\u25B6 ', bx + 24, oy + 2);
+      }
+      ctx.fillStyle = i === this.mainMenuSelected ? '#fff' : '#aaa';
+      ctx.fillText(options[i], bx + 44, oy + 2);
+      // Show ON/OFF for Music and SFX
+      if (options[i] === 'Music' || options[i] === 'SFX') {
+        const isOn = options[i] === 'Music' ? !Music.muted : !SFX.muted;
+        ctx.fillStyle = isOn ? '#4f4' : '#f44';
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(isOn ? 'ON' : 'OFF', bx + bw - 30, oy + 2);
+        ctx.textAlign = 'left';
+        ctx.font = '14px monospace';
+      }
+    }
+
+    // Footer
+    ctx.fillStyle = '#666';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('\u2191\u2193 Navigate \u2022 Enter/Z to select', CANVAS_W / 2, by + bh - 8);
+
     ctx.textAlign = 'left';
   }
 
@@ -1469,20 +1717,26 @@ class Game {
 
   render() {
     // ── Music state management ──
-    if (this.menuActive || this.controlsScreen) {
+    if (this.menuActive || this.controlsScreen || this.mainMenuScreen) {
       Music.play('menu');
     } else if (this.gameWon || this.gameOver) {
       if (Music.playing) Music.stop();
-    } else if (this.bossActive) {
-      Music.play(this.wave >= TOTAL_WAVES ? 'finalBoss' : 'boss');
+    } else if (this.bossActive && this.boss) {
+      Music.play(BOSS_MUSIC[this.boss.bossType] || GENERAL_BOSS_TRACKS[this.wave % 3]);
     } else {
-      if (this.wave <= 3) Music.play('stage1');
-      else if (this.wave <= 6) Music.play('stage2');
+      if (this.levelType === 'tower') Music.play('tower');
+      else if (this.levelType === 'arena') Music.play('arena');
+      else if (this.wave <= 3) Music.play('stage1');
+      else if (this.wave <= 7) Music.play('stage2');
       else Music.play('stage3');
     }
 
     if (this.menuActive) {
       this.renderMenu();
+      return;
+    }
+    if (this.mainMenuScreen) {
+      this.renderMainMenu();
       return;
     }
     if (this.controlsScreen) {

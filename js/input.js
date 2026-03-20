@@ -29,7 +29,15 @@ function setupMouseInput(canvas) {
     if (e.button === 1) keys['MouseShuriken'] = false;
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    canvasMouseX = (e.clientX - rect.left) / rect.width * CANVAS_W;
+    canvasMouseY = (e.clientY - rect.top) / rect.height * CANVAS_H;
+  });
 }
+
+// Mouse position tracking (canvas-relative)
+let canvasMouseX = -1, canvasMouseY = -1;
 
 // Mouse wheel for ninja switching
 let mouseWheelNinja = 0;

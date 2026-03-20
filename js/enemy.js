@@ -1084,6 +1084,20 @@ class Enemy {
       if (this.y > 460) this.y = 460;
     }
 
+    // Stone block collision — enemies inside a block can't move
+    for (const b of game.stoneBlocks) {
+      if (b.done || !b.isCollidable()) continue;
+      if (rectOverlap(this, b)) {
+        this.vx = 0;
+        if (!this.flying) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= b.y + 4) {
+            this.y = b.y - this.h;
+            this.vy = 0;
+          }
+        }
+      }
+    }
+
     // Keep in level bounds
     if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); this.facing = 1; }
     if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); this.facing = -1; }
@@ -2930,6 +2944,20 @@ class Boss extends Enemy {
             this.grounded = true;
           } else if (this.phaseThrough > 0) {
             // Skip side/ceiling collisions to unstick
+          }
+        }
+      }
+    }
+
+    // Stone block collision — boss inside a block can't move
+    for (const b of game.stoneBlocks) {
+      if (b.done || !b.isCollidable()) continue;
+      if (rectOverlap(this, b)) {
+        this.vx = 0;
+        if (!this.flying) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= b.y + 4) {
+            this.y = b.y - this.h;
+            this.vy = 0;
           }
         }
       }

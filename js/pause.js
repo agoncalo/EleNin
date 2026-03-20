@@ -226,7 +226,7 @@ const pauseMenu = {
   clearCacheConfirm: false, // clear cache confirmation state
 };
 
-const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements'];
+const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
 
 function togglePause() {
   if (pauseMenu.popup) {
@@ -261,6 +261,8 @@ function pauseUpdate() {
     if (sel === 2) { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
     if (sel === 3) { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
     if (sel === 4) { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
+    if (sel === 5) { Music.setMuted(!Music.muted); }
+    if (sel === 6) { SFX.muted = !SFX.muted; }
   }
 }
 
@@ -521,7 +523,7 @@ function renderPauseMenu(ctx) {
   }
 
   // Main menu box
-  const bw = 280, bh = 232;
+  const bw = 280, bh = 296;
   const bx = CANVAS_W / 2 - bw / 2;
   const by = CANVAS_H / 2 - bh / 2;
   drawBox(ctx, bx, by, bw, bh);
@@ -545,6 +547,16 @@ function renderPauseMenu(ctx) {
     }
     ctx.fillStyle = i === pauseMenu.selected ? '#fff' : '#aaa';
     ctx.fillText(PAUSE_OPTIONS[i], bx + 44, oy + 2);
+    // Show ON/OFF for Music and SFX
+    if (PAUSE_OPTIONS[i] === 'Music' || PAUSE_OPTIONS[i] === 'SFX') {
+      const isOn = PAUSE_OPTIONS[i] === 'Music' ? !Music.muted : !SFX.muted;
+      ctx.fillStyle = isOn ? '#4f4' : '#f44';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(isOn ? 'ON' : 'OFF', bx + bw - 30, oy + 2);
+      ctx.textAlign = 'left';
+      ctx.font = '14px monospace';
+    }
   }
 
   // Footer

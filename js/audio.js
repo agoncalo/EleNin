@@ -3,9 +3,15 @@ const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function ensureAudio() { if (audioCtx.state === 'suspended') audioCtx.resume(); }
 document.addEventListener('keydown', ensureAudio, { once: true });
 document.addEventListener('click', ensureAudio, { once: true });
+document.addEventListener('mousedown', ensureAudio, { once: true });
+document.addEventListener('mousemove', ensureAudio, { once: true });
+document.addEventListener('touchstart', ensureAudio, { once: true });
+document.addEventListener('pointerdown', ensureAudio, { once: true });
 
 const SFX = {
+  muted: false,
   play(freq, type, duration, vol = 0.15, slide = 0) {
+    if (this.muted) return;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.type = type;
@@ -18,6 +24,7 @@ const SFX = {
     o.onended = () => { o.disconnect(); g.disconnect(); };
   },
   noise(duration, vol = 0.08) {
+    if (this.muted) return;
     const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * duration, audioCtx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -51,4 +58,20 @@ const SFX = {
   backstab() { this.play(300, 'sawtooth', 0.05, 0.1); this.play(600, 'square', 0.1, 0.12, 200); },
   counterSwish() { this.noise(0.18, 0.12); this.play(900, 'sawtooth', 0.15, 0.1, -600); this.play(400, 'triangle', 0.1, 0.08, 300); },
   victory() { [440,550,660,880].forEach((f,i) => setTimeout(() => this.play(f, 'triangle', 0.25, 0.12), i * 150)); },
+  bossRoar() {
+    // Deep, sustained growl — layered low oscillators + rumble
+    this.play(38, 'sawtooth', 0.9, 0.2, -15);
+    this.play(42, 'square', 0.8, 0.1, -10);
+    this.play(55, 'sawtooth', 0.7, 0.14, -25);
+    this.noise(0.7, 0.18);
+    setTimeout(() => {
+      this.play(32, 'sawtooth', 0.6, 0.18, -12);
+      this.play(48, 'square', 0.5, 0.08, -18);
+      this.noise(0.5, 0.14);
+    }, 250);
+    setTimeout(() => {
+      this.play(28, 'sawtooth', 0.5, 0.15, -8);
+      this.noise(0.4, 0.1);
+    }, 550);
+  },
 };
