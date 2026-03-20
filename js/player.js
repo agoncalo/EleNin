@@ -1845,7 +1845,7 @@ class Player {
     }
 
     // Special ability
-    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.mana >= this.manaCost) {
+    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.mana >= this.manaCost && this.statusCurse <= 0) {
       this.mana -= this.manaCost;
       this.useSpecial(game);
     }
@@ -3066,23 +3066,31 @@ class Player {
         ctx.fillRect(wt.x - cam.x, wt.y - cam.y, this.w, this.h);
       }
       if (this.windPower >= 10 && this.windFullTrails && this.windFullTrails.length > 0) {
+        ctx.save();
+        const pcx = this.x + this.w / 2 - cam.x;
+        const pcy = this.y + this.h / 2 - cam.y;
         for (const t of this.windFullTrails) {
           t.age = (t.age || 0) + 1;
           const progress = t.age / 22;
-          const maxOutward = 480;
-          const outwardX = t.x + Math.cos(t.angle) * maxOutward * progress;
-          const outwardY = t.y + Math.sin(t.angle) * maxOutward * progress;
-          ctx.save();
-          ctx.globalAlpha = 0.07 * (t.life / 22);
-          ctx.fillStyle = '#bff';
-          ctx.fillRect(
-            outwardX - cam.x - this.w / 2,
-            outwardY - cam.y - this.h / 2,
-            this.w,
-            this.h
-          );
-          ctx.restore();
+          const alpha = 0.5 * (1 - progress);
+          const radius = 12 + progress * 40;
+          const spin = t.angle + progress * 4;
+          // Swirling wind arc
+          ctx.strokeStyle = '#bfb';
+          ctx.lineWidth = 2.5 * (1 - progress);
+          ctx.globalAlpha = alpha;
+          ctx.beginPath();
+          ctx.arc(pcx, pcy, radius, spin, spin + 1.2);
+          ctx.stroke();
+          // Inner lighter streak
+          ctx.strokeStyle = '#dff';
+          ctx.lineWidth = 1.2 * (1 - progress);
+          ctx.globalAlpha = alpha * 0.7;
+          ctx.beginPath();
+          ctx.arc(pcx, pcy, radius - 3, spin + 0.3, spin + 1.0);
+          ctx.stroke();
         }
+        ctx.restore();
       }
       ctx.globalAlpha = 1;
     }
@@ -3571,51 +3579,6 @@ class Player {
         ctx.fill();
         ctx.shadowBlur = 0;
 
-      } else if (this.ninjaType === 'wind') {
-        // Wind bow on back
-        if (this.ultCutscene) return; // Don't render bow during ult cutscene to avoid weird layering issues with afterimages
-        ctx.save();
-        // Left limb (curves outward)
-        ctx.strokeStyle = '#5a8a3a';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(0, 2);
-        ctx.bezierCurveTo(-14, -6, -16, -18, -8, -28);
-        ctx.stroke();
-        // Right limb
-        ctx.beginPath();
-        ctx.moveTo(0, 2);
-        ctx.bezierCurveTo(14, -6, 16, -18, 8, -28);
-        ctx.stroke();
-        // Left limb highlight
-        ctx.strokeStyle = '#8d8';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.bezierCurveTo(-12, -6, -14, -16, -7, -26);
-        ctx.stroke();
-        // Right limb highlight
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.bezierCurveTo(12, -6, 14, -16, 7, -26);
-        ctx.stroke();
-        // Bowstring
-        ctx.strokeStyle = '#bfb';
-        ctx.shadowColor = '#bfb';
-        ctx.shadowBlur = 3;
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(-8, -28);
-        ctx.lineTo(8, -28);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        // Grip wrap
-        ctx.fillStyle = '#3a6a2a';
-        ctx.fillRect(-2, -1, 4, 5);
-        ctx.fillStyle = '#bfb';
-        ctx.fillRect(-1.5, 0, 3, 1.5);
-        ctx.fillRect(-1.5, 2, 3, 1.5);
-        ctx.restore();
 
       } else {
         // Default katana scabbard (fire, storm)
@@ -3707,7 +3670,6 @@ class Player {
       const isBubble = this.ninjaType === 'bubble';
       const isCrystal = this.ninjaType === 'crystal';
       const isEarth = this.ninjaType === 'earth';
-      const isWind = this.ninjaType === 'wind';
 
       // Weapon swinging
       ctx.save();
@@ -3937,48 +3899,6 @@ class Player {
         // Green accent band
         ctx.fillStyle = '#2e9e2e';
         ctx.fillRect(4, -4.5, 4, 9);
-      } else if (isWind) {
-        // Wind bow — used as melee weapon
-        // Upper limb
-        ctx.strokeStyle = '#5a8a3a';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(-4, 0);
-        ctx.bezierCurveTo(4, -28, 22, -30, 36, -16);
-        ctx.stroke();
-        // Lower limb
-        ctx.beginPath();
-        ctx.moveTo(-4, 0);
-        ctx.bezierCurveTo(4, 28, 22, 30, 36, 16);
-        ctx.stroke();
-        // Upper limb highlight
-        ctx.strokeStyle = '#8d8';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-2, 0);
-        ctx.bezierCurveTo(4, -26, 20, -28, 34, -14);
-        ctx.stroke();
-        // Lower limb highlight
-        ctx.beginPath();
-        ctx.moveTo(-2, 0);
-        ctx.bezierCurveTo(4, 26, 20, 28, 34, 14);
-        ctx.stroke();
-        // Bowstring
-        ctx.strokeStyle = '#bfb';
-        ctx.shadowColor = '#bfb';
-        ctx.shadowBlur = 4;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(36, -16);
-        ctx.lineTo(36, 16);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        // Grip wrap at center
-        ctx.fillStyle = '#3a6a2a';
-        ctx.fillRect(-6, -3, 6, 6);
-        ctx.fillStyle = '#bfb';
-        ctx.fillRect(-5, -2, 4, 1.5);
-        ctx.fillRect(-5, 0.5, 4, 1.5);
       } else {
         // Katana blade
         const isLightning = this.ninjaType === 'storm';
@@ -4029,7 +3949,7 @@ class Player {
       ctx.arc(0, 0, outerR + 4, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, Math.max(innerR - 4, 6), aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = renderScythe ? '#a040ff' : isBubble ? '#20a0d0' : isCrystal ? '#0aa' : isWind ? '#4a8a3a' : t.color;
+      ctx.fillStyle = renderScythe ? '#a040ff' : isBubble ? '#20a0d0' : isCrystal ? '#0aa' : t.color;
       ctx.fill();
       // Main crescent
       const moonAlpha = (renderScythe ? 0.7 : 0.6) * (1 - slashProgress * 0.6);
@@ -4038,10 +3958,10 @@ class Player {
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, innerR, aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = renderScythe ? '#c8a0ff' : isBubble ? '#80e8ff' : isCrystal ? '#aff' : isWind ? '#bfb' : t.accentColor;
+      ctx.fillStyle = renderScythe ? '#c8a0ff' : isBubble ? '#80e8ff' : isCrystal ? '#aff' : t.accentColor;
       ctx.fill();
       // Bright edge on the outer rim
-      ctx.strokeStyle = renderScythe ? '#e8d8ff' : isBubble ? '#c0f4ff' : isCrystal ? '#dff' : isWind ? '#e0ffe0' : '#fff';
+      ctx.strokeStyle = renderScythe ? '#e8d8ff' : isBubble ? '#c0f4ff' : isCrystal ? '#dff' : '#fff';
       ctx.lineWidth = renderScythe ? 2 : 1.5;
       ctx.globalAlpha = moonAlpha * 0.8;
       ctx.beginPath();

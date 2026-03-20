@@ -893,7 +893,7 @@ class Game {
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice) {
         this.orbBucketChoice = this._generateOrbBuckets();
-        this.orbBucketChoice.delay = 120; // 3 second delay before selection allowed
+        this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
         this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
         this.bossRewardItem = null;
       }

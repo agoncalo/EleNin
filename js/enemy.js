@@ -1446,6 +1446,28 @@ class Enemy {
         ctx.restore();
       }
     }
+
+    // Ghost aura renders in the back
+    if (this.element && this.elementColors) {
+      const tick = game ? game.tick : 0;
+      if (this.element === 'ghost') {
+        // Ghost: greenish scary aura + wisp particles
+        ctx.save();
+        ctx.globalAlpha = 0.15 + 0.1 * Math.sin(tick * 0.07);
+        ctx.shadowColor = '#0f0';
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = '#3a5';
+        ctx.fillRect(this.x - cam.x - 4, this.y - cam.y - 4, this.w + 8, this.h + 8);
+        ctx.restore();
+        // Eerie green wisp trails rising upward
+        if (Math.random() < 0.4) {
+          const px = this.x + Math.random() * this.w;
+          const py = this.y + this.h * 0.5 + Math.random() * this.h * 0.3;
+          game.effects.push(new Effect(px, py, '#8f8', 2, 0.6, 18));
+        }
+      }
+    }
+
     // Wind trail afterimage effect
     if (this.windTrails && this.windTrails.length && this.facingPlayer) {
       for (let i = 0; i < this.windTrails.length; ++i) {
@@ -1520,22 +1542,7 @@ class Enemy {
     if (this.element && this.elementColors) {
       const tick = game ? game.tick : 0;
 
-      if (this.element === 'ghost') {
-        // Ghost: greenish scary aura + wisp particles
-        ctx.save();
-        ctx.globalAlpha = 0.15 + 0.1 * Math.sin(tick * 0.07);
-        ctx.shadowColor = '#0f0';
-        ctx.shadowBlur = 18;
-        ctx.fillStyle = '#3a5';
-        ctx.fillRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
-        ctx.restore();
-        // Eerie green wisp trails rising upward
-        if (Math.random() < 0.4) {
-          const px = this.x + Math.random() * this.w;
-          const py = this.y + this.h * 0.5 + Math.random() * this.h * 0.3;
-          game.effects.push(new Effect(px, py, '#8f8', 2, 0.6, 18));
-        }
-      } else if (this.element === 'spiky') {
+      if (this.element === 'spiky') {
         // Spiky: thorns protruding from body
         ctx.save();
         ctx.fillStyle = this.elementColors.accent;
@@ -2992,6 +2999,25 @@ class Boss extends Enemy {
     ctx.fillStyle = this.phase === 2 ? 'rgba(255,50,50,0.25)' : 'rgba(200,50,50,0.12)';
     ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
 
+    if (this.element && this.elementColors) {
+      const tick = game ? game.tick : 0;
+      if (this.element === 'ghost') {
+        // Ghost boss: greenish scary aura
+        ctx.save();
+        ctx.globalAlpha = 0.15 + 0.1 * Math.sin(tick * 0.07);
+        ctx.shadowColor = '#0f0';
+        ctx.shadowBlur = 24;
+        ctx.fillStyle = '#3a5';
+        ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
+        ctx.restore();
+        if (Math.random() < 0.35) {
+          const px = this.x + Math.random() * this.w;
+          const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
+          game.effects.push(new Effect(px, py, '#8f8', 2, 0.8, 14));
+        }
+      }
+    }
+
     const bodyColor = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color));
 
     // Ghost boss: transparent body
@@ -3388,44 +3414,32 @@ class Boss extends Enemy {
     // Elemental aura (matches Enemy render)
     if (this.element && this.elementColors) {
       const tick = game ? game.tick : 0;
-      if (this.element === 'ghost') {
-        // Ghost boss: greenish scary aura
-        ctx.save();
-        ctx.globalAlpha = 0.15 + 0.1 * Math.sin(tick * 0.07);
-        ctx.shadowColor = '#0f0';
-        ctx.shadowBlur = 24;
-        ctx.fillStyle = '#3a5';
-        ctx.fillRect(sx - 6, sy - 6, this.w + 12, this.h + 12);
-        ctx.restore();
-        if (Math.random() < 0.35) {
-          const px = this.x + Math.random() * this.w;
-          const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
-          game.effects.push(new Effect(px, py, '#8f8', 2, 0.8, 14));
+      if (this.element !== 'ghost') {
+        {
+          ctx.save();
+          ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
+          ctx.fillStyle = this.elementColors.glow;
+          ctx.beginPath();
+          ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          if (Math.random() < 0.25) {
+            const px = this.x + Math.random() * this.w;
+            const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
+            game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
+          }
         }
-      } else {
-        ctx.save();
-        ctx.globalAlpha = 0.18 + 0.08 * Math.sin(tick * 0.06);
-        ctx.fillStyle = this.elementColors.glow;
+        const pipX = sx + this.w / 2;
+        const pipY = sy - 36;
+        ctx.fillStyle = this.elementColors.accent;
         ctx.beginPath();
-        ctx.arc(sx + this.w / 2, sy + this.h / 2, this.w * 0.85, 0, Math.PI * 2);
+        ctx.moveTo(pipX, pipY - 4);
+        ctx.lineTo(pipX + 3, pipY);
+        ctx.lineTo(pipX, pipY + 4);
+        ctx.lineTo(pipX - 3, pipY);
+        ctx.closePath();
         ctx.fill();
-        ctx.restore();
-        if (Math.random() < 0.25) {
-          const px = this.x + Math.random() * this.w;
-          const py = this.y + this.h * 0.3 + Math.random() * this.h * 0.5;
-          game.effects.push(new Effect(px, py, this.elementColors.particle, 1, 0.8, 12));
-        }
       }
-      const pipX = sx + this.w / 2;
-      const pipY = sy - 36;
-      ctx.fillStyle = this.elementColors.accent;
-      ctx.beginPath();
-      ctx.moveTo(pipX, pipY - 4);
-      ctx.lineTo(pipX + 3, pipY);
-      ctx.lineTo(pipX, pipY + 4);
-      ctx.lineTo(pipX - 3, pipY);
-      ctx.closePath();
-      ctx.fill();
     }
 
     if (this.phase === 2) {
