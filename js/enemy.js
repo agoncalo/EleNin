@@ -22,7 +22,7 @@ class Enemy {
     this.color = base.color;
     this.facing = Math.random() < 0.5 ? -1 : 1;
     this.dead = false;
-    this.hitCooldown = 0;
+    this.contactTick = 0;
     this.shootTimer = randInt(0, 40);
     this.jumpTimer = randInt(0, 40);
     this.patrolLeft = x - 100;
@@ -187,7 +187,7 @@ class Enemy {
       if (this.damageIframes > 0) this.damageIframes--;
       if (this._slideDmgCd > 0) this._slideDmgCd--;
       if (this._contactDmgCd > 0) this._contactDmgCd--;
-      if (this.hitCooldown > 0) this.hitCooldown--;
+      if (this.contactTick > 0) this.contactTick--;
       if (this.flashTimer > 0) this.flashTimer--;
       if (this.shieldFlash > 0) this.shieldFlash--;
       if (this.paralyseTimer > 0) this.paralyseTimer--;
@@ -265,7 +265,7 @@ class Enemy {
       }
       return;
     }
-    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.contactTick > 0) this.contactTick--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
@@ -571,7 +571,7 @@ class Enemy {
             // Attack nearby enemies
             if (nearDist < 50) {
               nearE.takeDamage(this.contactDmg, game, cx);
-              nearE.hitCooldown = Math.max(nearE.hitCooldown, 20);
+              nearE._contactDmgCd = Math.max(nearE._contactDmgCd, 20);
             }
           } else {
             this.vx *= 0.9;
@@ -1108,7 +1108,7 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
+    if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
@@ -1118,7 +1118,7 @@ class Enemy {
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
       const spikyMul = this.element === 'spiky' ? 1.5 : 1;
       game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
-      this.hitCooldown = 30;
+      this.contactTick = 30;
       if (isCharging) {
         this.chargeState = 'recoil';
         this.chargeTimer = 0;
@@ -2062,7 +2062,7 @@ class Enemy {
     }
 
     // Melee sword
-    if (this.hitCooldown > 20 && this.type !== 'shooter' && this.type !== 'flyshooter' && this.type !== 'attacker') {
+    if (this.contactTick > 20 && this.type !== 'shooter' && this.type !== 'flyshooter' && this.type !== 'attacker') {
       const sl = this.big ? 16 : 12;
       const sw = this.big ? 4 : 3;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;
@@ -2205,7 +2205,7 @@ class Boss extends Enemy {
   update(game) {
     if (this.dead) return;
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
-    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.contactTick > 0) this.contactTick--;
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
@@ -2976,7 +2976,7 @@ class Boss extends Enemy {
     if (!this.flying && this.y < -60) { this.y = -60; this.vy = 0; }
 
     // Contact damage
-    if (this.hitCooldown <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
+    if (this.contactTick <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
       if (isCharging) {
@@ -2995,7 +2995,7 @@ class Boss extends Enemy {
         game.player.knockbackTimer = 12;
         game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
-      this.hitCooldown = 45;
+      this.contactTick = 45;
     }
   }
 
@@ -3602,7 +3602,7 @@ class Boss extends Enemy {
       const dx = (this.x + this.w / 2) - (game.player.x + game.player.w / 2);
       const dy = (this.y + this.h / 2) - (game.player.y + game.player.h / 2);
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 100 && this.hitCooldown <= 0) {
+      if (dist < 100 && this.contactTick <= 0) {
         const pulse = Math.sin(game.tick * 0.3) * 0.3 + 0.7;
         ctx.globalAlpha = pulse;
         ctx.fillStyle = '#ff0';
@@ -3613,7 +3613,7 @@ class Boss extends Enemy {
     }
 
     // Boss melee sword (not for deflector — has its own katana)
-    if (this.hitCooldown > 30 && this.bossType !== 'deflector' && this.bossType !== 'attacker') {
+    if (this.contactTick > 30 && this.bossType !== 'deflector' && this.bossType !== 'attacker') {
       const sl = 24;
       const sw = 5;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;

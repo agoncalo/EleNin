@@ -65,6 +65,7 @@ class Player {
     this.attackTimer = 0;
     this.attackCooldown = 0;
     this.attackBox = null;
+    this.swingHitSet = new Set();
 
     // Special state
     this.specialCooldown = 0;
@@ -1630,7 +1631,7 @@ class Player {
       } else {
         // Check hits against enemies
         for (const e of game.enemies) {
-          if (!e.dead && e.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, e)) {
+          if (!e.dead && !this.swingHitSet.has(e) && this.attackBox && rectOverlap(this.attackBox, e)) {
             let dmg = t.attackDamage + this.bonusDamage;
             if (this.ninjaType === 'earth') dmg = Math.ceil(dmg * 2);
             if (this.ninjaType === 'shadow') {
@@ -1689,7 +1690,7 @@ class Player {
             }
             // Mana charge on hit
             this.mana = Math.min(this.mana + 0.25, this.maxMana);
-            e.hitCooldown = 15;
+            this.swingHitSet.add(e);
 
             if (this.ninjaType === 'crystal') {
               e.launchIceSlide(game, this.x + this.w / 2, dmg);
@@ -1818,7 +1819,7 @@ class Player {
           }
         }
         // Hit boss
-        if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
+        if (game.boss && !game.boss.dead && !this.swingHitSet.has(game.boss) && this.attackBox && rectOverlap(this.attackBox, game.boss)) {
           let dmg = t.attackDamage + this.bonusDamage;
           if (this.ninjaType === 'earth') dmg = Math.ceil(dmg * 2);
           if (this.ninjaType === 'shadow' && this.backstabReady) {
@@ -1888,7 +1889,7 @@ class Player {
           }
           if (this.ninjaType === 'shadow') this.shadowAttackHit = true;
           if (this.ninjaType === 'crystal') game.boss.launchIceSlide(game, this.x + this.w / 2, dmg);
-          game.boss.hitCooldown = 15;
+          this.swingHitSet.add(game.boss);
           triggerHitstop(5);
         }
       }
@@ -2021,12 +2022,12 @@ class Player {
           game.effects.push(new Effect(cx, cy, '#f80', 4, 2, 6));
         }
         for (const e of game.enemies) {
-          if (!e.dead && e.hitCooldown <= 0) {
+          if (!e.dead && e._contactDmgCd <= 0) {
             const dx = (e.x + e.w / 2) - (this.x + this.w / 2);
             const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
             if (Math.sqrt(dx * dx + dy * dy) < 50) {
               e.takeDamage(this.type.attackDamage + this.bonusElemental, game);
-              e.hitCooldown = 30;
+              e._contactDmgCd = 30;
             }
           }
         }
@@ -2431,7 +2432,6 @@ class Player {
             const dmg = t.attackDamage + this.bonusElemental + this.windPower;
             e.takeDamage(dmg, game, this.x + this.w / 2);
             e._contactDmgCd = 8;
-            e.hitCooldown = 15;
             triggerHitstop(4);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#bfb', 10, 4, 12));
             if (e.element) this.applyElementalStatus(e.element, game);
@@ -2441,7 +2441,6 @@ class Player {
           const dmg = t.attackDamage + this.bonusElemental + this.windPower;
           game.boss.takeDamage(dmg, game, this.x + this.w / 2);
           game.boss._contactDmgCd = 8;
-          game.boss.hitCooldown = 15;
           triggerHitstop(4);
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#bfb', 12, 5, 14));
           if (game.boss.element) this.applyElementalStatus(game.boss.element, game);
@@ -2478,6 +2477,7 @@ class Player {
   attack(game) {
     this.attacking = true;
     this.attackTimer = 10;
+    this.swingHitSet = new Set();
     this.attackCooldown = this.ninjaType === 'earth' ? 10 : 15;
     if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();

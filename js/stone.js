@@ -11,20 +11,21 @@ class EarthWall {
     this.grounded = false;
     this.done = false;
     this.launched = false;
-    this.hitCooldown = 0;
+    this.damageCd = 0;
+    this.hitSet = new Set();
     this.topW = TILE * 0.7;
     this.botW = TILE * 1.4;
     this.launchDmg = 5 * wave;
   }
   isCollidable() { return !this.launched; }
-  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 20; } }
+  takeDamage(amt) { if (this.damageCd <= 0) { this.hp -= amt; this.damageCd = 20; } }
   launch(facing) {
     this.vx = facing * 9;
     this.vy = -1;
     this.launched = true;
   }
   update(game) {
-    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.damageCd > 0) this.damageCd--;
     // Block enemy projectiles while stationary
     if (!this.launched) {
       for (const p of game.projectiles) {
@@ -68,19 +69,19 @@ class EarthWall {
     // Damage enemies when launched
     if (this.launched) {
       for (const e of game.enemies) {
-        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 10, 3, 12));
           if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
-          e.hitCooldown = 10;
+          this.hitSet.add(e);
           e.stunTimer = Math.max(e.stunTimer, 40);
         }
       }
-      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+      if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 14, 4, 16));
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
-        game.boss.hitCooldown = 10;
+        this.hitSet.add(game.boss);
         game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
       }
       if (Math.abs(this.vx) < 0.5 && this.grounded) {
@@ -153,7 +154,8 @@ class EarthBoulder {
     this.vx = 0; this.vy = 0;
     this.grounded = false;
     this.done = false;
-    this.hitCooldown = 0;
+    this.damageCd = 0;
+    this.hitSet = new Set();
     this.targetY = targetY;
     this.rising = true;
     this.riseSpeed = 5;
@@ -164,7 +166,7 @@ class EarthBoulder {
     this.launchDmg = 6 * wave;
   }
   isCollidable() { return this.hovering && !this.launched && !this.pounded; }
-  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 20; } }
+  takeDamage(amt) { if (this.damageCd <= 0) { this.hp -= amt; this.damageCd = 20; } }
   launchAt(tx, ty) {
     this.launched = true;
     this.rising = false;
@@ -186,7 +188,7 @@ class EarthBoulder {
     this.launchDmg = 8 * this.wave;
   }
   update(game) {
-    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.damageCd > 0) this.damageCd--;
     // Destroy enemy projectiles on contact
     for (const p of game.projectiles) {
       if (p.done || p.owner === 'player') continue;
@@ -204,13 +206,13 @@ class EarthBoulder {
       }
       // Rising damage to enemies in the way
       for (const e of game.enemies) {
-        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(3 * this.wave, game, this.x + this.w / 2);
           const rDir = Math.sign(e.x + e.w / 2 - (this.x + this.w / 2)) || 1;
           e.vx += rDir * 10;
           e.vy = -6;
           e.knockbackTimer = Math.max(e.knockbackTimer, 14);
-          e.hitCooldown = 15;
+          this.hitSet.add(e);
           e.stunTimer = Math.max(e.stunTimer, 30);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 8, 3, 10));
         }
@@ -275,7 +277,7 @@ class EarthBoulder {
       this.y += this.vy;
       this.vx *= 0.99;
       for (const e of game.enemies) {
-        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
           // Extra boulder knockback on top of sword KB
           const bDir = Math.sign(this.vx) || Math.sign(e.x + e.w / 2 - (this.x + this.w / 2));
@@ -284,11 +286,11 @@ class EarthBoulder {
           e.stunTimer = Math.max(e.stunTimer, 40);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 12, 4, 14));
           if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
-          e.hitCooldown = 10;
+          this.hitSet.add(e);
           this.hp -= 2;
         }
       }
-      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+      if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
         const bDir = Math.sign(this.vx) || Math.sign(game.boss.x + game.boss.w / 2 - (this.x + this.w / 2));
         game.boss.vx += bDir * 6;
@@ -296,7 +298,7 @@ class EarthBoulder {
         game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 16, 5, 18));
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
-        game.boss.hitCooldown = 10;
+        this.hitSet.add(game.boss);
         this.hp -= 3;
       }
       // Hit platform — only crash on ground (thick platforms)
@@ -428,7 +430,7 @@ class IceBlock {
     this.vx = 0; this.vy = 0;
     this.done = false;
     this.grounded = false;
-    this.hitCooldown = 0;
+    this.damageCd = 0;
     this.timer = 360; // 6 seconds lifetime
     this.frozenEnemies = new Set();
     this.falling = !!midair;
@@ -442,9 +444,9 @@ class IceBlock {
   isCollidable() { return this.landed; }
 
   playerHit(game) {
-    if (this.hitCooldown > 0) return;
+    if (this.damageCd > 0) return;
     this.hp--;
-    this.hitCooldown = 15;
+    this.damageCd = 15;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
     triggerHitstop(3);
     SFX.hit();
@@ -477,7 +479,7 @@ class IceBlock {
   }
 
   update(game) {
-    if (this.hitCooldown > 0) this.hitCooldown--;
+    if (this.damageCd > 0) this.damageCd--;
     if (this.freezeCooldown > 0) this.freezeCooldown--;
     this.shimmer += 0.06;
     this.timer--;
@@ -512,7 +514,7 @@ class IceBlock {
 
       // Freeze + damage enemies while falling
       for (const e of game.enemies) {
-        if (e.dead || e.hitCooldown > 0) continue;
+        if (e.dead || this.frozenEnemies.has(e)) continue;
         if (rectOverlap(this, e)) {
           e.takeDamage(this.baseDmg, game, this.x + this.w / 2);
           e.freezeTimer = Math.max(e.freezeTimer, 90);
@@ -521,16 +523,14 @@ class IceBlock {
           e.vy = -4;
           e.knockbackTimer = Math.max(e.knockbackTimer, 12);
           e.stunTimer = Math.max(e.stunTimer, 40);
-          e.hitCooldown = 15;
           this.frozenEnemies.add(e);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 10, 4, 12));
         }
       }
-      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+      if (game.boss && !game.boss.dead && !this.frozenEnemies.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.baseDmg, game, this.x + this.w / 2);
         game.boss.freezeTimer = Math.max(game.boss.freezeTimer, 50);
         game.boss.stunTimer = Math.max(game.boss.stunTimer, 25);
-        game.boss.hitCooldown = 15;
         this.frozenEnemies.add(game.boss);
         game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 12, 4, 14));
       }
