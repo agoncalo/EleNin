@@ -48,6 +48,7 @@ class Enemy {
     this.freezeTimer = 0;
     this.iceSliding = false;
     this.iceSlideDmg = 0;
+    this.spawnTimer = 15;
     this.floatTimer = 0;
     this.paralyseTimer = 0;
     this.purpleParalyseTimer = 0;
@@ -92,6 +93,7 @@ class Enemy {
 
   update(game) {
     if (this.dead) return;
+    if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
       // Ice sliding: frozen enemy was hit, slides and hits others
@@ -1183,6 +1185,7 @@ class Enemy {
     }
     SFX.enemyDie();
     triggerHitstop(this.big ? 7 : 5);
+    triggerScreenShake(this.big ? 4 : 2, this.big ? 8 : 5);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, this.color, this.big ? 18 : 12, 4, 18));
 
     // ── Elemental death effects — spawn projectiles/objects ──
@@ -1383,6 +1386,18 @@ class Enemy {
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
     if (this.damageIframes > 0 && Math.floor(this.damageIframes / 3) % 2) return;
+
+    // Spawn pop-in scale
+    const spawning = this.spawnTimer > 0;
+    if (spawning) {
+      const t = 1 - this.spawnTimer / 15;
+      const scale = t * (2 - t); // ease-out quad
+      ctx.save();
+      ctx.translate(sx + this.w / 2, sy + this.h);
+      ctx.scale(scale, scale);
+      ctx.translate(-(sx + this.w / 2), -(sy + this.h));
+      ctx.globalAlpha = t;
+    }
 
     // Main body
     if (this.type === 'attacker') {
@@ -1862,6 +1877,7 @@ class Enemy {
         }
       }
     }
+    if (spawning) ctx.restore();
   }
 }
 
@@ -2722,6 +2738,7 @@ class Boss extends Enemy {
   onDeath(game) {
     SFX.bossDie();
     triggerHitstop(10);
+    triggerScreenShake(8, 15);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 30, 6, 30));
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 20, 5, 25));
     // Track boss kill for bestiary

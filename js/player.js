@@ -10,6 +10,8 @@ class Player {
     this.maxHp = 10;
     this.shield = 0;
     this.maxShield = 0;
+    this.displayHp = 10;
+    this.displayShield = 0;
     this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
@@ -514,6 +516,10 @@ class Player {
   update(game) {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
+
+    // Smooth display bars
+    this.displayHp = lerp(this.displayHp, this.hp, 0.12);
+    this.displayShield = lerp(this.displayShield, this.shield, 0.12);
 
     // ── Ultimate cutscene float phase ──
     if (this.ultCutscene) {
@@ -1175,6 +1181,7 @@ class Player {
     this.y += this.vy;
 
     // Platform collision
+    const wasGrounded = this.grounded;
     this.grounded = false;
     this.onWall = 0;
     for (const p of game.platforms) {
@@ -1261,6 +1268,15 @@ class Player {
       }
     }
 
+    // Landing dust particles
+    if (this.grounded && !wasGrounded && !this.slamming) {
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h;
+      for (let i = 0; i < 4; i++) {
+        game.effects.push(new Effect(cx + (Math.random() - 0.5) * 12, cy, '#aa9', 2, 1, 8));
+      }
+    }
+
     // Wall slide
     if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
       const holdingToward = (this.onWall === 1 && moveX > 0) || (this.onWall === -1 && moveX < 0);
@@ -1276,10 +1292,19 @@ class Player {
       }
     }
 
+    // Running footstep dust
+    if (this.grounded && Math.abs(this.vx) > 1.5 && game.tick % 6 === 0) {
+      game.effects.push(new Effect(
+        this.x + this.w / 2 - this.facing * 4, this.y + this.h,
+        '#998', 1, 0.8, 6
+      ));
+    }
+
     // Ground slam landing
     if (this.slamming && this.grounded) {
       this.slamming = false;
       triggerHitstop(8);
+      triggerScreenShake(6, 10);
       SFX.slam();
       if (this.ninjaType === 'bubble') {
         for (const b of game.bubbles) {
@@ -2793,6 +2818,7 @@ class Player {
     this.mana = Math.min(this.mana + 0.5, this.maxMana);
     SFX.playerHurt();
     triggerHitstop(6);
+    triggerScreenShake(4, 8);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
     this.applyElementalStatus(element, game);
     // Spiked Armor: damage all nearby enemies when taking damage

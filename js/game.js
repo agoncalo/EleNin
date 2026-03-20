@@ -1317,6 +1317,9 @@ class Game {
     }
 
     const cam = this.camera;
+    updateScreenShake();
+    cam.x += screenShakeX;
+    cam.y += screenShakeY;
 
     // Sky gradient
     const fireUltSky = this.player.ultimateActive && this.player.ninjaType === 'fire';
@@ -2309,7 +2312,7 @@ class Game {
     const shieldBarY = hasShield ? elemBarY - shieldBarH - gap : elemBarY;
     const shieldBarX = CANVAS_W / 2 - shieldBarW / 2;
     if (hasShield) {
-      const shieldRatio = pl.shield / pl.maxShield;
+      const shieldRatio = pl.displayShield / pl.maxShield;
       ctx.fillStyle = '#112';
       ctx.fillRect(shieldBarX, shieldBarY, shieldBarW, shieldBarH);
       ctx.fillStyle = '#4af';
@@ -2325,8 +2328,14 @@ class Game {
     const hpBarY = (hasShield ? shieldBarY : elemBarY) - hpBarH - gap;
     const hpBarX = CANVAS_W / 2 - hpBarW / 2;
     const hpRatio = pl.hp / pl.maxHp;
+    const displayHpRatio = pl.displayHp / pl.maxHp;
     ctx.fillStyle = '#400';
     ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
+    // Trailing damage bar (shows recent damage draining away)
+    if (displayHpRatio > hpRatio) {
+      ctx.fillStyle = '#f84';
+      ctx.fillRect(hpBarX, hpBarY, hpBarW * displayHpRatio, hpBarH);
+    }
     ctx.fillStyle = '#e44';
     ctx.fillRect(hpBarX, hpBarY, hpBarW * hpRatio, hpBarH);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -2848,5 +2857,9 @@ class Game {
       const gortw = ctx.measureText(gort).width;
       ctx.fillText(gort, CANVAS_W / 2 - gortw / 2, CANVAS_H / 2 + 75);
     }
+
+    // Restore camera after shake offset
+    cam.x -= screenShakeX;
+    cam.y -= screenShakeY;
   }
 }

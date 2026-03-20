@@ -12,6 +12,24 @@ function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) 
 let hitstopFrames = 0;
 function triggerHitstop(frames) { hitstopFrames = Math.max(hitstopFrames, frames); }
 
+// Screen shake
+let screenShakeX = 0, screenShakeY = 0, screenShakeTimer = 0, screenShakeIntensity = 0;
+function triggerScreenShake(intensity, duration) {
+  if (intensity > screenShakeIntensity) {
+    screenShakeIntensity = intensity;
+    screenShakeTimer = duration;
+  }
+}
+function updateScreenShake() {
+  if (screenShakeTimer > 0) {
+    screenShakeTimer--;
+    const t = screenShakeTimer / 10;
+    screenShakeX = (Math.random() - 0.5) * 2 * screenShakeIntensity * Math.min(t, 1);
+    screenShakeY = (Math.random() - 0.5) * 2 * screenShakeIntensity * Math.min(t, 1);
+    if (screenShakeTimer <= 0) { screenShakeIntensity = 0; screenShakeX = 0; screenShakeY = 0; }
+  }
+}
+
 // Line of sight: returns true if no blocks/platforms between two points
 function hasLineOfSight(x0, y0, x1, y1, game) {
   const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
