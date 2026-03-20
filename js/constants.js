@@ -340,7 +340,7 @@ const BOSS_ITEMS = {
   leatherBoots:   { name: 'Leather Boots',     icon: '👢', color: '#a86', desc: '5% chance to evade attacks.' },
   friendsLetter:  { name: "A Friend's Letter", icon: '✉', color: '#fda', desc: "'I hope it will reach him.'" },
   theKunai:       { name: 'The Kunai',         icon: '🗡', color: '#f66', desc: 'Last shuriken is a kunai that always explodes. More shurikens = bigger blast.' },
-  theCode:        { name: 'The Code',          icon: '⌘', color: '#aaf', desc: 'Hold attack for a 3-hit combo, alternating down-up.' },
+  theCode:        { name: 'The Code',          icon: '⌘', color: '#aaf', desc: 'Hold attack for a 3-hit combo. Counter-attack recharges over time.' },
 };
 
 // Which item(s) each boss drops (first uncollected in order)

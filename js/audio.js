@@ -47,5 +47,6 @@ const SFX = {
   reflect() { this.play(1000, 'square', 0.06, 0.1, -400); },
   miss() { this.play(180, 'triangle', 0.12, 0.06, -60); },
   backstab() { this.play(300, 'sawtooth', 0.05, 0.1); this.play(600, 'square', 0.1, 0.12, 200); },
+  counterSwish() { this.noise(0.18, 0.12); this.play(900, 'sawtooth', 0.15, 0.1, -600); this.play(400, 'triangle', 0.1, 0.08, 300); },
   victory() { [440,550,660,880].forEach((f,i) => setTimeout(() => this.play(f, 'triangle', 0.25, 0.12), i * 150)); },
 };

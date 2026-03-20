@@ -2734,6 +2734,23 @@ class Game {
           ctx.globalAlpha = dimmed ? 0.3 : 1;
           // Canvas-drawn icon
           drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
+          // The Code: charge overlay
+          if (key === 'theCode') {
+            const pct = Math.min(pl.codeCounterCharge / pl.codeCounterMax, 1);
+            if (pct < 1) {
+              // Dim overlay on uncharged portion (sweeps upward)
+              ctx.fillStyle = 'rgba(0,0,0,0.55)';
+              const uncharged = iconSize * (1 - pct);
+              ctx.fillRect(icx, icy, iconSize, uncharged);
+            } else {
+              // Fully charged: pulsing glow
+              const pulse = 0.3 + 0.2 * Math.sin(this.tick * 0.1);
+              ctx.globalAlpha = pulse;
+              ctx.fillStyle = '#aaf';
+              ctx.fillRect(icx, icy, iconSize, iconSize);
+              ctx.globalAlpha = 1;
+            }
+          }
           ctx.globalAlpha = 1;
           ctx.shadowBlur = 0;
           iy += iconSize + pad;

@@ -178,6 +178,8 @@ class Player {
     this.deathsKeyUsed = false;
     this.autoSwingTimer = 0; // for The Code
     this.codeComboCount = 0; // 3-hit combo tracker for The Code
+    this.codeCounterCharge = 0; // recharge timer for The Code counter
+    this.codeCounterMax = 600; // ~10 seconds at 60fps
     this.evasionRng = Math.random; // for Leather Boots
   }
 
@@ -1579,6 +1581,10 @@ class Player {
     if (this.mana < this.maxMana) {
       this.mana = Math.min(this.mana + 0.003, this.maxMana);
     }
+    // The Code: slow counter-attack recharge
+    if (this.items.theCode && this.codeCounterCharge < this.codeCounterMax) {
+      this.codeCounterCharge++;
+    }
 
     // Attack
     if (this.attacking) {
@@ -1592,6 +1598,7 @@ class Player {
         }
         this.attacking = false;
         this.attackBox = null;
+        this.counterAttacking = false;
         this.countsTowardCombo = true;
       } else {
         // Check hits against enemies
@@ -1633,6 +1640,15 @@ class Player {
             }
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
+            }
+            // The Code counter: 4x damage + heavy knockback
+            if (this.counterAttacking) {
+              dmg *= 4;
+              const kbDir = Math.sign((e.x + e.w / 2) - (this.x + this.w / 2)) || this.facing;
+              e.vx = kbDir * 14;
+              e.vy = -8;
+              e.grounded = false;
+              game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aaf', 18, 6, 16));
             }
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
             // Vampire Teeth: heal 1% HP per hit (min 1)
@@ -1795,6 +1811,14 @@ class Player {
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += this.crystalCastle ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
+          // The Code counter: 4x damage + heavy knockback on boss
+          if (this.counterAttacking) {
+            dmg *= 4;
+            const kbDir = Math.sign((game.boss.x + game.boss.w / 2) - (this.x + this.w / 2)) || this.facing;
+            game.boss.vx = kbDir * 10;
+            game.boss.vy = -6;
+            game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aaf', 18, 6, 16));
+          }
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
           // Vampire Teeth: heal 1% HP per hit (min 1)
           if (this.items.vampireTeeth) {
@@ -2825,6 +2849,39 @@ class Player {
       triggerHitstop(2);
       return;
     }
+    // The Code: rechargeable counter-attack — negate damage, huge counter swing
+    if (this.items.theCode && this.codeCounterCharge >= this.codeCounterMax) {
+      const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+      // Cancel any current swing and force a powerful counter
+      this.attacking = false;
+      this.attackTimer = 0;
+      this.attackCooldown = 0;
+      this.shadowAttackHit = false;
+      this.attack(game);
+      // Override: longer arc + bigger hitbox for counter
+      this.counterAttacking = true;
+      this.attackTimer = 20;
+      this.invincibleTimer = 45;
+      // Expand the attack hitbox for the counter swing
+      if (this.attackBox) {
+        const grow = 20;
+        this.attackBox.x -= grow;
+        this.attackBox.y -= grow;
+        this.attackBox.w += grow * 2;
+        this.attackBox.h += grow * 2;
+      }
+      // Counter-attack visuals
+      game.effects.push(new TextEffect(cx, this.y - 20, 'COUNTER!', '#aaf'));
+      game.effects.push(new Effect(cx, cy, '#aaf', 20, 6, 18));
+      game.effects.push(new Effect(cx, cy, '#fff', 12, 4, 14));
+      game.effects.push(new SlamRing(cx, cy, '#aaf', 80, 16));
+      game.effects.push(new SlamRing(cx, cy, '#fff', 50, 10));
+      this.codeCounterCharge = 0;
+      triggerHitstop(8);
+      triggerScreenShake(5, 8);
+      SFX.counterSwish();
+      return;
+    }
     if (this.ninjaType === 'wind' && this.windPower >= 10 && typeof SFX !== 'undefined' && SFX.play) {
       SFX.play(80, 'sawtooth', 0.18, 0.22, -60);
       SFX.noise(0.18, 0.18);
@@ -3708,7 +3765,8 @@ class Player {
 
     // Attack — katana moon slash (or shadow scythe in stealth)
     if (this.attacking && this.attackBox) {
-      const slashProgress = 1 - this.attackTimer / 12;
+      const slashDiv = this.counterAttacking ? 22 : 12;
+      const slashProgress = 1 - this.attackTimer / slashDiv;
       const cx = sx + this.w / 2;
       const cy = sy + this.h / 2;
       const dir = this.facing;
