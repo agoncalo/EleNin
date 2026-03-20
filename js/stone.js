@@ -1,481 +1,382 @@
-// ── Stone Constructs (Earth ninja ability) ───────────────────
-class StoneConstruct {
-  constructor(x, y, w, h, hp = 3, wave = 1) {
+// ── Earth Constructs (Earth ninja ability) ───────────────────
+
+// ── EarthWall — trapezoid wall, blocks projectiles, can be punched to launch ──
+class EarthWall {
+  constructor(x, y, wave) {
+    this.w = TILE; this.h = TILE * 3;
     this.x = x; this.y = y;
-    this.w = w; this.h = h;
     this.wave = wave;
-    this.hp = hp;
-    this.maxHp = this.hp;
+    this.hp = 6; this.maxHp = 6;
     this.vx = 0; this.vy = 0;
     this.grounded = false;
     this.done = false;
-    this.thrown = false;
-    this.powered = false;
+    this.launched = false;
     this.hitCooldown = 0;
+    this.topW = TILE * 0.7;
+    this.botW = TILE * 1.4;
+    this.launchDmg = 5 * wave;
   }
-  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 30; } }
-  canBeThrown() { return true; }
-  blockProjectiles() { return true; }
+  isCollidable() { return !this.launched; }
+  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 20; } }
+  launch(facing) {
+    this.vx = facing * 9;
+    this.vy = -1;
+    this.launched = true;
+  }
   update(game) {
-    let landedHard = false;
-    let landingVy = 0;
-
+    if (this.hitCooldown > 0) this.hitCooldown--;
+    // Block enemy projectiles while stationary
+    if (!this.launched) {
+      for (const p of game.projectiles) {
+        if (p.done || p.owner === 'player') continue;
+        if (rectOverlap(this, p)) {
+          p.done = true;
+          game.effects.push(new Effect(p.x, p.y, '#a87', 6, 2, 10));
+        }
+      }
+    }
+    // Gravity + movement
     this.vy += GRAVITY;
     if (this.vy > MAX_FALL) this.vy = MAX_FALL;
     this.x += this.vx;
     this.y += this.vy;
-    this.vx *= 0.9;
+    if (this.launched) this.vx *= 0.97;
     this.grounded = false;
-    if (this.hitCooldown > 0) this.hitCooldown--;
-
-    // Collide with platforms
+    // Platform collision (including thin platforms for top landing)
     for (const p of game.platforms) {
+      if (p.thin) {
+        // Land on thin platforms from above
+        if (this.vy > 0 && rectOverlap(this, p) && this.y + this.h - this.vy <= p.y + 2) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+        }
+        continue;
+      }
       if (rectOverlap(this, p)) {
         if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
           this.y = p.y - this.h;
-          if (this.vy > 4) { landedHard = true; landingVy = this.vy; }
           this.vy = 0;
           this.grounded = true;
-          if (Math.abs(this.vx) < 0.5) this.thrown = false;
+        } else if (this.vx > 0 && this.x + this.w - this.vx <= p.x) {
+          this.x = p.x - this.w; this.vx = 0;
+        } else if (this.vx < 0 && this.x - this.vx >= p.x + p.w - 4) {
+          this.x = p.x + p.w; this.vx = 0;
         }
       }
     }
-    // Collide with other constructs
-    for (const other of game.stoneBlocks) {
-      if (other === this || other.done) continue;
-      if (rectOverlap(this, other)) {
-        if (this.vy > 0 && this.y + this.h - this.vy <= other.y + 4) {
-          this.y = other.y - this.h;
-          if (this.vy > 4) { landedHard = true; landingVy = this.vy; }
-          this.vy = 0;
-          this.grounded = true;
-          if (Math.abs(this.vx) < 0.5) this.thrown = false;
-        }
-        else if (this.vx > 0 && this.x + this.w - this.vx <= other.x + 4) {
-          this.x = other.x - this.w;
-          this.vx = 0;
-        } else if (this.vx < 0 && this.x - this.vx >= other.x + other.w - 4) {
-          this.x = other.x + other.w;
-          this.vx = 0;
+    // Damage enemies when launched
+    if (this.launched) {
+      for (const e of game.enemies) {
+        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 10, 3, 12));
+          if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
+          e.hitCooldown = 10;
         }
       }
-    }
-
-    // Deal and take damage when falling on enemies
-    for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
-        if (this.contactDamage === false && !this.thrown) {
-          // No contact damage (pillar) — just push enemy away
-          if (!(this instanceof StoneSpike)) {
-            const overlapLeft = (e.x + e.w) - this.x;
-            const overlapRight = (this.x + this.w) - e.x;
-            if (overlapLeft < overlapRight) {
-              e.x = this.x - e.w - 1;
-              e.vx = -2;
-            } else {
-              e.x = this.x + this.w + 1;
-              e.vx = 2;
-            }
-          }
-        } else if (this.vy > 4 && this.y + this.h - this.vy <= e.y + 4) {
-          e.takeDamage(3 * this.wave, game, this.x + this.w/2);
-          this.takeDamage(2);
-          game.effects.push(new Effect(this.x + this.w/2, this.y + this.h, '#aaa', 8, 3, 10));
-          this.vy = -2;
-        } else {
-          this.takeDamage(1);
-          e.takeDamage(1 * this.wave, game, this.x + this.w/2);
-        }
-        // Push enemy horizontally away (non-spike constructs)
-        if (!(this instanceof StoneSpike)) {
-          const overlapLeft = (e.x + e.w) - this.x;
-          const overlapRight = (this.x + this.w) - e.x;
-          if (overlapLeft < overlapRight) {
-            e.x = this.x - e.w - 1;
-            e.vx = -2;
-          } else {
-            e.x = this.x + this.w + 1;
-            e.vx = 2;
-          }
-        }
+      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 14, 4, 16));
+        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
+        game.boss.hitCooldown = 10;
+      }
+      if (Math.abs(this.vx) < 0.5 && this.grounded) {
+        this.launched = false;
+        this.vx = 0;
       }
     }
-
-    // Take damage from boss contact
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      if (this.contactDamage !== false || this.thrown) this.takeDamage(2);
-    }
-
-    // Hard landing effects
-    if (landedHard) {
-      this.takeDamage(Math.max(1, Math.floor(landingVy / 4)));
-      damageInRadius(game, this.x + this.w/2, this.y + this.h/2, 60, 2 * this.wave);
-      game.effects.push(new Effect(this.x + this.w/2, this.y + this.h, '#aaa', 10, 3, 10));
-      triggerHitstop(2);
-    }
-
-    if (this.y > CANVAS_H + 100) this.done = true;
+    if (this.y > CANVAS_H + 200) this.done = true;
     if (this.hp <= 0) this.explode(game);
   }
   explode(game) {
     this.done = true;
-    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#a87', 15, 5, 18));
-    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#f93', 10, 4, 14));
-    const dmg = (this.powered ? 5 : 3) * this.wave;
-    damageInRadius(game, this.x + this.w/2, this.y + this.h/2, 80, dmg);
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a87', 15, 5, 18));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a878', 10, 4, 14));
+    damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 70, 3 * this.wave);
     triggerHitstop(4);
-  }
-  render(ctx, cam) {
-    ctx.fillStyle = this.powered ? '#c8a050' : '#7a5a3a';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 3);
-    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
-  }
-}
-
-class StonePillar extends StoneConstruct {
-  constructor(x, y, wave) {
-    super(x, y - TILE, TILE, TILE * 3, 4, wave);
-    this.contactDamage = false;
-  }
-  render(ctx, cam) {
-    ctx.fillStyle = '#8b5e3c';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    ctx.fillStyle = '#c8a878';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, 8);
-    ctx.fillStyle = '#5a3a1a';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y + this.h - 8, this.w, 8);
-    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
-  }
-}
-
-class StoneSpike extends StoneConstruct {
-  constructor(x, y, wave) {
-    super(x, y, TILE, TILE, 6, wave);
-  }
-  update(game) {
-    super.update(game);
-    for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage((3 * this.wave), game);
-        game.effects.push(new Effect(e.x + e.w/2, e.y + e.h, '#f33', 8, 2, 10));
-        game.player.addUltimateCharge(1);
-      }
-    }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss) && game.boss.vy >= 0) {
-      game.boss.takeDamage((3 * this.wave), game);
-      game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h, '#f33', 12, 3, 14));
-      game.player.addUltimateCharge(2);
-    }
   }
   render(ctx, cam) {
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    // Brown spike body
-    ctx.fillStyle = '#a0622a';
+    const cx = sx + this.w / 2;
+    const topW = this.topW;
+    const botW = this.botW;
+    // Trapezoid body
+    ctx.fillStyle = '#8b5e3c';
     ctx.beginPath();
-    ctx.moveTo(sx, sy + this.h);
-    ctx.lineTo(sx + this.w/2, sy);
-    ctx.lineTo(sx + this.w, sy + this.h);
+    ctx.moveTo(cx - botW / 2, sy + this.h);
+    ctx.lineTo(cx - topW / 2, sy);
+    ctx.lineTo(cx + topW / 2, sy);
+    ctx.lineTo(cx + botW / 2, sy + this.h);
     ctx.closePath();
     ctx.fill();
-    // Green accent tip
-    ctx.fillStyle = '#2e9e2e';
-    ctx.beginPath();
-    ctx.moveTo(sx + this.w * 0.3, sy + this.h * 0.5);
-    ctx.lineTo(sx + this.w/2, sy);
-    ctx.lineTo(sx + this.w * 0.7, sy + this.h * 0.5);
-    ctx.closePath();
-    ctx.fill();
+    // Stone texture lines
     ctx.strokeStyle = '#5a3a1a';
-    ctx.stroke();
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const t = i / 4;
+      const lw = topW + (botW - topW) * t;
+      const ly = sy + this.h * t;
+      ctx.beginPath();
+      ctx.moveTo(cx - lw / 2, ly);
+      ctx.lineTo(cx + lw / 2, ly);
+      ctx.stroke();
+    }
+    // Top cap
+    ctx.fillStyle = '#c8a878';
+    ctx.beginPath();
+    ctx.moveTo(cx - topW / 2, sy);
+    ctx.lineTo(cx + topW / 2, sy);
+    ctx.lineTo(cx + topW / 2 + 2, sy + 6);
+    ctx.lineTo(cx - topW / 2 - 2, sy + 6);
+    ctx.closePath();
+    ctx.fill();
+    // Green accent
+    ctx.fillStyle = '#2e9e2e';
+    ctx.fillRect(cx - topW / 2 + 2, sy + 2, topW - 4, 3);
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
 }
 
-class StoneGolem extends StoneConstruct {
-  constructor(x, y, facing, wave) {
-    super(x, y, TILE, TILE, 4, wave);
-    this.facing = facing || 1;
-    this.golemSpeed = 1.2;
+// ── EarthBoulder — rises from ground, can be punched/jumped on/ground pounded ──
+class EarthBoulder {
+  constructor(x, groundY, targetY, wave) {
+    const size = Math.round(TILE * 1.3);
+    this.w = size; this.h = size;
+    this.x = x - size / 2;
+    this.y = groundY - size;
+    this.wave = wave;
+    this.hp = 8; this.maxHp = 8;
+    this.vx = 0; this.vy = 0;
+    this.grounded = false;
+    this.done = false;
+    this.hitCooldown = 0;
+    this.targetY = targetY;
+    this.rising = true;
+    this.riseSpeed = 5;
+    this.hovering = false;
+    this.hoverTimer = 120;
+    this.launched = false;
+    this.pounded = false;
+    this.launchDmg = 6 * wave;
+  }
+  isCollidable() { return this.hovering && !this.launched && !this.pounded; }
+  takeDamage(amt) { if (this.hitCooldown <= 0) { this.hp -= amt; this.hitCooldown = 20; } }
+  launchAt(tx, ty) {
+    this.launched = true;
+    this.rising = false;
+    this.hovering = false;
+    const dx = tx - (this.x + this.w / 2);
+    const dy = ty - (this.y + this.h / 2);
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    this.vx = (dx / d) * 10;
+    this.vy = (dy / d) * 10;
+    this.launchTimer = 0;
+    SFX.hit();
+  }
+  groundPound() {
+    this.pounded = true;
+    this.rising = false;
+    this.hovering = false;
+    this.vx = 0;
+    this.vy = 14;
+    this.launchDmg = 8 * this.wave;
   }
   update(game) {
-    if (!this.thrown) this.vx = this.facing * this.golemSpeed;
-    else this.vx *= 0.9;
-    super.update(game);
-    for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage((4 * this.wave), game);
-        game.effects.push(new Effect(e.x + e.w/2, e.y + e.h/2, '#f93', 10, 3, 12));
-        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
+    if (this.hitCooldown > 0) this.hitCooldown--;
+    // Destroy enemy projectiles on contact
+    for (const p of game.projectiles) {
+      if (p.done || p.owner === 'player') continue;
+      if (rectOverlap(this, p)) {
+        p.done = true;
+        game.effects.push(new Effect(p.x, p.y, '#a87', 6, 2, 10));
       }
     }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage((4 * this.wave), game);
-      game.effects.push(new Effect(game.boss.x + game.boss.w/2, game.boss.y + game.boss.h/2, '#f93', 14, 4, 16));
-      if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
+    if (this.rising) {
+      this.y -= this.riseSpeed;
+      if (this.y <= this.targetY) {
+        this.y = this.targetY;
+        this.rising = false;
+        this.hovering = true;
+      }
+      // Rising damage to enemies in the way
+      for (const e of game.enemies) {
+        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+          e.takeDamage(3 * this.wave, game, this.x + this.w / 2);
+          e.vy = -6;
+          e.hitCooldown = 15;
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 8, 3, 10));
+        }
+      }
+      // Check for merge with other hovering/rising boulders while rising
+      for (const b of game.stoneBlocks) {
+        if (b === this || b.done || !(b instanceof EarthBoulder)) continue;
+        if (!(b.hovering || b.rising)) continue;
+        if (rectOverlap(this, b)) {
+          const newSize = Math.round(Math.sqrt(this.w * this.w + b.w * b.w));
+          this.w = newSize; this.h = newSize;
+          this.hp = Math.min(this.hp + b.hp, this.maxHp * 2);
+          this.maxHp = Math.max(this.maxHp, this.hp);
+          this.launchDmg = Math.round(this.launchDmg * 1.5);
+          this.x = (this.x + b.x) / 2;
+          this.y = (this.y + b.y) / 2;
+          b.done = true;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a878', 12, 4, 14));
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#2e9e2e', 8, 3, 10));
+          triggerHitstop(3);
+          SFX.hit();
+          break;
+        }
+      }
+      return;
     }
+    if (this.hovering) {
+      this.hoverTimer--;
+      this.y += Math.sin(game.tick * 0.08) * 0.3;
+      // Check for merge with other hovering/rising boulders
+      for (const b of game.stoneBlocks) {
+        if (b === this || b.done || !(b instanceof EarthBoulder)) continue;
+        if (!(b.hovering || b.rising)) continue;
+        if (rectOverlap(this, b)) {
+          // Merge: absorb the other boulder
+          const newSize = Math.round(Math.sqrt(this.w * this.w + b.w * b.w));
+          this.w = newSize; this.h = newSize;
+          this.hp = Math.min(this.hp + b.hp, this.maxHp * 2);
+          this.maxHp = Math.max(this.maxHp, this.hp);
+          this.launchDmg = Math.round(this.launchDmg * 1.5);
+          this.hoverTimer = Math.max(this.hoverTimer, 80);
+          this.x = (this.x + b.x) / 2;
+          this.y = (this.y + b.y) / 2;
+          b.done = true;
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a878', 12, 4, 14));
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#2e9e2e', 8, 3, 10));
+          triggerHitstop(3);
+          SFX.hit();
+          break;
+        }
+      }
+      if (this.hoverTimer <= 0) this.hovering = false;
+      return;
+    }
+    if (this.launched) {
+      this.launchTimer++;
+      if (this.launchTimer > 20) {
+        this.vy += GRAVITY;
+        if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      }
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= 0.99;
+      for (const e of game.enemies) {
+        if (!e.dead && e.hitCooldown <= 0 && rectOverlap(this, e)) {
+          e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 12, 4, 14));
+          if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
+          e.hitCooldown = 10;
+          this.hp -= 2;
+        }
+      }
+      if (game.boss && !game.boss.dead && game.boss.hitCooldown <= 0 && rectOverlap(this, game.boss)) {
+        game.boss.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'sword');
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#a87', 16, 5, 18));
+        if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
+        game.boss.hitCooldown = 10;
+        this.hp -= 3;
+      }
+      // Hit platform — only crash on ground (thick platforms)
+      // Falling boulders smash through thin platforms dealing damage
+      if (!this._hitPlats) this._hitPlats = new Set();
+      for (const p of game.platforms) {
+        if (!rectOverlap(this, p)) continue;
+        if (p.thin) {
+          if (this.vy > 0 && !this._hitPlats.has(p)) {
+            this._hitPlats.add(p);
+            damageInRadius(game, this.x + this.w / 2, p.y, 60, this.launchDmg);
+            game.effects.push(new Effect(this.x + this.w / 2, p.y, '#a87', 8, 3, 10));
+            triggerScreenShake(2, 4);
+          }
+        } else {
+          this.hp = 0; break;
+        }
+      }
+      if (Math.abs(this.vx) < 1 && Math.abs(this.vy) < 1) this.hp = 0;
+      if (this.y > CANVAS_H + 200 || this.x < -200 || this.x > game.levelW + 200) this.done = true;
+      if (this.hp <= 0) this.explode(game);
+      return;
+    }
+    // Natural fall (pounded or hover expired)
+    this.vy += GRAVITY;
+    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.grounded = false;
+    for (const p of game.platforms) {
+      if (p.thin) continue;
+      if (rectOverlap(this, p)) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          if (this.pounded || this.vy > 6) {
+            // Landing impact
+            damageInRadius(game, this.x + this.w / 2, this.y + this.h, 80, this.launchDmg);
+            game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#a87', 14, 5, 16));
+            triggerHitstop(5);
+            triggerScreenShake(5, 8);
+            SFX.slam();
+            this.hp = 0;
+          }
+          this.vy = 0;
+          this.grounded = true;
+        }
+      }
+    }
+    if (this.y > CANVAS_H + 200) this.done = true;
+    if (this.hp <= 0) this.explode(game);
   }
   explode(game) {
     this.done = true;
-    game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#aaa', 10, 3, 12));
+    const radius = Math.max(80, this.w * 2);
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a87', 15, 5, 18));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a878', 10, 4, 14));
+    damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, radius, 3 * this.wave);
+    triggerHitstop(4);
   }
   render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const r = this.w / 2;
+    const cx = sx + r;
+    const cy = sy + r;
+    // Boulder body
     ctx.fillStyle = '#8b5e3c';
-    ctx.fillRect(this.x - cam.x, this.y - cam.y, this.w, this.h);
-    ctx.fillStyle = '#5a3a1a';
-    ctx.fillRect(this.x - cam.x + 8, this.y - cam.y + this.h - 12, this.w - 16, 10);
-    ctx.fillStyle = '#c8a878';
-    ctx.fillRect(this.x - cam.x + 10, this.y - cam.y + 10, 8, 8);
-    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
-  }
-}
-
-// ── StoneShooter — shoots projectiles at nearest enemy ──
-class StoneShooter extends StoneConstruct {
-  constructor(x, y, facing, wave) {
-    super(x, y, TILE, TILE, 4, wave);
-    this.facing = facing || 1;
-    this.shootTimer = 0;
-  }
-  update(game) {
-    super.update(game);
-    this.shootTimer++;
-    if (this.shootTimer >= 70) {
-      this.shootTimer = 0;
-      const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      let nearest = null, bestDist = 400;
-      for (const e of game.enemies) {
-        if (e.dead) continue;
-        const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < bestDist) { bestDist = d; nearest = e; }
-      }
-      if (!nearest && game.boss && !game.boss.dead) {
-        const dx = (game.boss.x + game.boss.w / 2) - cx;
-        const dy = (game.boss.y + game.boss.h / 2) - cy;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < 400) nearest = game.boss;
-      }
-      if (nearest) {
-        const dx = (nearest.x + nearest.w / 2) - cx;
-        const dy = (nearest.y + nearest.h / 2) - cy;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d > 0) {
-          const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, '#b8864e', (3 * this.wave), 'player');
-          p.w = 6; p.h = 6; p.life = 90;
-          p.fromConstruct = true;
-          game.projectiles.push(p);
-        }
-      }
-    }
-  }
-  render(ctx, cam) {
-    const sx = this.x - cam.x, sy = this.y - cam.y;
-    // Body
-    ctx.fillStyle = '#8b5e3c';
-    ctx.fillRect(sx, sy, this.w, this.h);
-    // Top highlight
-    ctx.fillStyle = '#c8a878';
-    ctx.fillRect(sx, sy, this.w, 4);
-    // Barrel
-    ctx.fillStyle = '#5a3a1a';
-    const bx = this.facing > 0 ? sx + this.w - 2 : sx - 6;
-    ctx.fillRect(bx, sy + this.h / 2 - 3, 8, 6);
-    // Barrel accent
-    ctx.fillStyle = '#b8864e';
-    ctx.fillRect(bx + 1, sy + this.h / 2 - 1, 6, 2);
-    // Eye
-    ctx.fillStyle = '#2e9e2e';
-    ctx.fillRect(sx + (this.facing > 0 ? 12 : 6), sy + 8, 6, 6);
-    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
-  }
-}
-
-// ── StoneFlyer — flies toward nearest enemy ──
-class StoneFlyer extends StoneConstruct {
-  constructor(x, y, wave) {
-    super(x, y, TILE, TILE, 3, wave);
-    this.hoverPhase = Math.random() * Math.PI * 2;
-    this.flying = true;
-  }
-  update(game) {
-    this.hoverPhase += 0.03;
-    const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-    let nearest = null, bestDist = 500;
-    for (const e of game.enemies) {
-      if (e.dead) continue;
-      const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < bestDist) { bestDist = d; nearest = e; }
-    }
-    if (!nearest && game.boss && !game.boss.dead) {
-      const dx = (game.boss.x + game.boss.w / 2) - cx;
-      const dy = (game.boss.y + game.boss.h / 2) - cy;
-      if (Math.sqrt(dx * dx + dy * dy) < 500) nearest = game.boss;
-    }
-    if (nearest) {
-      const dx = (nearest.x + nearest.w / 2) - cx;
-      const dy = (nearest.y + nearest.h / 2) - cy;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d > 30) {
-        this.vx = (dx / d) * 2.2;
-        this.vy = (dy / d) * 2.2 + Math.sin(this.hoverPhase) * 0.5;
-      } else {
-        this.vx *= 0.9;
-        this.vy = Math.sin(this.hoverPhase) * 1.2;
-      }
-    } else {
-      this.vx *= 0.95;
-      this.vy = Math.sin(this.hoverPhase) * 0.8;
-    }
-    // No gravity — override the super update for position only
-    this.x += this.vx;
-    this.y += this.vy;
-    if (this.hitCooldown > 0) this.hitCooldown--;
-    // Damage enemies on contact
-    for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage((3 * this.wave), game, this.x + this.w / 2);
-        this.takeDamage(1);
-        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#b8864e', 8, 2, 10));
-        game.player.addUltimateCharge(1);
-      }
-    }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage((1 * this.wave), game);
-      this.takeDamage(1);
-      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#b8864e', 10, 3, 12));
-      game.player.addUltimateCharge(2);
-    }
-    if (this.y > CANVAS_H + 100 || this.y < -400) this.done = true;
-    if (this.hp <= 0) this.explode(game);
-  }
-  render(ctx, cam) {
-    const sx = this.x - cam.x, sy = this.y - cam.y;
-    // Body
-    ctx.fillStyle = '#8b5e3c';
-    ctx.fillRect(sx + 4, sy + 4, this.w - 8, this.h - 8);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Cracks
+    ctx.strokeStyle = '#5a3a1a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.3, cy - r * 0.5);
+    ctx.lineTo(cx + r * 0.2, cy + r * 0.1);
+    ctx.lineTo(cx + r * 0.5, cy + r * 0.4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + r * 0.1, cy - r * 0.6);
+    ctx.lineTo(cx - r * 0.1, cy);
+    ctx.stroke();
     // Highlight
-    ctx.fillStyle = '#c8a878';
-    ctx.fillRect(sx + 4, sy + 4, this.w - 8, 3);
-    // Wings
-    ctx.fillStyle = '#a0622a';
-    ctx.fillRect(sx - 4, sy + 8, 6, this.h - 16);
-    ctx.fillRect(sx + this.w - 2, sy + 8, 6, this.h - 16);
-    // Wing accents
-    ctx.fillStyle = '#b8864e';
-    ctx.fillRect(sx - 3, sy + 9, 4, 3);
-    ctx.fillRect(sx + this.w - 1, sy + 9, 4, 3);
-    // Eye
-    ctx.fillStyle = '#2e9e2e';
-    ctx.fillRect(sx + this.w / 2 - 3, sy + 8, 6, 6);
-    if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
-  }
-}
-
-// ── StoneDeflector — walks toward enemies, deflects enemy projectiles ──
-class StoneDeflector extends StoneConstruct {
-  constructor(x, y, facing, wave) {
-    super(x, y, TILE, TILE, 6, wave);
-    this.facing = facing || 1;
-    this.deflectReady = true;
-  }
-  update(game) {
-    const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-    // Find nearest enemy
-    let nearest = null, bestDist = 300;
-    for (const e of game.enemies) {
-      if (e.dead) continue;
-      const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < bestDist) { bestDist = d; nearest = e; }
-    }
-    if (!nearest && game.boss && !game.boss.dead) {
-      const dx = (game.boss.x + game.boss.w / 2) - cx;
-      const dy = (game.boss.y + game.boss.h / 2) - cy;
-      if (Math.sqrt(dx * dx + dy * dy) < 300) nearest = game.boss;
-    }
-    if (nearest) {
-      this.facing = (nearest.x + nearest.w / 2) > cx ? 1 : -1;
-      if (bestDist > 40) this.vx = this.facing * 1.0;
-      else this.vx *= 0.85;
-    }
-    super.update(game);
-    // Deflect enemy projectiles
-    this.deflectReady = this.grounded;
-    if (this.deflectReady) {
-      for (const p of game.projectiles) {
-        if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
-        if (rectOverlap(this, p)) {
-          p.vx = -p.vx * 1.5;
-          p.vy = -p.vy * 1.5;
-          p.owner = 'player';
-          p.reflected = true;
-          p.damage = Math.max(p.damage, (4 * this.wave));
-          game.effects.push(new Effect(p.x, p.y, '#c8a878', 8, 2, 10));
-        }
-      }
-    }
-    // Contact damage to enemies
-    for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage((4 * this.wave), game, this.x + this.w / 2);
-        game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#c8a878', 10, 3, 12));
-        game.player.addUltimateCharge(1);
-      }
-    }
-    if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage((4 * this.wave), game);
-      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#c8a878', 12, 3, 14));
-      game.player.addUltimateCharge(2);
-    }
-  }
-  render(ctx, cam) {
-    const sx = this.x - cam.x, sy = this.y - cam.y;
-    // Body
-    ctx.fillStyle = '#8b5e3c';
-    ctx.fillRect(sx, sy, this.w, this.h);
-    // Top highlight
-    ctx.fillStyle = '#c8a878';
-    ctx.fillRect(sx, sy, this.w, 4);
-    // Bottom shadow
-    ctx.fillStyle = '#5a3a1a';
-    ctx.fillRect(sx, sy + this.h - 4, this.w, 4);
-    // Katana
     ctx.save();
-    const gx = this.facing > 0 ? sx + this.w - 2 : sx + 2;
-    const gy = sy + this.h * 0.4;
-    ctx.translate(gx, gy);
-    ctx.rotate(this.facing > 0 ? -0.4 : (Math.PI + 0.4));
-    ctx.fillStyle = this.deflectReady ? '#dde' : '#889';
-    ctx.fillRect(4, -1.5, 20, 3);
-    ctx.fillStyle = '#aa8';
-    ctx.fillRect(2, -3, 3, 6);
-    ctx.fillStyle = '#b8864e';
-    ctx.fillRect(-3, -2, 6, 4);
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#c8a878';
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.2, cy - r * 0.3, r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
-    // Kasa hat
+    // Green accent gem
     ctx.fillStyle = '#2e9e2e';
     ctx.beginPath();
-    ctx.moveTo(sx - 4, sy + 2);
-    ctx.lineTo(sx + this.w / 2, sy - 10);
-    ctx.lineTo(sx + this.w + 4, sy + 2);
-    ctx.closePath();
+    ctx.arc(cx, cy - r * 0.3, 4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#a0622a';
-    ctx.fillRect(sx - 4, sy, this.w + 8, 2);
-    // Deflect ready glow
-    if (this.deflectReady) {
-      ctx.save();
-      ctx.globalAlpha = 0.2 + 0.1 * Math.sin(Date.now() * 0.008);
-      ctx.fillStyle = '#b8864e';
-      ctx.beginPath();
-      ctx.arc(gx, gy - 8, 12, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
     if (this.hp < this.maxHp) renderHpBar(ctx, cam, this);
   }
 }

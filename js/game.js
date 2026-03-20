@@ -13,7 +13,6 @@ class Game {
     this.projectiles = [];
     this.effects = [];
     this.stoneBlocks = [];
-    this.stonePillars = [];
     this.bubbles = [];
     this.orbs = [];
     this.bossItems = [];
@@ -313,7 +312,7 @@ class Game {
     P(800, -660, 32, 1900, '#444');
 
     // Bottom: spikes instead of ground
-    S(0, 488, 800);
+    S(0, 500, 800);
 
     // Starting platform at bottom
     P(200, 440, 250, 16, '#666');
@@ -2805,10 +2804,10 @@ class Game {
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 1;
       ctx.strokeRect(pbX, pbY, pbW, pbH);
-      // Boss name label on top of bar
+      // Boss label inside bar: "30/50 (RONIN BOSS)"
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 11px monospace';
-      const bossLabel = `${b.name} [${this.wave}/${TOTAL_WAVES}]`;
+      const bossLabel = `${Math.ceil(b.hp)}/${b.maxHp} (${b.name})`;
       const tw = ctx.measureText(bossLabel).width;
       ctx.fillText(bossLabel, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
@@ -3141,6 +3140,9 @@ class Game {
       const gortw = ctx.measureText(gort).width;
       ctx.fillText(gort, CANVAS_W / 2 - gortw / 2, CANVAS_H / 2 + 75);
     }
+
+    // Re-render spikes on top of UI so they're always visible
+    for (const s of this.spikes) s.render(ctx, cam);
 
     // Restore camera after shake offset
     cam.x -= screenShakeX;

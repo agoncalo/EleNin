@@ -422,18 +422,55 @@ class Projectile {
       if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx) * 0.85; this.bouncesLeft--; }
       if (this.y + this.h > 480) { this.y = 480 - this.h; this.vy = -Math.abs(this.vy) * 0.75; this.bouncesLeft--; }
     }
-    // Hit stone blocks (power them up) — skip if fired by a construct
+    // Enemy/boss projectiles blocked by earth constructs
     if ((this.owner === 'enemy' || this.owner === 'boss') && !this.fromConstruct) {
       for (const b of game.stoneBlocks) {
         if (!b.done && rectOverlap(this, b)) {
-          b.powered = true;
           this.done = true;
-          game.effects.push(new Effect(this.x, this.y, '#ff0', 6, 2, 12));
+          game.effects.push(new Effect(this.x, this.y, '#a87', 6, 2, 10));
           return;
         }
       }
     }
     if (this.owner === 'player') {
+      // Earth punches interact with stone blocks (wall/boulder)
+      if (this.isEarthPunch) {
+        for (const b of game.stoneBlocks) {
+          if (b.done) continue;
+          if (rectOverlap(this, b)) {
+            if (b instanceof EarthWall && !b.launched) {
+              b.launch(game.player.facing);
+              game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 10, 4, 14));
+              SFX.hit();
+              triggerHitstop(3);
+            } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
+              let nearest = null, bestDist = 999;
+              const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2;
+              const facing = game.player.facing;
+              for (const e of game.enemies) {
+                if (e.dead) continue;
+                const ex = e.x + e.w / 2;
+                if ((ex - bcx) * facing < 0) continue;
+                const d = Math.sqrt((ex - bcx) ** 2 + (e.y + e.h / 2 - bcy) ** 2);
+                if (d < bestDist) { bestDist = d; nearest = e; }
+              }
+              if (!nearest && game.boss && !game.boss.dead) {
+                const bx = game.boss.x + game.boss.w / 2;
+                if ((bx - bcx) * facing >= 0) nearest = game.boss;
+              }
+              if (nearest) {
+                b.launchAt(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2);
+              } else {
+                b.launchAt(bcx + facing * 300, bcy);
+              }
+              game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 12, 5, 16));
+              triggerHitstop(3);
+            }
+            this.done = true;
+            return;
+          }
+        }
+      }
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
 
@@ -534,7 +571,17 @@ class Projectile {
           }
           // Ultimate charge gain: projectile hit
           if (!game.player.ultimateReady && !game.player.ultimateActive) {
-            game.player.addUltimateCharge(2);
+            game.player.addUltimateCharge(this.isEarthPunch ? 4 : 2);
+          }
+          // Earth punch: melee-like effects (mana, vampire, hitstop)
+          if (this.isEarthPunch) {
+            game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+            if (game.player.items.vampireTeeth) {
+              const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.01));
+              game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
+            }
+            triggerHitstop(4);
+            SFX.hit();
           }
           if (!this.piercing) { this.done = true; return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
@@ -622,7 +669,17 @@ class Projectile {
         }
         // Ultimate charge gain: projectile hit boss
         if (!game.player.ultimateReady && !game.player.ultimateActive) {
-          game.player.addUltimateCharge(3);
+          game.player.addUltimateCharge(this.isEarthPunch ? 5 : 3);
+        }
+        // Earth punch: melee-like effects on boss hit
+        if (this.isEarthPunch) {
+          game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+          if (game.player.items.vampireTeeth) {
+            const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.01));
+            game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
+          }
+          triggerHitstop(4);
+          SFX.hit();
         }
         if (!this.piercing) { this.done = true; return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
@@ -686,6 +743,37 @@ class Projectile {
 
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
+    if (this.isEarthPunch) {
+      // Big stone fist — square punch with speed lines
+      ctx.save();
+      ctx.fillStyle = this.color;
+      ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.strokeStyle = '#5a3a1a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 0.5, sy + 0.5, this.w - 1, this.h - 1);
+      // Knuckle highlights
+      ctx.fillStyle = '#e8d0b0';
+      const kx = this.vx > 0 ? sx + this.w - 5 : sx + 1;
+      ctx.fillRect(kx, sy + 2, 4, 4);
+      ctx.fillRect(kx, sy + this.h - 6, 4, 4);
+      ctx.fillRect(kx, sy + this.h / 2 - 2, 4, 4);
+      // Speed lines trailing behind
+      const dir = this.vx > 0 ? -1 : 1;
+      ctx.strokeStyle = '#c8a878';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.7;
+      for (let i = 0; i < 5; i++) {
+        const lx = (this.vx > 0 ? sx : sx + this.w) + dir * (4 + i * 5);
+        const ly = sy + 1 + i * 3;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx + dir * (10 + i * 2), ly);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return;
+    }
     if (this.freezeDust) {
       // Sparkly dust cloud
       ctx.save();

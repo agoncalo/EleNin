@@ -15,7 +15,7 @@ const ENEMY_ELEMENTS = ['fire', 'ghost', 'water', 'crystal', 'wind', 'lightning'
 // Colors for each element
 const ELEMENT_COLORS = {
   fire:      { body: '#d44', accent: '#f93', glow: '#f60', particle: '#fa3' },
-  ghost:     { body: '#8a6aaf', accent: '#c8a8e8', glow: '#9070b0', particle: '#b898d8' },
+  ghost:     { body: '#8a6aaf', accent: '#6f6', glow: '#3a5', particle: '#8f8' },
   water:     { body: '#46a', accent: '#6af', glow: '#38d', particle: '#4af' },
   crystal:   { body: '#5cc', accent: '#dff', glow: '#6ee', particle: '#aef' },
   wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },

@@ -40,6 +40,7 @@ class Player {
 
     // Earth ultimate: stone golem mecha
     this.earthGolem = null; // { timer, facing, punchTimer, shootTimer, x, y, w, h, hp }
+    this.earthAirHover = 0; // timer for midair hover when using air special
 
     // Bubble ultimate: bubbles on every enemy + underwater
     this.bubbleRide = null; // kept for switchNinja cleanup
@@ -1166,10 +1167,16 @@ class Player {
       this.vy = 16;
     }
 
+    // Earth air hover
+    if (this.earthAirHover > 0) {
+      this.earthAirHover--;
+      this.vy = 0;
+    }
+
     // Gravity
     let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
     if (this.statusFloat > 0) grav *= 0.35;
-    if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing) {
+    if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing && this.earthAirHover <= 0) {
       this.vy += grav;
     }
     if (this.stopMidair) {
@@ -1252,8 +1259,8 @@ class Player {
       }
     }
 
-    for (const b of game.stonePillars) {
-      if (b.done) continue;
+    for (const b of game.stoneBlocks) {
+      if (b.done || !b.isCollidable()) continue;
       if (rectOverlap(this, b)) {
         if (this.vy > 0 && this.y + this.h - this.vy <= b.y + 4) {
           this.y = b.y - this.h;
@@ -1329,33 +1336,19 @@ class Player {
       // Ground shockwave ring (SlamRing effect)
       game.effects.push(new SlamRing(slamCX, slamCY, slamColor, slamAccent));
 
-      // Earth: destroy nearby constructs, then spawn ground spikes
+      // Earth: ground pound nearby boulders, extra slam damage
       if (this.ninjaType === 'earth') {
-        const slamRadius = 120;
+        slamDmg = Math.ceil(slamDmg * 1.5);
         for (const b of game.stoneBlocks) {
           if (b.done) continue;
-          const bdx = (b.x + (b.w || TILE) / 2) - slamCX;
-          const bdy = (b.y + (b.h || TILE) / 2) - slamCY;
-          if (Math.sqrt(bdx * bdx + bdy * bdy) < slamRadius) {
-            b.explode(game);
-          }
-        }
-        const spikeCount = 3;
-        for (let i = 0; i < spikeCount; i++) {
-          const offset = (i - Math.floor(spikeCount / 2)) * TILE;
-          const spX = slamCX - TILE / 2 + offset;
-          // Find ground level at this X by checking platforms
-          let spY = slamCY - TILE;
-          for (const p of game.platforms) {
-            if (spX + TILE > p.x && spX < p.x + p.w && Math.abs(p.y - slamCY) < TILE * 2) {
-              spY = p.y - TILE;
-              break;
+          if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
+            const bdx = (b.x + b.w / 2) - slamCX;
+            const bdy = (b.y + b.h / 2) - slamCY;
+            if (Math.sqrt(bdx * bdx + bdy * bdy) < 120) {
+              b.groundPound();
+              game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 12, 4, 14));
             }
           }
-          const spike = new StoneSpike(spX, spY - 40 - i * 12, game.wave || 1);
-          spike.vy = -4 - i * 1.5;  // launch upward, gravity will pull them down to bounce
-          game.stoneBlocks.push(spike);
-          game.effects.push(new Effect(spX + TILE / 2, spY + TILE, slamColor, 6, 3, 10));
         }
       }
 
@@ -1699,14 +1692,33 @@ class Player {
           }
         }
 
-        // Attack stone blocks
+        // Attack stone blocks — launch walls/boulders
         for (const b of game.stoneBlocks) {
           if (!b.done && this.attackBox && rectOverlap(this.attackBox, b)) {
-            b.vx = this.facing * 8;
-            b.vy = -2;
-            b.thrown = true;
-            b.takeDamage(1, game);
-            this.nextHitDouble = true;
+            if (b instanceof EarthWall && !b.launched) {
+              b.launch(this.facing);
+              triggerHitstop(3);
+            } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
+              let nearest = null, nd = Infinity;
+              const bcx = b.x + b.w / 2;
+              for (const e of game.enemies) {
+                if (e.done) continue;
+                const ex = e.x + e.w / 2;
+                if ((ex - bcx) * this.facing < 0) continue;
+                const d = Math.hypot(ex - bcx, e.y + e.h / 2 - b.y);
+                if (d < nd) { nd = d; nearest = e; }
+              }
+              if (game.boss && !game.boss.done) {
+                const bx = game.boss.x + game.boss.w / 2;
+                if ((bx - bcx) * this.facing >= 0) {
+                  const d = Math.hypot(bx - bcx, game.boss.y + game.boss.h / 2 - b.y);
+                  if (d < nd) { nd = d; nearest = game.boss; }
+                }
+              }
+              if (nearest) b.launchAt(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2);
+              else b.launchAt(b.x + this.facing * 300, b.y);
+              triggerHitstop(3);
+            }
           }
         }
         // Destroy/deflect enemy projectiles with attack
@@ -2365,6 +2377,20 @@ class Player {
   }
 
   attack(game) {
+    // Earth: big stone fist punch
+    if (this.ninjaType === 'earth') {
+      this.attackCooldown = 10;
+      SFX.attack();
+      const t = this.type;
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      const dmg = Math.ceil((t.attackDamage + this.bonusDamage) * 2);
+      const p = new Projectile(cx + this.facing * 6, cy - 8, this.facing * 12, 0, '#c8a878', dmg, 'player');
+      p.w = 16; p.h = 16; p.life = 6; p.isEarthPunch = true; p.noPlat = true;
+      game.projectiles.push(p);
+      return;
+    }
+
     this.attacking = true;
     this.attackTimer = 10;
     this.attackCooldown = 15;
@@ -2380,10 +2406,11 @@ class Player {
     }
 
     if (this.ninjaType === 'bubble') {
+      const bubDist = 80 + this.bonusReach * 4;
       for (let i = 0; i < 5; i++) {
         const offY = (i === 0 ? -6 : 8) + (Math.random() - 0.5) * 4;
         game.bubbles.push(new SmallBubble(
-          this.x + this.w / 2 + this.facing * 80 + Math.random() * 6,
+          this.x + this.w / 2 + this.facing * bubDist + Math.random() * 6,
           this.y + this.h / 2 + offY,
           this.facing,
           this.type.attackDamage
@@ -2526,62 +2553,53 @@ class Player {
         break;
       }
       case 'earth': {
-        let spawnX = this.x + this.facing * 40;
-        let baseY = this.y;
-        let supportY = null;
-        let minDist = TILE * 1.5;
-        for (const other of game.stoneBlocks) {
-          if (!other.done && Math.abs(other.x - spawnX) < TILE) {
-            let dist = Math.abs(other.y - baseY);
-            if (dist < minDist) {
-              minDist = dist;
-              supportY = other.y;
-            }
-          }
-        }
-        for (const p of game.platforms) {
-          if (!p.thin && spawnX + TILE > p.x && spawnX < p.x + p.w) {
-            let dist = Math.abs(p.y - baseY);
-            if (dist < minDist) {
-              minDist = dist;
-              supportY = p.y;
-            }
-          }
-        }
-        if (supportY === null) supportY = baseY;
-        // Build pool of available construct types
-        const earthPool = ['pillar', 'spike', 'golem'];
-        if (this.defeatedBossTypes.has('shooter')) earthPool.push('shooter');
-        if (this.defeatedBossTypes.has('flyer')) earthPool.push('flyer');
-        if (this.defeatedDeflector && Math.random() < 0.15) earthPool.push('deflector');
-        const pick = earthPool[Math.floor(Math.random() * earthPool.length)];
         const earthWave = game.wave || 1;
-        let construct;
-        if (pick === 'pillar') {
-          let pillarY = supportY - TILE * 3;
-          construct = new StonePillar(spawnX, pillarY + TILE, earthWave);
-          game.stonePillars.push(construct);
-        } else if (pick === 'spike') {
-          construct = new StoneSpike(spawnX, supportY - TILE + 4, earthWave);
-        } else if (pick === 'golem') {
-          construct = new StoneGolem(spawnX, supportY - TILE, this.facing, earthWave);
-        } else if (pick === 'shooter') {
-          construct = new StoneShooter(spawnX, supportY - TILE, this.facing, earthWave);
-        } else if (pick === 'flyer') {
-          construct = new StoneFlyer(spawnX, supportY - TILE * 2, earthWave);
-        } else if (pick === 'deflector') {
-          construct = new StoneDeflector(spawnX, supportY - TILE, this.facing, earthWave);
+        // Enforce spawn limit: max active blocks = maxMana
+        const activeBlocks = game.stoneBlocks.filter(b => !b.done);
+        if (activeBlocks.length >= this.maxMana) {
+          // Destroy oldest block
+          activeBlocks[0].hp = 0;
+          activeBlocks[0].explode(game);
         }
-        game.stoneBlocks.push(construct);
-        game.effects.push(new Effect(spawnX + TILE / 2, supportY, '#a87', 8, 2, 12));
-        // Fortify: power up all existing constructs
-        for (const block of game.stoneBlocks) {
-          if (!block.done) {
-            block.hp = block.maxHp;
-            block.powered = true;
-            block.hitCooldown = 30;
-            game.effects.push(new Effect(block.x + block.w / 2, block.y + block.h / 2, '#fc0', 6, 2, 10));
+        if (this.grounded) {
+          // Destroy existing walls when spawning a new one
+          for (const b of game.stoneBlocks) {
+            if (!b.done && b instanceof EarthWall) {
+              b.hp = 0;
+              b.explode(game);
+            }
           }
+          // Grounded: ground pound → spawn trapezoid wall in front
+          const wallX = this.x + this.facing * 50;
+          let groundY = this.y + this.h;
+          for (const p of game.platforms) {
+            if (wallX + TILE > p.x && wallX < p.x + p.w) {
+              if (p.y >= this.y && p.y <= this.y + this.h + TILE) {
+                groundY = p.y;
+                break;
+              }
+            }
+          }
+          const wall = new EarthWall(wallX - TILE / 2, groundY - TILE * 3, earthWave);
+          game.stoneBlocks.push(wall);
+          game.effects.push(new Effect(wallX, groundY - TILE, '#a87', 12, 4, 14));
+          game.effects.push(new Effect(wallX, groundY, '#c8a878', 8, 3, 10));
+          triggerScreenShake(3, 6);
+        } else {
+          // Air: stop midair briefly, spawn boulder rising from ground
+          this.vy = 0;
+          this.earthAirHover = 20;
+          this.jumpsLeft = this.maxJumps + (this.bubbleBuffTimer > 0 ? 1 : 0);
+          const boulderX = this.x + this.w / 2 + this.facing * 30;
+          let groundY = 480;
+          for (const p of game.platforms) {
+            if (boulderX + TILE > p.x && boulderX < p.x + p.w && p.y > this.y) {
+              if (p.y < groundY) groundY = p.y;
+            }
+          }
+          const boulder = new EarthBoulder(boulderX, groundY, this.y, earthWave);
+          game.stoneBlocks.push(boulder);
+          game.effects.push(new Effect(boulderX, groundY - TILE, '#a87', 10, 3, 12));
         }
         break;
       }
@@ -3418,38 +3436,206 @@ class Player {
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.fillRect(sx, sy + this.h - 9, this.w, 1);
 
-    // Katana sheathed on back (when not attacking)
+    // Sheathed weapon on back (when not attacking)
     if (!this.attacking) {
       ctx.save();
-      // Position on the back (opposite side of facing), tucked into belt
       const backX = this.facing > 0 ? sx + 3 : sx + this.w - 3;
       const beltY = sy + this.h - 10;
       ctx.translate(backX, beltY);
-      // Angled diagonally across back, handle over shoulder
       ctx.rotate(this.facing > 0 ? -0.45 : 0.45);
-      // Scabbard (dark, extends down from belt and up past shoulder)
-      if (this.ninjaType === 'storm') { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6; }
-      ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
-      ctx.fillRect(-2, -28, 4, 32);
-      // Scabbard tip
-      ctx.fillStyle = '#444';
-      ctx.fillRect(-2, 2, 4, 3);
-      // Scabbard mouth band
-      ctx.fillStyle = '#555';
-      ctx.fillRect(-3, -6, 6, 2);
-      // Handle wrap (extends above scabbard)
-      ctx.fillStyle = t.accentColor;
-      ctx.fillRect(-2, -36, 4, 9);
-      // Handle wrap diamonds
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      for (let i = 0; i < 3; i++) ctx.fillRect(-1, -35 + i * 3, 2, 1);
-      // Tsuba (guard)
-      ctx.fillStyle = '#aa8';
-      ctx.fillRect(-3, -28, 6, 2);
-      // Pommel
-      ctx.fillStyle = '#888';
-      ctx.fillRect(-1, -38, 2, 3);
-      ctx.shadowBlur = 0;
+
+      if (this.ninjaType === 'shadow') {
+        // Mini scythe on back
+        // Handle
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(-1.5, -24, 3, 28);
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(-1.5, -24, 1.5, 28);
+        // Purple grip wraps
+        ctx.fillStyle = '#a4e';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-2, -4 + i * 6, 4, 3);
+        // Scythe blade at top
+        ctx.save();
+        ctx.translate(0, -24);
+        ctx.beginPath();
+        ctx.moveTo(1, -1);
+        ctx.bezierCurveTo(6, -4, 8, -10, 3, -16);
+        ctx.lineTo(1, -14);
+        ctx.bezierCurveTo(5, -9, 4, -4, -1, -2);
+        ctx.closePath();
+        ctx.fillStyle = '#e0d0f8';
+        ctx.shadowColor = '#c060ff';
+        ctx.shadowBlur = 6;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Pommel gem
+        ctx.fillStyle = '#c060ff';
+        ctx.shadowColor = '#a040ff';
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(0, 5, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+      } else if (this.ninjaType === 'bubble') {
+        // Bubble wand on back
+        // Stick
+        ctx.fillStyle = '#3a7a9a';
+        ctx.fillRect(-1.5, -26, 3, 30);
+        ctx.fillStyle = '#5ab0d0';
+        ctx.fillRect(-1.5, -26, 1.5, 30);
+        // Grip wraps
+        ctx.fillStyle = '#2a6888';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
+        // Ring at top
+        ctx.strokeStyle = '#60d8f8';
+        ctx.shadowColor = '#40c0e0';
+        ctx.shadowBlur = 4;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -30, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        // Soap film
+        ctx.fillStyle = 'rgba(100,220,255,0.2)';
+        ctx.beginPath();
+        ctx.arc(0, -30, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Pommel drip
+        ctx.fillStyle = '#60d8f8';
+        ctx.beginPath();
+        ctx.arc(0, 5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else if (this.ninjaType === 'earth') {
+        // Stone bracer on back
+        ctx.fillStyle = '#8a6a3a';
+        ctx.fillRect(-3, -16, 6, 20);
+        ctx.fillStyle = '#a8844a';
+        ctx.fillRect(-3, -16, 3, 20);
+        ctx.strokeStyle = '#5a3a1a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-3, -16, 6, 20);
+        // Knuckle studs at top
+        ctx.fillStyle = '#e8d0b0';
+        ctx.fillRect(-2, -18, 4, 3);
+        ctx.fillRect(-3, -15, 2, 2);
+        ctx.fillRect(1, -15, 2, 2);
+        // Green accent band
+        ctx.fillStyle = '#2e9e2e';
+        ctx.fillRect(-3.5, -6, 7, 3);
+
+      } else if (this.ninjaType === 'crystal') {
+        // Crystal wand on back
+        // Shaft
+        ctx.fillStyle = '#4a8a9a';
+        ctx.fillRect(-1.5, -24, 3, 28);
+        ctx.fillStyle = '#6ab8c8';
+        ctx.fillRect(-1.5, -24, 1.5, 28);
+        // Grip wraps
+        ctx.fillStyle = '#2a6878';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
+        // Crystal shard at top
+        ctx.save();
+        ctx.translate(0, -28);
+        ctx.shadowColor = '#6ee';
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = '#aff';
+        ctx.beginPath();
+        ctx.moveTo(0, -6);
+        ctx.lineTo(3, 0);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-3, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Inner facet
+        ctx.fillStyle = '#2dd';
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(0, -4);
+        ctx.lineTo(2, 0);
+        ctx.lineTo(0, 1.5);
+        ctx.lineTo(-1, -0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Pommel gem
+        ctx.fillStyle = '#2dd';
+        ctx.shadowColor = '#0aa';
+        ctx.shadowBlur = 3;
+        ctx.beginPath();
+        ctx.arc(0, 5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+      } else if (this.ninjaType === 'wind') {
+        // Wind bow on back
+        if (this.ultCutscene) return; // Don't render bow during ult cutscene to avoid weird layering issues with afterimages
+        ctx.save();
+        // Left limb (curves outward)
+        ctx.strokeStyle = '#5a8a3a';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 2);
+        ctx.bezierCurveTo(-14, -6, -16, -18, -8, -28);
+        ctx.stroke();
+        // Right limb
+        ctx.beginPath();
+        ctx.moveTo(0, 2);
+        ctx.bezierCurveTo(14, -6, 16, -18, 8, -28);
+        ctx.stroke();
+        // Left limb highlight
+        ctx.strokeStyle = '#8d8';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(-12, -6, -14, -16, -7, -26);
+        ctx.stroke();
+        // Right limb highlight
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(12, -6, 14, -16, 7, -26);
+        ctx.stroke();
+        // Bowstring
+        ctx.strokeStyle = '#bfb';
+        ctx.shadowColor = '#bfb';
+        ctx.shadowBlur = 3;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-8, -28);
+        ctx.lineTo(8, -28);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        // Grip wrap
+        ctx.fillStyle = '#3a6a2a';
+        ctx.fillRect(-2, -1, 4, 5);
+        ctx.fillStyle = '#bfb';
+        ctx.fillRect(-1.5, 0, 3, 1.5);
+        ctx.fillRect(-1.5, 2, 3, 1.5);
+        ctx.restore();
+
+      } else {
+        // Default katana scabbard (fire, storm)
+        if (this.ninjaType === 'storm') { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6; }
+        ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
+        ctx.fillRect(-2, -28, 4, 32);
+        ctx.fillStyle = '#444';
+        ctx.fillRect(-2, 2, 4, 3);
+        ctx.fillStyle = '#555';
+        ctx.fillRect(-3, -6, 6, 2);
+        ctx.fillStyle = t.accentColor;
+        ctx.fillRect(-2, -36, 4, 9);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-1, -35 + i * 3, 2, 1);
+        ctx.fillStyle = '#aa8';
+        ctx.fillRect(-3, -28, 6, 2);
+        ctx.fillStyle = '#888';
+        ctx.fillRect(-1, -38, 2, 3);
+        ctx.shadowBlur = 0;
+      }
       ctx.restore();
     }
 
@@ -3477,13 +3663,6 @@ class Player {
         ctx.fill();
       }
       ctx.restore();
-    }
-
-    // Wind power indicator
-    if (this.ninjaType === 'wind' && this.windPower > 0) {
-      ctx.strokeStyle = `rgba(180,255,180,${0.3 + this.windPower * 0.07})`;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
     }
 
     // Crystal glow (during flyshooter ultimate)
@@ -3522,7 +3701,13 @@ class Player {
       const cy = sy + this.h / 2;
       const dir = this.facing;
       const isScythe = !!this._scytheAttack;
-      const isShadowUlt = this.ninjaType === 'shadow' && this.shadowUltBuff;
+      const isShadow = this.ninjaType === 'shadow';
+      const isShadowUlt = isShadow && this.shadowUltBuff;
+      const renderScythe = isScythe || isShadow; // shadow always shows scythe
+      const isBubble = this.ninjaType === 'bubble';
+      const isCrystal = this.ninjaType === 'crystal';
+      const isEarth = this.ninjaType === 'earth';
+      const isWind = this.ninjaType === 'wind';
 
       // Weapon swinging
       ctx.save();
@@ -3533,9 +3718,9 @@ class Player {
       const curA = startA + sweep * slashProgress;
       ctx.rotate(curA);
 
-      if (isScythe) {
+      if (renderScythe) {
         // Scythe weapon — large, visible
-        const sc = isShadowUlt ? 1.5 : 1.2;
+        const sc = isShadowUlt ? 1.5 : (isScythe ? 1.2 : 1.0);
         // Long handle (thick, visible)
         ctx.fillStyle = '#2a2a2a';
         ctx.beginPath();
@@ -3608,6 +3793,192 @@ class Player {
         ctx.lineWidth = 0.8;
         ctx.stroke();
         ctx.shadowBlur = 0;
+      } else if (isBubble) {
+        // Bubble blower wand
+        // Handle / stick
+        ctx.fillStyle = '#3a7a9a';
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.5);
+        ctx.lineTo(26, -1);
+        ctx.lineTo(26, 1);
+        ctx.lineTo(-6, 1.5);
+        ctx.closePath();
+        ctx.fill();
+        // Handle highlight
+        ctx.fillStyle = '#5ab0d0';
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.5);
+        ctx.lineTo(26, -1);
+        ctx.lineTo(26, 0);
+        ctx.lineTo(-6, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Grip wraps
+        ctx.fillStyle = '#2a6888';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -2, 3, 4);
+        // Ring (bubble loop) at tip
+        ctx.save();
+        ctx.translate(30, 0);
+        ctx.strokeStyle = '#60d8f8';
+        ctx.shadowColor = '#40c0e0';
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner ring highlight
+        ctx.strokeStyle = '#a0f0ff';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, -Math.PI * 0.3, Math.PI * 0.3);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        // Soap film shimmer inside the ring
+        ctx.fillStyle = 'rgba(100,220,255,0.2)';
+        ctx.beginPath();
+        ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Pommel drip
+        ctx.fillStyle = '#60d8f8';
+        ctx.beginPath();
+        ctx.arc(-7, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (isCrystal) {
+        // Crystal wand — slender rod with shard on tip
+        // Wand shaft
+        ctx.fillStyle = '#4a8a9a';
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.2);
+        ctx.lineTo(28, -0.8);
+        ctx.lineTo(28, 0.8);
+        ctx.lineTo(-6, 1.2);
+        ctx.closePath();
+        ctx.fill();
+        // Shaft highlight
+        ctx.fillStyle = '#6ab8c8';
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.2);
+        ctx.lineTo(28, -0.8);
+        ctx.lineTo(28, 0);
+        ctx.lineTo(-6, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Grip wraps
+        ctx.fillStyle = '#2a6878';
+        for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -1.8, 3, 3.6);
+        // Crystal shard at tip
+        ctx.save();
+        ctx.translate(30, 0);
+        ctx.shadowColor = '#6ee';
+        ctx.shadowBlur = 8;
+        // Main shard (diamond shape, elongated)
+        ctx.fillStyle = '#aff';
+        ctx.beginPath();
+        ctx.moveTo(0, -7);
+        ctx.lineTo(4, 0);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-4, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Inner facet
+        ctx.fillStyle = '#2dd';
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(2.5, 0);
+        ctx.lineTo(0, 2);
+        ctx.lineTo(-1, -1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // Sharp edge highlight
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(0, -7);
+        ctx.lineTo(4, 0);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Pommel gem
+        ctx.fillStyle = '#2dd';
+        ctx.shadowColor = '#0aa';
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(-7, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else if (isEarth) {
+        // Earth gauntlet — stone bracer with knuckle studs
+        // Bracer base
+        ctx.fillStyle = '#8a6a3a';
+        ctx.fillRect(-2, -4, 28, 8);
+        // Bracer highlight
+        ctx.fillStyle = '#a8844a';
+        ctx.fillRect(-2, -4, 28, 4);
+        // Stone border
+        ctx.strokeStyle = '#5a3a1a';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-2, -4, 28, 8);
+        // Knuckle studs
+        ctx.fillStyle = '#c8a878';
+        for (let i = 0; i < 3; i++) {
+          ctx.fillRect(20 + i * 0, -5 - i * 0.5, 5, 3);
+        }
+        ctx.fillStyle = '#e8d0b0';
+        ctx.fillRect(22, -6, 4, 3);
+        ctx.fillRect(22, 3, 4, 3);
+        ctx.fillRect(28, -3, 4, 6);
+        // Green accent band
+        ctx.fillStyle = '#2e9e2e';
+        ctx.fillRect(4, -4.5, 4, 9);
+      } else if (isWind) {
+        // Wind bow — used as melee weapon
+        // Upper limb
+        ctx.strokeStyle = '#5a8a3a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-4, 0);
+        ctx.bezierCurveTo(4, -28, 22, -30, 36, -16);
+        ctx.stroke();
+        // Lower limb
+        ctx.beginPath();
+        ctx.moveTo(-4, 0);
+        ctx.bezierCurveTo(4, 28, 22, 30, 36, 16);
+        ctx.stroke();
+        // Upper limb highlight
+        ctx.strokeStyle = '#8d8';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.bezierCurveTo(4, -26, 20, -28, 34, -14);
+        ctx.stroke();
+        // Lower limb highlight
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.bezierCurveTo(4, 26, 20, 28, 34, 14);
+        ctx.stroke();
+        // Bowstring
+        ctx.strokeStyle = '#bfb';
+        ctx.shadowColor = '#bfb';
+        ctx.shadowBlur = 4;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(36, -16);
+        ctx.lineTo(36, 16);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        // Grip wrap at center
+        ctx.fillStyle = '#3a6a2a';
+        ctx.fillRect(-6, -3, 6, 6);
+        ctx.fillStyle = '#bfb';
+        ctx.fillRect(-5, -2, 4, 1.5);
+        ctx.fillRect(-5, 0.5, 4, 1.5);
       } else {
         // Katana blade
         const isLightning = this.ninjaType === 'storm';
@@ -3653,25 +4024,25 @@ class Player {
       const aStart = startA + sweep * Math.max(0, slashProgress - 0.5);
       const aEnd = startA + sweep * slashProgress;
       // Glow layer
-      ctx.globalAlpha = (isScythe ? 0.35 : 0.25) * (1 - slashProgress * 0.6);
+      ctx.globalAlpha = (renderScythe ? 0.35 : 0.25) * (1 - slashProgress * 0.6);
       ctx.beginPath();
       ctx.arc(0, 0, outerR + 4, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, Math.max(innerR - 4, 6), aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = isScythe ? '#a040ff' : t.color;
+      ctx.fillStyle = renderScythe ? '#a040ff' : isBubble ? '#20a0d0' : isCrystal ? '#0aa' : isWind ? '#4a8a3a' : t.color;
       ctx.fill();
       // Main crescent
-      const moonAlpha = (isScythe ? 0.7 : 0.6) * (1 - slashProgress * 0.6);
+      const moonAlpha = (renderScythe ? 0.7 : 0.6) * (1 - slashProgress * 0.6);
       ctx.globalAlpha = moonAlpha;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);
       ctx.arc(offsetX, offsetY, innerR, aEnd, aStart, true);
       ctx.closePath();
-      ctx.fillStyle = isScythe ? '#c8a0ff' : t.accentColor;
+      ctx.fillStyle = renderScythe ? '#c8a0ff' : isBubble ? '#80e8ff' : isCrystal ? '#aff' : isWind ? '#bfb' : t.accentColor;
       ctx.fill();
       // Bright edge on the outer rim
-      ctx.strokeStyle = isScythe ? '#e8d8ff' : '#fff';
-      ctx.lineWidth = isScythe ? 2 : 1.5;
+      ctx.strokeStyle = renderScythe ? '#e8d8ff' : isBubble ? '#c0f4ff' : isCrystal ? '#dff' : isWind ? '#e0ffe0' : '#fff';
+      ctx.lineWidth = renderScythe ? 2 : 1.5;
       ctx.globalAlpha = moonAlpha * 0.8;
       ctx.beginPath();
       ctx.arc(0, 0, outerR, aStart, aEnd, false);

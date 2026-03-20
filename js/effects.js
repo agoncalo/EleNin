@@ -574,13 +574,6 @@ class Orb {
     if (!this.done) {
       let collected = false;
       let cx = ox, cy = oy;
-      // Golems (earth)
-      if (pl.ninjaType === 'earth') {
-        for (const s of game.stoneBlocks) {
-          if (s.done || !(s instanceof StoneGolem)) continue;
-          if (rectOverlap(this, s)) { collected = true; cx = s.x + s.w / 2; cy = s.y + s.h / 2; break; }
-        }
-      }
       // Trimerangs (wind)
       if (!collected && pl.ninjaType === 'wind' && game.trimerangs) {
         for (const t of game.trimerangs) {
