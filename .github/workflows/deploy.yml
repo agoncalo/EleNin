@@ -16,12 +16,15 @@ jobs:
 
       - name: Install Butler
         run: |
-          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
-          unzip butler.zip
+          set -e
+          curl -fSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -o butler.zip
           chmod +x butler
           ./butler -V
 
       - name: Push to itch.io
-        run: ./butler push build titoim/elenin:html5
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          set -e
+          ./butler push build titoim/elenin:html5
