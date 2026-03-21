@@ -14,6 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
+// BUILD TIMESTAMP: 2026-03-21 16:33 UTC
+console.log("EleNin build: 2026-03-21 16:33 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -119,6 +121,17 @@ const NINJA_ATTACK_ELEMENTS = {
   crystal: 'crystal',
   wind: 'wind',
   storm: 'lightning', // default element, water for soak-related
+};
+
+// Starting max Mana per ninja type (can be increased with orbs)
+const MANA_CAPS = {
+  fire: 2,
+  earth: 3,
+  bubble: 1,
+  shadow: 2, 
+  crystal: 2,
+  wind: 1,
+  storm: 1
 };
 
 // Chance for an enemy to be elemental (per spawn)
@@ -4005,7 +4018,7 @@ class EarthBoulder {
     this.hitSet = new Set();
     this.targetY = targetY;
     this.rising = true;
-    this.riseSpeed = 5;
+    this.riseSpeed = 10;
     this.hovering = false;
     this.hoverTimer = 120;
     this.launched = false;
@@ -4290,9 +4303,9 @@ class IceBlock {
 
   isCollidable() { return this.landed; }
 
-  playerHit(game) {
+  playerHit(game, dmg = 1) {
     if (this.damageCd > 0) return;
-    this.hp--;
+    this.hp -= dmg;
     this.damageCd = 15;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
     triggerHitstop(3);
@@ -5579,8 +5592,8 @@ class Player {
     this.specialCooldown = 0;
 
     // Mana system (pip-based)
-    this.mana = 2;
-    this.maxMana = 2; // default, set per ninja in switchNinja
+    this.maxMana = MANA_CAPS[this.ninjaType]; // default, set per ninja in switchNinja
+    this.mana = this.maxMana;
     this.manaCost = 1; // cost per special use
     this.bonusMana = 0; // extra max from element orbs
 
@@ -6027,8 +6040,7 @@ class Player {
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
     // Set mana capacity per ninja
-    const manaCaps = { fire: 2, earth: 3, bubble: 1, shadow: 2, crystal: 2, wind: 1, storm: 1 };
-    this.maxMana = (manaCaps[type] || 2) + this.bonusMana;
+    this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
   }
 
@@ -6677,6 +6689,8 @@ class Player {
     const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space') || touchJust.up || gpJust[GP_JUMP];
     if (jumpPress && this.jumpsLeft > 0) {
       SFX.jump();
+      this.earthAirHover = 0; // cancel earth hover if jumping again
+      this.iceHover = 0; // cancel ice hover if jumping again
       if (this.onWall !== 0 && !this.grounded) {
         this.vy = t.jumpPower * 0.9;
         this.vx = -this.onWall * 6;
@@ -6893,6 +6907,15 @@ class Player {
               b.groundPound();
               game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 12, 4, 14));
             }
+          }
+        }
+      }
+
+      // Crystal: hit ice blocks
+      if (this.ninjaType === 'crystal') {
+        for (const b of game.stoneBlocks) {
+          if (b instanceof IceBlock && !b.done) {
+            b.playerHit(game, 3);
           }
         }
       }
@@ -7448,14 +7471,10 @@ class Player {
     // Throw shuriken — recharge only starts when all shurikens are empty
     if (this.shurikens <= 0) {
       this.shurikenRechargeTimer++;
-      const rechargeTime = this.items.tripleShuriken ? 120 : 240;
+      const rechargeTime = this.items.tripleShuriken ? 30 : 60;
       if (this.shurikenRechargeTimer >= rechargeTime) {
         this.shurikens = this.maxShurikens;
         this.shurikenRechargeTimer = 0;
-        // Despawn all dropped shurikens
-        for (const p of game.projectiles) {
-          if (p.isShuriken && p.owner === 'player' && p.dropped) p.done = true;
-        }
       }
     }
     // Pick up dropped shurikens

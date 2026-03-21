@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bundle all JS source files into build/index.html for itch.io deployment."""
 import os
+from datetime import datetime, timezone
 
 JS_ORDER = [
     'constants', 'utils', 'audio', 'music', 'input', 'effects',
@@ -32,8 +33,11 @@ FOOTER = '''</script>
 '''
 
 os.makedirs('build', exist_ok=True)
+build_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 with open('build/index.html', 'w', encoding='utf-8') as out:
     out.write(HEADER)
+    out.write(f'// BUILD TIMESTAMP: {build_ts}\n')
+    out.write(f'console.log("EleNin build: {build_ts}");\n')
     for name in JS_ORDER:
         path = os.path.join('js', name + '.js')
         out.write(f'// === js/{name}.js ===\n')
