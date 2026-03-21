@@ -224,11 +224,17 @@ const pauseMenu = {
   bestiaryIdx: 0,   // current bestiary grid cursor
   bestiaryDetail: false, // showing detail view
   clearCacheConfirm: false, // clear cache confirmation state
+  itemTooltipActive: false, // showing item tooltip panel
+  itemTooltipIdx: 0,        // which item is selected in tooltip
 };
 
 const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
 
 function togglePause() {
+  if (pauseMenu.itemTooltipActive) {
+    pauseMenu.itemTooltipActive = false;
+    return;
+  }
   if (pauseMenu.popup) {
     pauseMenu.popup = null;
     pauseMenu.popupScroll = 0;
@@ -237,6 +243,7 @@ function togglePause() {
   pauseMenu.active = !pauseMenu.active;
   pauseMenu.selected = 0;
   pauseMenu.popupScroll = 0;
+  pauseMenu.itemTooltipActive = false;
 }
 
 function pauseUpdate() {
@@ -247,12 +254,40 @@ function pauseUpdate() {
     return;
   }
 
+  // Item tooltip mode
+  if (pauseMenu.itemTooltipActive) {
+    const pl = typeof game !== 'undefined' ? game.player : null;
+    const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
+    if (itemKeys.length === 0) { pauseMenu.itemTooltipActive = false; return; }
+    if (consumePress('ArrowUp') || consumePress('KeyW')) {
+      pauseMenu.itemTooltipIdx = (pauseMenu.itemTooltipIdx + itemKeys.length - 1) % itemKeys.length;
+    }
+    if (consumePress('ArrowDown') || consumePress('KeyS')) {
+      pauseMenu.itemTooltipIdx = (pauseMenu.itemTooltipIdx + 1) % itemKeys.length;
+    }
+    if (consumePress('ArrowRight') || consumePress('KeyD') || consumePress('Escape') || consumePress('Backspace')) {
+      pauseMenu.itemTooltipActive = false;
+      return;
+    }
+    return;
+  }
+
   // Navigate menu
   if (consumePress('ArrowUp') || consumePress('KeyW')) {
     pauseMenu.selected = (pauseMenu.selected + PAUSE_OPTIONS.length - 1) % PAUSE_OPTIONS.length;
   }
   if (consumePress('ArrowDown') || consumePress('KeyS')) {
     pauseMenu.selected = (pauseMenu.selected + 1) % PAUSE_OPTIONS.length;
+  }
+  // Left arrow: open item tooltip if items exist
+  if (consumePress('ArrowLeft') || consumePress('KeyA')) {
+    const pl = typeof game !== 'undefined' ? game.player : null;
+    const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
+    if (itemKeys.length > 0) {
+      pauseMenu.itemTooltipActive = true;
+      pauseMenu.itemTooltipIdx = 0;
+      return;
+    }
   }
   if (consumePress('Enter') || consumePress('Space') || consumePress('KeyZ') || consumePress('KeyJ')) {
     const sel = pauseMenu.selected;
@@ -562,7 +597,160 @@ function renderPauseMenu(ctx) {
   // Footer
   ctx.fillStyle = '#666';
   ctx.font = '10px monospace';
-  ctx.fillText('ESC to close \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select', bx + 16, by + bh - 12);
+  const pl = typeof game !== 'undefined' ? game.player : null;
+  const hasItems = pl && Object.keys(pl.items).filter(k => pl.items[k]).length > 0;
+  const footerHint = hasItems
+    ? 'ESC to close \u2022 \u2190 Items \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select'
+    : 'ESC to close \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select';
+  ctx.fillText(footerHint, bx + 16, by + bh - 12);
+
+  // Item tooltip panel (left side)
+  if (pauseMenu.itemTooltipActive) {
+    renderItemTooltip(ctx);
+  }
+}
+
+function renderItemTooltip(ctx) {
+  const pl = typeof game !== 'undefined' ? game.player : null;
+  if (!pl) return;
+  const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
+  if (itemKeys.length === 0) return;
+
+  const idx = Math.min(pauseMenu.itemTooltipIdx, itemKeys.length - 1);
+  const iconSize = 30;
+  const pad = 4;
+  const totalH = itemKeys.length * iconSize + (itemKeys.length - 1) * pad;
+  const startY = Math.round((CANVAS_H - totalH) / 2);
+
+  // Draw item list (same positions as HUD)
+  for (let i = 0; i < itemKeys.length; i++) {
+    const key = itemKeys[i];
+    const def = BOSS_ITEMS[key];
+    if (!def) continue;
+    const icx = 8, icy = startY + i * (iconSize + pad);
+    const isSel = i === idx;
+    const dimmed = key === 'deathsKey' && pl.deathsKeyUsed;
+
+    // Selection highlight
+    if (isSel) {
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(icx - 2, icy - 2, iconSize + 4, iconSize + 4);
+    }
+
+    // Dim non-selected
+    if (!isSel) {
+      ctx.globalAlpha = 0.5;
+    }
+    if (dimmed) ctx.globalAlpha = 0.3;
+
+    // Background
+    ctx.shadowColor = def.color;
+    ctx.shadowBlur = isSel ? 12 : 6;
+    const grad = ctx.createLinearGradient(icx, icy, icx, icy + iconSize);
+    grad.addColorStop(0, 'rgba(40,40,50,0.85)');
+    grad.addColorStop(1, 'rgba(15,15,20,0.95)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(icx, icy, iconSize, iconSize);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(icx + 1, icy + 1, iconSize - 2, iconSize - 2);
+    // Corner highlights
+    ctx.fillStyle = def.color;
+    const a = dimmed ? 0.15 : 0.5;
+    ctx.globalAlpha = isSel ? a : a * 0.5;
+    ctx.fillRect(icx + 1, icy + 1, 4, 1);
+    ctx.fillRect(icx + 1, icy + 1, 1, 4);
+    ctx.fillRect(icx + iconSize - 5, icy + iconSize - 2, 4, 1);
+    ctx.fillRect(icx + iconSize - 2, icy + iconSize - 5, 1, 4);
+    ctx.globalAlpha = dimmed ? 0.3 : (isSel ? 1 : 0.5);
+    drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
+    // x2 Orb crack overlay
+    if (key === 'x2Orb' && pl.x2OrbCounter > 0) {
+      const crackPct = pl.x2OrbCounter / 100;
+      ctx.globalAlpha = crackPct * 0.7;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(icx + iconSize * 0.3, icy + iconSize * 0.2);
+      ctx.lineTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+      ctx.lineTo(icx + iconSize * 0.4, icy + iconSize * 0.8);
+      ctx.stroke();
+      if (crackPct > 0.5) {
+        ctx.beginPath();
+        ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+        ctx.lineTo(icx + iconSize * 0.7, icy + iconSize * 0.4);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+  }
+
+  // Tooltip box to the right of the item list
+  const selKey = itemKeys[idx];
+  const selDef = BOSS_ITEMS[selKey];
+  if (!selDef) return;
+
+  const tipX = 8 + iconSize + 10;
+  const selItemY = startY + idx * (iconSize + pad);
+  const tipW = 240;
+  const tipH = 80;
+  // Vertically center tooltip on item, clamp to screen
+  let tipY = selItemY + iconSize / 2 - tipH / 2;
+  tipY = Math.max(4, Math.min(CANVAS_H - tipH - 4, tipY));
+
+  // Box background
+  ctx.fillStyle = 'rgba(0,0,0,0.92)';
+  ctx.fillRect(tipX, tipY, tipW, tipH);
+  ctx.strokeStyle = selDef.color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(tipX, tipY, tipW, tipH);
+
+  // Connector line from item to tooltip
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(8 + iconSize, selItemY + iconSize / 2);
+  ctx.lineTo(tipX, tipY + tipH / 2);
+  ctx.stroke();
+
+  // Icon in box
+  const tiX = tipX + 20;
+  const tiY = tipY + 22;
+  ctx.shadowColor = selDef.color;
+  ctx.shadowBlur = 8;
+  drawItemIcon(ctx, selKey, tiX, tiY, 24, selDef.color);
+  ctx.shadowBlur = 0;
+
+  // Name
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(selDef.name, tipX + 38, tipY + 18);
+
+  // Description (word-wrap)
+  ctx.fillStyle = '#ccc';
+  ctx.font = '10px monospace';
+  let descText = selDef.desc;
+  // x2 Orb: append durability
+  if (selKey === 'x2Orb') {
+    const remaining = 100 - (pl.x2OrbCounter || 0);
+    descText += ` (${remaining} orbs left)`;
+  }
+  // Death's Key: append used status
+  if (selKey === 'deathsKey' && pl.deathsKeyUsed) {
+    descText += ' [USED]';
+  }
+  const descLines = wrapText(ctx, descText, tipW - 16);
+  for (let li = 0; li < descLines.length; li++) {
+    ctx.fillText(descLines[li], tipX + 8, tipY + 36 + li * 13);
+  }
+
+  // Navigation hint
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.fillText('\u2191\u2193 Browse \u2022 \u2192/ESC Close', tipX + 8, tipY + tipH - 6);
 }
 
 // â”€â”€ Popup Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

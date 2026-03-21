@@ -183,6 +183,8 @@ class Player {
     this.codeCounterMax = 600; // ~10 seconds at 60fps
     this.codeCounterCharge = this.codeCounterMax; // start fully charged
     this.evasionRng = Math.random; // for Leather Boots
+    this.x2OrbCounter = 0; // orbs collected while x2 Orb active (breaks at 100)
+    this.x2OrbBreaking = 0; // visual timer for break animation
   }
 
   // Hurtbox is slightly smaller than the rendered sprite
@@ -528,6 +530,9 @@ class Player {
     // Smooth display bars
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     this.displayShield = lerp(this.displayShield, this.shield, 0.12);
+
+    // x2 Orb break animation timer
+    if (this.x2OrbBreaking > 0) this.x2OrbBreaking--;
 
     // ── Ultimate cutscene float phase ──
     if (this.ultCutscene) {

@@ -718,12 +718,12 @@ class Game {
     }
 
     // Ninja switching
-    if (consumePress('Digit1')) this.player.switchNinja('fire');
-    if (consumePress('Digit2')) this.player.switchNinja('earth');
-    if (consumePress('Digit3')) this.player.switchNinja('bubble');
-    if (consumePress('Digit4')) this.player.switchNinja('shadow');
-    if (consumePress('Digit5')) this.player.switchNinja('crystal');
-    if (consumePress('Digit6')) this.player.switchNinja('wind');
+    if (consumePress('Digit1') || consumePress('Numpad1')) this.player.switchNinja('fire');
+    if (consumePress('Digit2') || consumePress('Numpad2')) this.player.switchNinja('earth');
+    if (consumePress('Digit3') || consumePress('Numpad3')) this.player.switchNinja('bubble');
+    if (consumePress('Digit4') || consumePress('Numpad4')) this.player.switchNinja('shadow');
+    if (consumePress('Digit5') || consumePress('Numpad5')) this.player.switchNinja('crystal');
+    if (consumePress('Digit6') || consumePress('Numpad6')) this.player.switchNinja('wind');
     if (consumePress('Digit7')) this.player.switchNinja('storm');
     if (justPressed['WheelSwitch']) {
       justPressed['WheelSwitch'] = false;
@@ -3001,6 +3001,42 @@ class Game {
           ctx.globalAlpha = dimmed ? 0.3 : 1;
           // Canvas-drawn icon
           drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
+          // x2 Orb: crack overlay based on durability
+          if (key === 'x2Orb' && pl.x2OrbCounter > 0) {
+            const crackPct = pl.x2OrbCounter / 100;
+            ctx.globalAlpha = crackPct * 0.7;
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            // Main crack line
+            ctx.beginPath();
+            ctx.moveTo(icx + iconSize * 0.3, icy + iconSize * 0.2);
+            ctx.lineTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+            ctx.lineTo(icx + iconSize * 0.4, icy + iconSize * 0.8);
+            ctx.stroke();
+            // Secondary crack at 50%+
+            if (crackPct > 0.5) {
+              ctx.beginPath();
+              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+              ctx.lineTo(icx + iconSize * 0.7, icy + iconSize * 0.4);
+              ctx.stroke();
+            }
+            // Tertiary crack at 75%+
+            if (crackPct > 0.75) {
+              ctx.beginPath();
+              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+              ctx.lineTo(icx + iconSize * 0.65, icy + iconSize * 0.75);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            // Warning pulse near breaking
+            if (crackPct > 0.8) {
+              const pulse = 0.15 + 0.1 * Math.sin(this.tick * 0.15);
+              ctx.globalAlpha = pulse;
+              ctx.fillStyle = '#f44';
+              ctx.fillRect(icx, icy, iconSize, iconSize);
+              ctx.globalAlpha = 1;
+            }
+          }
           // The Code: charge overlay
           if (key === 'theCode') {
             const pct = Math.min(pl.codeCounterCharge / pl.codeCounterMax, 1);
@@ -3021,6 +3057,39 @@ class Game {
           ctx.globalAlpha = 1;
           ctx.shadowBlur = 0;
           iy += iconSize + pad;
+        }
+      }
+    }
+
+    // x2 Orb break flash effect
+    if (pl.x2OrbBreaking > 0) {
+      const t = pl.x2OrbBreaking;
+      const flash = t / 60;
+      // Screen-edge flash
+      ctx.save();
+      ctx.globalAlpha = flash * 0.3;
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(0, 0, 60, CANVAS_H);
+      ctx.globalAlpha = flash * 0.15;
+      ctx.fillStyle = '#f44';
+      ctx.fillRect(0, 0, 40, CANVAS_H);
+      ctx.restore();
+      // Floating shards near left side
+      if (t > 30) {
+        const numShards = 6;
+        for (let si = 0; si < numShards; si++) {
+          const progress = (60 - t) / 30;
+          const angle = (si / numShards) * Math.PI * 2 + t * 0.1;
+          const dist = progress * 60;
+          const sx = 23 + Math.cos(angle) * dist;
+          const sy = CANVAS_H / 2 + Math.sin(angle) * dist;
+          ctx.save();
+          ctx.globalAlpha = flash;
+          ctx.fillStyle = si % 2 === 0 ? '#ff0' : '#fa0';
+          ctx.translate(sx, sy);
+          ctx.rotate(angle + t * 0.15);
+          ctx.fillRect(-3, -3, 6, 6);
+          ctx.restore();
         }
       }
     }

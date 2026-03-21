@@ -327,7 +327,7 @@ const BOSS_ITEMS = {
   iaito:          { name: 'Iaito',             icon: '⚔', color: '#eee', desc: 'Sword attacks deflect bullets back at enemies.' },
   spikedArmor:    { name: 'Spiked Armor',     icon: '⬡', color: '#f80', desc: 'When hit, damage all nearby enemies.' },
   redMagnet:      { name: 'Red Magnet',        icon: '⊙', color: '#f33', desc: 'Greatly increases orb pickup range.' },
-  x2Orb:          { name: 'x2 Orb',            icon: '②', color: '#ff0', desc: 'Double the effect of orbs.' },
+  x2Orb:          { name: 'x2 Orb',            icon: '②', color: '#ff0', desc: 'Double the effect of orbs. Fragile — breaks after 100 orbs.' },
   deathsKey:      { name: "Death's Key",        icon: '🗝', color: '#a6f', desc: 'Once per run, revive at 50% HP.' },
   protectiveCharm:{ name: 'Protective Charm',  icon: '♣', color: '#4f4', desc: 'Halves affliction duration.' },
   charmFire:      { name: 'Fire Charm',        icon: '◈', color: '#f44', desc: 'Halves fire damage, immune to burn, 10% heal on fire kill.' },

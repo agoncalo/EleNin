@@ -428,6 +428,28 @@ class DamageNumber {
   }
 }
 
+// ── x2 Orb Break Check ──────────────────────────────────────
+function checkX2OrbBreak(pl, game, ex, ey) {
+  if (pl.x2OrbCounter >= 100 && pl.items && pl.items.x2Orb) {
+    pl.items.x2Orb = false;
+    pl.x2OrbBreaking = 60; // 1-second shatter animation
+    // Shatter particles (yellow/gold fragments)
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const speed = 2 + Math.random() * 3;
+      game.effects.push(new Effect(
+        pl.x + pl.w / 2, pl.y + pl.h / 2,
+        i % 2 === 0 ? '#ff0' : '#fa0', 6, 2 + Math.random() * 2, 30
+      ));
+    }
+    game.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 20, 'x2 Orb BROKE!', '#f44'));
+    // Glass shatter sound
+    SFX.play(1200, 'square', 0.06, 0.12, -800);
+    SFX.noise(0.15, 0.12);
+    SFX.play(800, 'triangle', 0.1, 0.08, -400);
+  }
+}
+
 // ── Orb (item drop) ──────────────────────────────────────────
 class Orb {
   constructor(x, y, type) {
@@ -474,6 +496,7 @@ class Orb {
           SFX.pickup();
           if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(5);
           const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
+          if (_m === 2) { pl.x2OrbCounter++; checkX2OrbBreak(pl, game, ox, oy); }
           switch (this.type) {
             case 'heal': pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
             case 'maxhp': pl.maxHp += 1 * _m; pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
@@ -516,6 +539,7 @@ class Orb {
         pl.addUltimateCharge(5);
       }
       const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
+      if (_m === 2) { pl.x2OrbCounter++; checkX2OrbBreak(pl, game, pl.x + pl.w/2, pl.y + pl.h/2); }
       switch (this.type) {
         case 'heal':
           pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp);

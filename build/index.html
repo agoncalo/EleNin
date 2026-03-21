@@ -5252,7 +5252,7 @@ class Player {
       } else {
         const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
         const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
-        this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult;
+        this.vx = moveX * (t.speed + (20 * this.bonusSpeed)/(10 + this.bonusSpeed)) * speedMult * freezeMult;
       }
       if (moveX !== 0) this.facing = moveX;
     }
