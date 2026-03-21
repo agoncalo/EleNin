@@ -104,6 +104,17 @@ const NINJA_ATTACK_ELEMENTS = {
   storm: 'lightning', // default element, water for soak-related
 };
 
+// Starting max Mana per ninja type (can be increased with orbs)
+const MANA_CAPS = {
+  fire: 2,
+  earth: 3,
+  bubble: 1,
+  shadow: 2, 
+  crystal: 2,
+  wind: 1,
+  storm: 1
+};
+
 // Chance for an enemy to be elemental (per spawn)
 const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% chance
 

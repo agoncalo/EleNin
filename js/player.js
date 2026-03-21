@@ -71,8 +71,8 @@ class Player {
     this.specialCooldown = 0;
 
     // Mana system (pip-based)
-    this.mana = 2;
-    this.maxMana = 2; // default, set per ninja in switchNinja
+    this.maxMana = MANA_CAPS[this.ninjaType]; // default, set per ninja in switchNinja
+    this.mana = this.maxMana;
     this.manaCost = 1; // cost per special use
     this.bonusMana = 0; // extra max from element orbs
 
@@ -519,8 +519,7 @@ class Player {
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
     // Set mana capacity per ninja
-    const manaCaps = { fire: 2, earth: 3, bubble: 1, shadow: 2, crystal: 2, wind: 1, storm: 1 };
-    this.maxMana = (manaCaps[type] || 2) + this.bonusMana;
+    this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
   }
 
