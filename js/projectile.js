@@ -313,16 +313,7 @@ class Projectile {
     this.piercing = false;
     this.hitSet = new Set();
   }
-  _dropOrDie() {
-    if (this.isShuriken && this.owner === 'player' && !this.isKunai && !this.dropped) {
-      this.dropped = true;
-      this.dropLife = 300;
-      this.vx = 0;
-      this.vy = 0;
-    } else {
-      this.done = true;
-    }
-  }
+  _dropOrDie() { this.done = true; }
   update(game) {
     // Orbiting mode: circle the player, bypass terrain
     if (this.orbiting) {

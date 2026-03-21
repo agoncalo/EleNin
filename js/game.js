@@ -501,7 +501,7 @@ class Game {
       speed:     { icon: '\u00bb', color: '#0f0', label: 'SPD',      per: 1,  cost: 16 },
       reach:     { icon: '\u2194', color: '#fa0', label: 'REACH',    per: 1,  cost: 16 },
       armor:     { icon: '\u25a0', color: '#88f', label: 'ARMOR',    per: 1,  cost: 18 },
-      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKEN', per: 1,  cost: 8 },
+      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKEN', per: 1,  cost: 20 },
       ultcharge: { icon: '\u2605', color: '#ff0', label: 'ULT',      per: 50, cost: 6 },
       element:   { icon: '\u25c8', color: '#f0f', label: 'SPECIAL',  per: 1,  cost: 50 },
     };
@@ -751,12 +751,12 @@ class Game {
         const drops = kills + bossOrbs;
         // Actual drop table rates × orb stat values per drop
         pl.maxHp          += Math.round(drops * 0.10);  // maxhp: 10% × +1
-        pl.hp              = pl.maxHp;
-        pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
+          pl.hp              = pl.maxHp;
+          pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
         pl.bonusElemental += Math.round(drops * 0.03);  // elDmg: 3% × +1
         pl.maxShield      += Math.round(drops * 0.18) * 2; // shield: 18% × +2
         pl.shield          = pl.maxShield;
-        pl.maxShurikens   += Math.round(drops * 0.10);  // shuriken: 10% × +1
+        pl.maxShurikens   += Math.round(drops * 0.04);  // shuriken: 4% × +1
         pl.shurikens       = pl.maxShurikens;
         pl.bonusSpeed     += Math.round(drops * 0.04);  // speed: 4% × +1
         pl.bonusReach     += Math.round(drops * 0.04);  // reach: 4% × +1
@@ -1519,8 +1519,7 @@ class Game {
     const combatKeys = [
       { k1: 'Z', k2: 'J', label: 'Attack', color: '#f88' },
       { k1: 'X', k2: 'K', label: 'Special (costs mana)', color: '#8f8' },
-      { k1: 'C', k2: 'L', label: 'Shuriken', color: '#ff8' },
-      { k1: 'V', k2: 'M', label: 'Ultimate (when charged)', color: '#f8f' },
+      { k1: 'C', k2: 'L', label: 'Ultimate (when charged)', color: '#f8f' },
     ];
     for (let i = 0; i < combatKeys.length; i++) {
       const row = combatKeys[i];
@@ -1571,7 +1570,7 @@ class Game {
     ctx.fillText('SPC', msx + 45, msy + 5);
     // MMB label
     ctx.fillStyle = '#ff8';
-    ctx.fillText('SHR', msx + 30, msy + 40);
+    ctx.fillText('ULT', msx + 30, msy + 40);
 
     // Mouse labels
     ctx.font = '10px monospace';
@@ -1581,7 +1580,7 @@ class Game {
     ctx.fillStyle = '#8f8';
     ctx.fillText('Right Click = Special', msx + 70, msy + 16);
     ctx.fillStyle = '#ff8';
-    ctx.fillText('Middle Click = Shuriken', msx + 70, msy + 34);
+    ctx.fillText('Middle Click = Ultimate', msx + 70, msy + 34);
     ctx.fillStyle = '#ccc';
     ctx.fillText('Scroll = Switch Ninja', msx + 70, msy + 52);
 
@@ -2797,6 +2796,7 @@ class Game {
     buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: '#fa0' });
     buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
     buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
+    buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: '#ccc' });
 
     // Ultimate bar
     const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
@@ -2903,63 +2903,6 @@ class Game {
       ctx.fillText(`${i + 1}`, bx + 20, ninjaBarY + 14);
       ctx.font = '8px monospace';
       ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, ninjaBarY + 23);
-    }
-
-    // Shuriken display (canvas-drawn, below progress bar)
-    if (typeof window !== 'undefined' && document.getElementById('shuriken-bar')) {
-      document.getElementById('shuriken-bar').innerHTML = '';
-      document.getElementById('shuriken-bar').style.display = 'none';
-    }
-    {
-      const sSize = 12;
-      const sPad = 3;
-      const totalSW = pl.maxShurikens * sSize + (pl.maxShurikens - 1) * sPad;
-      const sStartX = CANVAS_W / 2 - totalSW / 2;
-      const sY = 58;
-      for (let i = 0; i < pl.maxShurikens; i++) {
-        const sx = sStartX + i * (sSize + sPad) + sSize / 2;
-        const sy = sY + sSize / 2;
-        const available = i < pl.shurikens;
-        ctx.globalAlpha = available ? 1 : 0.25;
-        if (i === 0 && pl.items.theKunai) {
-          // Kunai icon
-          ctx.fillStyle = '#f66';
-          ctx.beginPath();
-          ctx.moveTo(sx, sy - sSize / 2);
-          ctx.lineTo(sx + sSize * 0.12, sy);
-          ctx.lineTo(sx, sy + sSize / 2);
-          ctx.lineTo(sx - sSize * 0.12, sy);
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#a44';
-          ctx.fillRect(sx - 2, sy + sSize * 0.25, 4, sSize * 0.2);
-          ctx.strokeStyle = '#f66';
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.ellipse(sx, sy + sSize * 0.45, sSize * 0.15, sSize * 0.1, 0, 0, Math.PI * 2);
-          ctx.stroke();
-        } else {
-          // Shuriken star
-          ctx.fillStyle = '#ccc';
-          ctx.beginPath();
-          const r = sSize / 2;
-          for (let p = 0; p < 4; p++) {
-            const angle = (p / 4) * Math.PI * 2 - Math.PI / 2;
-            const tipX = sx + Math.cos(angle) * r;
-            const tipY = sy + Math.sin(angle) * r;
-            const innerAngle = angle + Math.PI / 4;
-            const innerR = r * 0.35;
-            const inX = sx + Math.cos(innerAngle) * innerR;
-            const inY = sy + Math.sin(innerAngle) * innerR;
-            if (p === 0) ctx.moveTo(tipX, tipY);
-            else ctx.lineTo(tipX, tipY);
-            ctx.lineTo(inX, inY);
-          }
-          ctx.closePath();
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-      }
     }
 
     // Boss Items display (left side, vertically centered)

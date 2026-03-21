@@ -321,7 +321,7 @@ const GP_RB = 5;
 // ── Boss Item Definitions ────────────────────────────────────
 const BOSS_ITEMS = {
   pickaxe:        { name: 'Pickaxe',          icon: '⛏', color: '#c96', desc: 'Enemy shields take 2 hits instead of one.' },
-  tripleShuriken: { name: 'Triple Shuriken',  icon: '✦', color: '#ccc', desc: 'Throw 3 shurikens at once, halves cooldown.' },
+  tripleShuriken: { name: 'Triple Shuriken',  icon: '✦', color: '#ccc', desc: 'Each shuriken fires 3 projectiles. Halves recharge time.' },
   homingShuriken: { name: 'Homing Shuriken',  icon: '◎', color: '#6cf', desc: 'Shurikens home in on enemies.' },
   vampireTeeth:   { name: 'Vampire Teeth',    icon: '🦷', color: '#d44', desc: 'Each hit recovers 1% HP (min 1).' },
   iaito:          { name: 'Iaito',             icon: '⚔', color: '#eee', desc: 'Sword attacks deflect bullets back at enemies.' },

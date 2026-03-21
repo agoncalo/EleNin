@@ -140,8 +140,9 @@ class Player {
     // Shadow instakill threshold (gradual, caps at 15)
     this.shadowKillThreshold = 0;
 
-    // Shurikens (rechargeable)
+    // Shurikens (rechargeable, auto-fire)
     this.shurikens = 3;
+    this.shurikenFireCooldown = 0;
 
     // Elemental status effects from enemy attacks
     this.statusBurn = 0;    // fire DOT timer
@@ -1036,7 +1037,7 @@ class Player {
 
     // Ultimate activation input
     if (this.ultimateReady && !this.ultimateActive) {
-      if (consumePress('KeyV') || consumePress('KeyM') || gpJust[3]) {
+      if (consumePress('KeyC') || consumePress('KeyN') || gpJust[3]) {
         this.activateUltimate(game);
       }
     }
@@ -1964,47 +1965,55 @@ class Player {
         }
       }
     }
-    if ((consumePress('KeyC') || consumePress('KeyL') || consumePress('MouseShuriken') || touchJust.shuriken || gpJust[GP_SHURIKEN]) && this.shurikens > 0) {
-      if (this.statusParalyse > 0) {
-        this.statusStun = 30;
-        this.statusParalyse = Math.max(0, this.statusParalyse - 30);
-        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
-        this.hp -= paraDmg;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
-        SFX.play(200, 'square', 0.2, 0.15, 0);
-      } else {
-      SFX.shuriken();
-      const isKunai = this.items.theKunai && this.shurikens === 1;
-      this.shurikens--;
-      const dmg = (t.attackDamage + this.bonusDamage) * (this.shurikenLevel);
+    // Auto-fire shurikens at nearest enemy in range
+    if (this.shurikenFireCooldown > 0) this.shurikenFireCooldown--;
+    if (this.shurikens > 0 && this.shurikenFireCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      const color = isKunai ? '#f66' : (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
-      const makeShuriken = (angleOffset) => {
-        const sProj = fireProjectileAtNearestEnemy({
-          x: cx, y: cy, game, speed: 8, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
-        });
-        if (sProj) {
-          sProj.isShuriken = true;
-          if (this.ninjaType === 'crystal') sProj.freezeDust = true;
-          if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') sProj.shadowParalyse = true;
-          if (this.items.homingShuriken) sProj.homing = true;
-          if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = this.maxShurikens; sProj.life = 30; }
-          if (angleOffset !== 0) {
-            const a = Math.atan2(sProj.vy, sProj.vx) + angleOffset;
-            const sp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
-            sProj.vx = Math.cos(a) * sp;
-            sProj.vy = Math.sin(a) * sp;
+      const target = findNearestTarget(cx, cy, game, 0);
+      if (target) {
+        const tdx = (target.x + target.w / 2) - cx;
+        const tdy = (target.y + target.h / 2) - cy;
+        const dist = Math.sqrt(tdx * tdx + tdy * tdy);
+        if (dist <= 600) {
+          SFX.shuriken();
+          const totalToFire = this.shurikens;
+          const dmg = (t.attackDamage + this.bonusDamage) * this.shurikenLevel;
+          let idx = 0;
+          const isKunai = this.items.theKunai && this.shurikens === 1;
+          this.shurikens--;
+          const color = isKunai ? '#f66' : (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
+          const speedBoost = 8 + idx * 1.5;
+          const sProj = fireProjectileAtNearestEnemy({
+            x: cx, y: cy, game, speed: speedBoost, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
+          });
+          if (sProj) {
+            sProj.isShuriken = true;
+            if (this.ninjaType === 'crystal') sProj.freezeDust = true;
+            if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') sProj.shadowParalyse = true;
+            if (this.items.homingShuriken) sProj.homing = true;
+            if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = this.maxShurikens; sProj.life = 30; }
+            if (this.items.tripleShuriken) {
+              for (const triOff of [0.25, -0.25]) {
+                const tProj = fireProjectileAtNearestEnemy({
+                  x: cx, y: cy, game, speed: speedBoost, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
+                });
+                if (tProj) {
+                  tProj.isShuriken = true;
+                  if (this.ninjaType === 'crystal') tProj.freezeDust = true;
+                  if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') tProj.shadowParalyse = true;
+                  if (this.items.homingShuriken) tProj.homing = true;
+                  const ta = Math.atan2(sProj.vy, sProj.vx) + triOff;
+                  const tsp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
+                  tProj.vx = Math.cos(ta) * tsp;
+                  tProj.vy = Math.sin(ta) * tsp;
+                }
+              }
+            }
           }
+          idx++;
+          this.shurikenFireCooldown = Math.max(3, 24 / (this.shurikenLevel + 2));
+          game.effects.push(new Effect(cx, cy, '#ccc', 6, 3, 10));
         }
-        return sProj;
-      };
-      makeShuriken(0);
-      if (this.items.tripleShuriken) {
-        makeShuriken(0.25);
-        makeShuriken(-0.25);
-      }
-      game.effects.push(new Effect(cx, cy, '#ccc', 4, 2, 6));
       }
     }
 

@@ -1450,9 +1450,9 @@ class Enemy {
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shield'));
     } else if (r < 0.58) {                                   // T3: maxhp 10%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'maxhp'));
-    } else if (r < 0.68) {                                   // T3: shuriken 10%
+    } else if (r < 0.62) {                                   // T3: shuriken 4%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shuriken'));
-    } else if (r < 0.78) {                                   // T3: ultcharge 10%
+    } else if (r < 0.78) {                                   // T3: ultcharge 16%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
     } else if (r < 0.84) {                                   // T4: damage 6%
       game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
