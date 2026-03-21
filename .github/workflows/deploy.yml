@@ -12,35 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build bundle
-        shell: bash
-        run: |
-          mkdir -p build
-          {
-            echo '<!DOCTYPE html>'
-            echo '<html lang="en">'
-            echo '<head>'
-            echo '<meta charset="UTF-8">'
-            echo '<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">'
-            echo '<title>EleNin</title>'
-            echo '<style>'
-            echo '* { margin: 0; padding: 0; box-sizing: border-box; }'
-            echo 'html, body { width: 100%; height: 100%; background: #111; overflow: hidden; touch-action: none; }'
-            echo 'body { display: flex; justify-content: center; align-items: center; }'
-            echo 'canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object-fit: contain; }'
-            echo '</style>'
-            echo '</head>'
-            echo '<body>'
-            echo '<canvas id="game"></canvas>'
-            printf '<script>\n'
-            for name in constants utils audio music input effects entities stone bubble projectile player enemy pause game main; do
-              echo "// === js/${name}.js ==="
-              cat "js/${name}.js"
-              echo ""
-            done
-            printf '</script>\n'
-            echo '</body>'
-            echo '</html>'
-          } > build/index.html
+        run: python3 build.py
 
       - name: Install Butler
         run: |
