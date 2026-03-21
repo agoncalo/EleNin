@@ -158,7 +158,7 @@ class EarthBoulder {
     this.hitSet = new Set();
     this.targetY = targetY;
     this.rising = true;
-    this.riseSpeed = 5;
+    this.riseSpeed = 10;
     this.hovering = false;
     this.hoverTimer = 120;
     this.launched = false;
@@ -443,9 +443,9 @@ class IceBlock {
 
   isCollidable() { return this.landed; }
 
-  playerHit(game) {
+  playerHit(game, dmg = 1) {
     if (this.damageCd > 0) return;
-    this.hp--;
+    this.hp -= dmg;
     this.damageCd = 15;
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
     triggerHitstop(3);

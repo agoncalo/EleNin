@@ -1168,6 +1168,8 @@ class Player {
     const jumpPress = consumePress('ArrowUp') || consumePress('KeyW') || consumePress('Space') || touchJust.up || gpJust[GP_JUMP];
     if (jumpPress && this.jumpsLeft > 0) {
       SFX.jump();
+      this.earthAirHover = 0; // cancel earth hover if jumping again
+      this.iceHover = 0; // cancel ice hover if jumping again
       if (this.onWall !== 0 && !this.grounded) {
         this.vy = t.jumpPower * 0.9;
         this.vx = -this.onWall * 6;
@@ -1384,6 +1386,15 @@ class Player {
               b.groundPound();
               game.effects.push(new Effect(b.x + b.w / 2, b.y + b.h / 2, '#a87', 12, 4, 14));
             }
+          }
+        }
+      }
+
+      // Crystal: hit ice blocks
+      if (this.ninjaType === 'crystal') {
+        for (const b of game.stoneBlocks) {
+          if (b instanceof IceBlock && !b.done) {
+            b.playerHit(game, 3);
           }
         }
       }
@@ -1939,14 +1950,10 @@ class Player {
     // Throw shuriken — recharge only starts when all shurikens are empty
     if (this.shurikens <= 0) {
       this.shurikenRechargeTimer++;
-      const rechargeTime = this.items.tripleShuriken ? 120 : 240;
+      const rechargeTime = this.items.tripleShuriken ? 30 : 60;
       if (this.shurikenRechargeTimer >= rechargeTime) {
         this.shurikens = this.maxShurikens;
         this.shurikenRechargeTimer = 0;
-        // Despawn all dropped shurikens
-        for (const p of game.projectiles) {
-          if (p.isShuriken && p.owner === 'player' && p.dropped) p.done = true;
-        }
       }
     }
     // Pick up dropped shurikens
