@@ -11,6 +11,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Build bundle
+        run: |
+          JS_ORDER="constants utils audio music input effects entities stone bubble projectile player enemy pause game main"
+          cat > build/index.html << 'HEADER'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+          <title>EleNin</title>
+          <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          html, body { width: 100%; height: 100%; background: #111; overflow: hidden; touch-action: none; }
+          body { display: flex; justify-content: center; align-items: center; }
+          canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object-fit: contain; }
+          </style>
+          </head>
+          <body>
+          <canvas id="game"></canvas>
+          <script>
+          HEADER
+          # Strip leading whitespace from heredoc
+          sed -i 's/^          //' build/index.html
+          for name in $JS_ORDER; do
+            echo "// === js/${name}.js ===" >> build/index.html
+            cat "js/${name}.js" >> build/index.html
+            echo "" >> build/index.html
+          done
+          cat >> build/index.html << 'FOOTER'
+          </script>
+          </body>
+          </html>
+          FOOTER
+          sed -i 's/^          //' build/index.html
+
       - name: Install Butler
         run: |
           curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
