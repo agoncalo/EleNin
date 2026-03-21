@@ -518,7 +518,7 @@ class Player {
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
     // Set mana capacity per ninja
-    const manaCaps = { fire: 2, earth: 3, bubble: 2, shadow: 2, crystal: 2, wind: 2, storm: 2 };
+    const manaCaps = { fire: 2, earth: 3, bubble: 1, shadow: 2, crystal: 2, wind: 1, storm: 1 };
     this.maxMana = (manaCaps[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
   }
@@ -1987,8 +1987,7 @@ class Player {
         if (sProj) {
           sProj.isShuriken = true;
           if (this.ninjaType === 'crystal') sProj.freezeDust = true;
-          if (this.ninjaType === 'storm') sProj.soaking = true;
-          if (this.ninjaType === 'shadow') sProj.shadowParalyse = true;
+          if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') sProj.shadowParalyse = true;
           if (this.items.homingShuriken) sProj.homing = true;
           if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = this.maxShurikens; sProj.life = 30; }
           if (angleOffset !== 0) {
@@ -2105,6 +2104,7 @@ class Player {
           let dmg = this.type.attackDamage + this.bonusElemental;
           if (this.backstabReady || (nearest.hp !== undefined && nearest.hp <= this.shadowKillThreshold)) {
             dmg = 9999;
+            this.backstabReady = false;
           }
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
           if (nearest === game.boss && nearest.dead) {

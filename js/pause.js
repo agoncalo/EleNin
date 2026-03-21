@@ -604,6 +604,8 @@ function renderPauseMenu(ctx) {
     : 'ESC to close \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select';
   ctx.fillText(footerHint, bx + 16, by + bh - 12);
 
+  game.renderItemBar(pl);
+
   // Item tooltip panel (left side)
   if (pauseMenu.itemTooltipActive) {
     renderItemTooltip(ctx);

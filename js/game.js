@@ -913,7 +913,7 @@ class Game {
           this.spawnEnemy();
         }
       }
-      if (this.boss && this.boss.dead && !this.orbBucketChoice) {
+      if (this.boss && this.boss.dead && !this.orbBucketChoice && this.wave < TOTAL_WAVES) {
         this.orbBucketChoice = this._generateOrbBuckets();
         this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
         this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
@@ -2963,136 +2963,7 @@ class Game {
     }
 
     // Boss Items display (left side, vertically centered)
-    {
-      const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
-      if (itemKeys.length > 0) {
-        const iconSize = 30;
-        const pad = 4;
-        const totalH = itemKeys.length * iconSize + (itemKeys.length - 1) * pad;
-        let iy = Math.round((CANVAS_H - totalH) / 2);
-        for (const key of itemKeys) {
-          const def = BOSS_ITEMS[key];
-          if (!def) continue;
-          const icx = 8, icy = iy;
-          // Grey out used Death's Key
-          const dimmed = key === 'deathsKey' && pl.deathsKeyUsed;
-          if (dimmed) ctx.globalAlpha = 0.3;
-          // Outer glow
-          ctx.shadowColor = def.color;
-          ctx.shadowBlur = 8;
-          // Background gradient
-          const grad = ctx.createLinearGradient(icx, icy, icx, icy + iconSize);
-          grad.addColorStop(0, 'rgba(40,40,50,0.85)');
-          grad.addColorStop(1, 'rgba(15,15,20,0.95)');
-          ctx.fillStyle = grad;
-          ctx.fillRect(icx, icy, iconSize, iconSize);
-          // Colored inner border
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = def.color;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(icx + 1, icy + 1, iconSize - 2, iconSize - 2);
-          // Corner highlights
-          ctx.fillStyle = def.color;
-          ctx.globalAlpha = dimmed ? 0.15 : 0.5;
-          ctx.fillRect(icx + 1, icy + 1, 4, 1);
-          ctx.fillRect(icx + 1, icy + 1, 1, 4);
-          ctx.fillRect(icx + iconSize - 5, icy + iconSize - 2, 4, 1);
-          ctx.fillRect(icx + iconSize - 2, icy + iconSize - 5, 1, 4);
-          ctx.globalAlpha = dimmed ? 0.3 : 1;
-          // Canvas-drawn icon
-          drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
-          // x2 Orb: crack overlay based on durability
-          if (key === 'x2Orb' && pl.x2OrbCounter > 0) {
-            const crackPct = pl.x2OrbCounter / 100;
-            ctx.globalAlpha = crackPct * 0.7;
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            // Main crack line
-            ctx.beginPath();
-            ctx.moveTo(icx + iconSize * 0.3, icy + iconSize * 0.2);
-            ctx.lineTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
-            ctx.lineTo(icx + iconSize * 0.4, icy + iconSize * 0.8);
-            ctx.stroke();
-            // Secondary crack at 50%+
-            if (crackPct > 0.5) {
-              ctx.beginPath();
-              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
-              ctx.lineTo(icx + iconSize * 0.7, icy + iconSize * 0.4);
-              ctx.stroke();
-            }
-            // Tertiary crack at 75%+
-            if (crackPct > 0.75) {
-              ctx.beginPath();
-              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
-              ctx.lineTo(icx + iconSize * 0.65, icy + iconSize * 0.75);
-              ctx.stroke();
-            }
-            ctx.globalAlpha = 1;
-            // Warning pulse near breaking
-            if (crackPct > 0.8) {
-              const pulse = 0.15 + 0.1 * Math.sin(this.tick * 0.15);
-              ctx.globalAlpha = pulse;
-              ctx.fillStyle = '#f44';
-              ctx.fillRect(icx, icy, iconSize, iconSize);
-              ctx.globalAlpha = 1;
-            }
-          }
-          // The Code: charge overlay
-          if (key === 'theCode') {
-            const pct = Math.min(pl.codeCounterCharge / pl.codeCounterMax, 1);
-            if (pct < 1) {
-              // Dim overlay on uncharged portion (sweeps upward)
-              ctx.fillStyle = 'rgba(0,0,0,0.55)';
-              const uncharged = iconSize * (1 - pct);
-              ctx.fillRect(icx, icy, iconSize, uncharged);
-            } else {
-              // Fully charged: pulsing glow
-              const pulse = 0.3 + 0.2 * Math.sin(this.tick * 0.1);
-              ctx.globalAlpha = pulse;
-              ctx.fillStyle = '#aaf';
-              ctx.fillRect(icx, icy, iconSize, iconSize);
-              ctx.globalAlpha = 1;
-            }
-          }
-          ctx.globalAlpha = 1;
-          ctx.shadowBlur = 0;
-          iy += iconSize + pad;
-        }
-      }
-    }
-
-    // x2 Orb break flash effect
-    if (pl.x2OrbBreaking > 0) {
-      const t = pl.x2OrbBreaking;
-      const flash = t / 60;
-      // Screen-edge flash
-      ctx.save();
-      ctx.globalAlpha = flash * 0.3;
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(0, 0, 60, CANVAS_H);
-      ctx.globalAlpha = flash * 0.15;
-      ctx.fillStyle = '#f44';
-      ctx.fillRect(0, 0, 40, CANVAS_H);
-      ctx.restore();
-      // Floating shards near left side
-      if (t > 30) {
-        const numShards = 6;
-        for (let si = 0; si < numShards; si++) {
-          const progress = (60 - t) / 30;
-          const angle = (si / numShards) * Math.PI * 2 + t * 0.1;
-          const dist = progress * 60;
-          const sx = 23 + Math.cos(angle) * dist;
-          const sy = CANVAS_H / 2 + Math.sin(angle) * dist;
-          ctx.save();
-          ctx.globalAlpha = flash;
-          ctx.fillStyle = si % 2 === 0 ? '#ff0' : '#fa0';
-          ctx.translate(sx, sy);
-          ctx.rotate(angle + t * 0.15);
-          ctx.fillRect(-3, -3, 6, 6);
-          ctx.restore();
-        }
-      }
-    }
+    this.renderItemBar(pl);
 
     // Wave info panel (top right, below ninja bar)
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -3500,5 +3371,138 @@ class Game {
     // Restore camera after shake offset
     cam.x -= screenShakeX;
     cam.y -= screenShakeY;
+  }
+
+  renderItemBar(pl) {
+    {
+      const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
+      if (itemKeys.length > 0) {
+        const iconSize = 30;
+        const pad = 4;
+        const totalH = itemKeys.length * iconSize + (itemKeys.length - 1) * pad;
+        let iy = Math.round((CANVAS_H - totalH) / 2);
+        for (const key of itemKeys) {
+          const def = BOSS_ITEMS[key];
+          if (!def) continue;
+          const icx = 8, icy = iy;
+          // Grey out used Death's Key
+          const dimmed = key === 'deathsKey' && pl.deathsKeyUsed;
+          if (dimmed) ctx.globalAlpha = 0.3;
+          // Outer glow
+          ctx.shadowColor = def.color;
+          ctx.shadowBlur = 8;
+          // Background gradient
+          const grad = ctx.createLinearGradient(icx, icy, icx, icy + iconSize);
+          grad.addColorStop(0, 'rgba(40,40,50,0.85)');
+          grad.addColorStop(1, 'rgba(15,15,20,0.95)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(icx, icy, iconSize, iconSize);
+          // Colored inner border
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = def.color;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(icx + 1, icy + 1, iconSize - 2, iconSize - 2);
+          // Corner highlights
+          ctx.fillStyle = def.color;
+          ctx.globalAlpha = dimmed ? 0.15 : 0.5;
+          ctx.fillRect(icx + 1, icy + 1, 4, 1);
+          ctx.fillRect(icx + 1, icy + 1, 1, 4);
+          ctx.fillRect(icx + iconSize - 5, icy + iconSize - 2, 4, 1);
+          ctx.fillRect(icx + iconSize - 2, icy + iconSize - 5, 1, 4);
+          ctx.globalAlpha = dimmed ? 0.3 : 1;
+          // Canvas-drawn icon
+          drawItemIcon(ctx, key, icx + iconSize / 2, icy + iconSize / 2, iconSize * 0.75, def.color);
+          // x2 Orb: crack overlay based on durability
+          if (key === 'x2Orb' && pl.x2OrbCounter > 0) {
+            const crackPct = pl.x2OrbCounter / 100;
+            ctx.globalAlpha = crackPct * 0.7;
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            // Main crack line
+            ctx.beginPath();
+            ctx.moveTo(icx + iconSize * 0.3, icy + iconSize * 0.2);
+            ctx.lineTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+            ctx.lineTo(icx + iconSize * 0.4, icy + iconSize * 0.8);
+            ctx.stroke();
+            // Secondary crack at 50%+
+            if (crackPct > 0.5) {
+              ctx.beginPath();
+              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+              ctx.lineTo(icx + iconSize * 0.7, icy + iconSize * 0.4);
+              ctx.stroke();
+            }
+            // Tertiary crack at 75%+
+            if (crackPct > 0.75) {
+              ctx.beginPath();
+              ctx.moveTo(icx + iconSize * 0.5, icy + iconSize * 0.55);
+              ctx.lineTo(icx + iconSize * 0.65, icy + iconSize * 0.75);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            // Warning pulse near breaking
+            if (crackPct > 0.8) {
+              const pulse = 0.15 + 0.1 * Math.sin(this.tick * 0.15);
+              ctx.globalAlpha = pulse;
+              ctx.fillStyle = '#f44';
+              ctx.fillRect(icx, icy, iconSize, iconSize);
+              ctx.globalAlpha = 1;
+            }
+          }
+          // The Code: charge overlay
+          if (key === 'theCode') {
+            const pct = Math.min(pl.codeCounterCharge / pl.codeCounterMax, 1);
+            if (pct < 1) {
+              // Dim overlay on uncharged portion (sweeps upward)
+              ctx.fillStyle = 'rgba(0,0,0,0.55)';
+              const uncharged = iconSize * (1 - pct);
+              ctx.fillRect(icx, icy, iconSize, uncharged);
+            } else {
+              // Fully charged: pulsing glow
+              const pulse = 0.3 + 0.2 * Math.sin(this.tick * 0.1);
+              ctx.globalAlpha = pulse;
+              ctx.fillStyle = '#aaf';
+              ctx.fillRect(icx, icy, iconSize, iconSize);
+              ctx.globalAlpha = 1;
+            }
+          }
+          ctx.globalAlpha = 1;
+          ctx.shadowBlur = 0;
+          iy += iconSize + pad;
+        }
+      }
+    }
+
+    // x2 Orb break flash effect
+    if (pl.x2OrbBreaking > 0) {
+      const t = pl.x2OrbBreaking;
+      const flash = t / 60;
+      // Screen-edge flash
+      ctx.save();
+      ctx.globalAlpha = flash * 0.3;
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(0, 0, 60, CANVAS_H);
+      ctx.globalAlpha = flash * 0.15;
+      ctx.fillStyle = '#f44';
+      ctx.fillRect(0, 0, 40, CANVAS_H);
+      ctx.restore();
+      // Floating shards near left side
+      if (t > 30) {
+        const numShards = 6;
+        for (let si = 0; si < numShards; si++) {
+          const progress = (60 - t) / 30;
+          const angle = (si / numShards) * Math.PI * 2 + t * 0.1;
+          const dist = progress * 60;
+          const sx = 23 + Math.cos(angle) * dist;
+          const sy = CANVAS_H / 2 + Math.sin(angle) * dist;
+          ctx.save();
+          ctx.globalAlpha = flash;
+          ctx.fillStyle = si % 2 === 0 ? '#ff0' : '#fa0';
+          ctx.translate(sx, sy);
+          ctx.rotate(angle + t * 0.15);
+          ctx.fillRect(-3, -3, 6, 6);
+          ctx.restore();
+        }
+      }
+    }
   }
 }
