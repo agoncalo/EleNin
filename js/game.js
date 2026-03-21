@@ -913,11 +913,16 @@ class Game {
           this.spawnEnemy();
         }
       }
-      if (this.boss && this.boss.dead && !this.orbBucketChoice && this.wave < TOTAL_WAVES) {
-        this.orbBucketChoice = this._generateOrbBuckets();
-        this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
-        this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-        this.bossRewardItem = null;
+      if (this.boss && this.boss.dead && !this.orbBucketChoice) {
+        if(this.wave < TOTAL_WAVES) {
+          this.orbBucketChoice = this._generateOrbBuckets();
+          this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
+          this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
+          this.bossRewardItem = null;
+        } else {
+          this.gameWon = true;
+          this.advanceWave();
+        }
       }
     }
 

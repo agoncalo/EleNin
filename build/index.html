@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-03-21 16:56 UTC
-console.log("EleNin build: 2026-03-21 16:56 UTC");
+// BUILD TIMESTAMP: 2026-03-21 23:40 UTC
+console.log("EleNin build: 2026-03-21 23:40 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -7504,7 +7504,7 @@ class Player {
         if (dist <= 600) {
           SFX.shuriken();
           const totalToFire = this.shurikens;
-          const dmg = (t.attackDamage + this.bonusDamage) * this.shurikenLevel;
+          const dmg = t.attackDamage + this.shurikenLevel;
           let idx = 0;
           const isKunai = this.items.theKunai && this.shurikens === 1;
           this.shurikens--;
@@ -16473,11 +16473,16 @@ class Game {
           this.spawnEnemy();
         }
       }
-      if (this.boss && this.boss.dead && !this.orbBucketChoice && this.wave < TOTAL_WAVES) {
-        this.orbBucketChoice = this._generateOrbBuckets();
-        this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
-        this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-        this.bossRewardItem = null;
+      if (this.boss && this.boss.dead && !this.orbBucketChoice) {
+        if(this.wave < TOTAL_WAVES) {
+          this.orbBucketChoice = this._generateOrbBuckets();
+          this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
+          this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
+          this.bossRewardItem = null;
+        } else {
+          this.gameWon = true;
+          this.advanceWave();
+        }
       }
     }
 

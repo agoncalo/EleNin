@@ -1983,7 +1983,7 @@ class Player {
         if (dist <= 600) {
           SFX.shuriken();
           const totalToFire = this.shurikens;
-          const dmg = (t.attackDamage + this.bonusDamage) * this.shurikenLevel;
+          const dmg = t.attackDamage + this.shurikenLevel;
           let idx = 0;
           const isKunai = this.items.theKunai && this.shurikens === 1;
           this.shurikens--;
