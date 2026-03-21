@@ -689,8 +689,8 @@ class Projectile {
     // Shockwave ring effect
     game.effects.push(new Effect(kx, ky, '#f88', 30, 12, 12));
     SFX.hit();
-    SFX.play(80, 'sawtooth', 0.4, 0.3, 0);
-    SFX.play(150, 'square', 0.2, 0.2, 0.05);
+    //SFX.play(80, 'sawtooth', 0.4, 0.3, 0);
+    //SFX.play(150, 'square', 0.2, 0.2, 0.05);
     triggerHitstop(6);
     for (const e2 of game.enemies) {
       if (!e2.dead && e2 !== skipEnemy) {
