@@ -64,58 +64,7 @@ function gameLoop(timestamp) {
       }
       if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.menuActive = false;
-        game.mainMenuScreen = true;
-        game.mainMenuSelected = 0;
-        game.mainMenuPopup = null;
-      }
-      clearFrameInput();
-      accumulator -= FIXED_DT;
-      continue;
-    }
-    if (game.mainMenuScreen) {
-      // If a popup is active, handle popup input
-      if (game.mainMenuPopup) {
-        // Reuse pause popup input handling
-        pauseMenu.popup = game.mainMenuPopup;
-        updatePopup();
-        // Check if popup was closed
-        if (!pauseMenu.popup) {
-          game.mainMenuPopup = null;
-        } else {
-          game.mainMenuPopup = pauseMenu.popup;
-        }
-        pauseMenu.popup = null;
-        clearFrameInput();
-        accumulator -= FIXED_DT;
-        continue;
-      }
-      // Navigate main menu
-      if (consumePress('ArrowUp') || consumePress('KeyW')) {
-        game.mainMenuSelected = (game.mainMenuSelected + MAIN_MENU_OPTIONS.length - 1) % MAIN_MENU_OPTIONS.length;
-      }
-      if (consumePress('ArrowDown') || consumePress('KeyS')) {
-        game.mainMenuSelected = (game.mainMenuSelected + 1) % MAIN_MENU_OPTIONS.length;
-      }
-      if (consumePress('Enter') || consumePress('Space') || consumePress('KeyZ') || consumePress('KeyJ')) {
-        const sel = game.mainMenuSelected;
-        if (sel === 0) { // Play
-          game.mainMenuScreen = false;
-          game.controlsScreen = true;
-        }
-        if (sel === 1) { // Controls
-          game.mainMenuScreen = false;
-          game.controlsScreen = true;
-        }
-        if (sel === 2) { game.mainMenuPopup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
-        if (sel === 3) { game.mainMenuPopup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
-        if (sel === 4) { game.mainMenuPopup = 'vault'; pauseMenu.vaultScroll = 0; }
-        if (sel === 5) { game.mainMenuPopup = 'achievements'; pauseMenu.popupScroll = 0; }
-        if (sel === 6) { Music.setMuted(!Music.muted); }
-        if (sel === 7) { SFX.muted = !SFX.muted; }
-      }
-      if (consumePress('Escape') || consumePress('Backspace')) {
-        game.mainMenuScreen = false;
-        game.menuActive = true;
+        game.controlsScreen = true;
       }
       clearFrameInput();
       accumulator -= FIXED_DT;

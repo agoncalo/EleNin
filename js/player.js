@@ -2071,6 +2071,25 @@ class Player {
             }
           }
         }
+        // Check spiky deflection — stop chain and take reflect damage
+        if (nearest && nearest.element === 'spiky') {
+          const dmg = this.type.attackDamage + this.bonusElemental;
+          const reflDmg = Math.max(1, Math.round(dmg * 0.5));
+          nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          this.hp -= reflDmg;
+          if (this.hp < 0) this.hp = 0;
+          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'REFLECT', '#f86'));
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#f64', 8, 3, 10));
+          game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
+          SFX.reflect();
+          this.chainStriking = false;
+          if (this._spinScythe) { this._spinScythe.recall(); this._spinScythe = null; }
+          for (const a of this.afterimages) { if (a.chain) a.life = 20; }
+          this.backstabReady = false;
+          this.shadowStealth = 0;
+          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+          nearest = null;
+        }
         if (nearest) {
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
@@ -2140,6 +2159,22 @@ class Player {
             }
           }
         }
+        // Check spiky deflection — stop chain and take reflect damage
+        if (nearest && nearest.element === 'spiky') {
+          const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
+          const reflDmg = Math.max(1, Math.round(dmg * 0.5));
+          nearest.takeDamage(dmg, game, this.x + this.w / 2);
+          this.hp -= reflDmg;
+          if (this.hp < 0) this.hp = 0;
+          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'REFLECT', '#f86'));
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#f64', 8, 3, 10));
+          game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
+          SFX.reflect();
+          this.stormChaining = false;
+          for (const a of this.stormAfterimages) a.life = 15;
+          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+          nearest = null;
+        }
         if (nearest) {
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
@@ -2202,6 +2237,22 @@ class Player {
                 loopTarget = null;
               }
             }
+          }
+          // Check spiky deflection — stop chain and take reflect damage
+          if (loopTarget && loopTarget.element === 'spiky') {
+            const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
+            const reflDmg = Math.max(1, Math.round(dmg * 0.5));
+            loopTarget.takeDamage(dmg, game, this.x + this.w / 2);
+            this.hp -= reflDmg;
+            if (this.hp < 0) this.hp = 0;
+            game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'REFLECT', '#f86'));
+            game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#f64', 8, 3, 10));
+            game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
+            SFX.reflect();
+            this.stormChaining = false;
+            for (const a of this.stormAfterimages) a.life = 15;
+            this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+            loopTarget = null;
           }
           if (loopTarget) {
             const behind = (loopTarget.x + loopTarget.w / 2) > cx ? -1 : 1;

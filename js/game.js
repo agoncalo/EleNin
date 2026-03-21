@@ -420,7 +420,7 @@ class Game {
     x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
     // Elemental variant chance
-    if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
+    if (Math.random() < ELEMENTAL_SPAWN_CHANCE + (this.wave - 1) * 0.03) {
       e.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
       e.elementColors = ELEMENT_COLORS[e.element];
       e.color = e.elementColors.body;
