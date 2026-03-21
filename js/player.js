@@ -1720,7 +1720,7 @@ class Player {
               SFX.backstab();
             }
             // Storm sword: apply electric paralysis
-            if (this.ninjaType === 'storm') {
+            if (this.ninjaType === 'storm' && this.stormChaining) {
               if (e.element === 'lightning') {
                 e.hp = Math.min(e.hp + 2, e.maxHp);
                 game.effects.push(new TextEffect(e.x + e.w / 2, e.y - 10, '+2', '#ff0'));
