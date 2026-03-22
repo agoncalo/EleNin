@@ -1151,6 +1151,13 @@ class Enemy {
       // still take half damage from the sword
       amount = Math.max(1, Math.round(amount * 0.5));
     }
+    // Shock: sword attacks get electrified
+    if (this.element === 'lightning' && sourceType === 'sword' && game && game.player) {
+      game.player.statusParalyse = 120;
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 24, this.y - 10, 'PARALYSED', '#6ff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#6ff', 8, 3, 12));
+    }
+
     // Elemental interaction — checked early so heals/resists bypass iframes
     if (this.element && game) {
       const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
