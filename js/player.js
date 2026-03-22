@@ -1406,9 +1406,11 @@ class Player {
         const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
           e.takeDamage(slamDmg, game, slamCX, 'physical');
-          e.vy = -5;
+          e.vy = -10;
           e.vx = Math.sign(dx) * 4;
           e.stunTimer = Math.max(e.stunTimer, 45);
+          if (!e.flying)
+            e.juggleState = true;
 
           // Per-ninja slam effects
           switch (this.ninjaType) {
@@ -1476,6 +1478,7 @@ class Player {
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
           game.boss.takeDamage(slamDmg, game, slamCX, 'physical');
           game.boss.stunTimer = Math.max(game.boss.stunTimer, 30);
+          game.boss.juggleState = true;
           switch (this.ninjaType) {
             case 'fire':
               game.boss.burnTimer = 150;
@@ -1695,6 +1698,7 @@ class Player {
               e.grounded = false;
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aaf', 18, 6, 16));
             }
+
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
@@ -1718,7 +1722,7 @@ class Player {
             }
 
             // Storm: hitting a soaked enemy starts lightning chain
-            if (this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
+            if (e.juggleState &&this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
               this.stormChaining = true;
               this.stormChainTimer = 4;
               this.stormChainHit = new Set();

@@ -96,12 +96,14 @@ class Enemy {
     this.element = null;
     this.elementColors = null;
     this.baseColor = this.color; // preserve original type color
+    this.juggleState = false;
   }
 
   update(game) {
     if (this.dead) return;
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
+    if (this.grounded) this.juggleState = false;
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
       // Ice sliding: frozen enemy was hit, slides and hits others
@@ -1228,12 +1230,22 @@ class Enemy {
       if (this.shieldHp <= 0) {
         this.shieldHp = 0;
         this.stunTimer = Math.max(this.stunTimer, 90);
-        this.chargeState = 'idle';
+        this.chargeSt
+        
+        ate = 'idle';
         this.chargeTimer = 0;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
     }
+    if (this.juggleState) {
+      amount = Math.ceil(amount * 1.5);
+      const dir = Math.sign((this.x + this.w / 2) - (this.x + this.w / 2)) || (game && game.player ? game.player.facing : 1);
+      this.vx = dir * 2;
+      this.vy = -5;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'JUGGLE', '#ff8'));
+    }
+
     this.hp -= amount;
     if (!shieldBlocked) this.flashTimer = 6;
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
