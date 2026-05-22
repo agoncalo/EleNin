@@ -456,7 +456,7 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 5, shield: 6, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 5, shield: 6, shieldrecharge: 5, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
@@ -485,6 +485,12 @@ class Orb {
     const dy = py - oy;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    // Skip attraction and pickup if player is already full of this resource
+    const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
+                 (this.type === 'shieldrecharge' && pl.shield >= pl.maxShield) ||
+                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive));
+    if (full) return;
+
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
     let attracted = dist < magnetRange;
@@ -503,6 +509,7 @@ class Orb {
             case 'damage': pl.bonusDamage += 1 * _m; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
             case 'elDmg': pl.bonusElemental += 1 * _m; game.effects.push(new Effect(ox, oy, '#c4f', 8, 3, 12)); break;
             case 'shield': pl.maxShield += 2 * _m; pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
+            case 'shieldrecharge': pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#6cf', 6, 2, 10)); break;
             case 'shuriken': pl.maxShurikens += 1 * _m; pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
             case 'speed': pl.bonusSpeed += 1 * _m; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
             case 'reach': pl.bonusReach += 1 * _m; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
@@ -562,6 +569,10 @@ class Orb {
           pl.maxShield += 2 * _m;
           pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
+          break;
+        case 'shieldrecharge':
+          pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#6cf', 6, 2, 10));
           break;
         case 'shuriken':
           pl.maxShurikens += 1 * _m;
@@ -642,6 +653,10 @@ class Orb {
             pl.shield = Math.min(pl.shield + 3, pl.maxShield);
             game.effects.push(new Effect(cx, cy, '#4af', 8, 3, 12));
             break;
+          case 'shieldrecharge':
+            pl.shield = Math.min(pl.shield + 3, pl.maxShield);
+            game.effects.push(new Effect(cx, cy, '#6cf', 6, 2, 10));
+            break;
           case 'shuriken':
             pl.maxShurikens += 1;
             pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
@@ -680,7 +695,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shieldrecharge: '#6cf', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
@@ -718,7 +733,7 @@ class Orb {
     ctx.fillStyle = '#fff';
     const fontSize = Math.max(8, r * 1.4) | 0;
     ctx.font = 'bold ' + fontSize + 'px monospace';
-    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
+    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shieldrecharge: '◇', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
     ctx.fillText(icons[this.type], cx - fontSize * 0.35, cy + fontSize * 0.35);
   }
 }

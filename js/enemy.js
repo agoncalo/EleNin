@@ -1463,30 +1463,37 @@ class Enemy {
       }
       game.effects.push(new Effect(cx, cy, '#aff', 14, 5, 15));
     }
-    // Drop orb — tiered rarity
+    // Drop orb — tiered rarity (big/boss drop upgrades; normal mobs drop recharges only)
     const r = Math.random();
-    if (r < 0.30) {                                          // T1: heal 30%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'heal'));
-    } else if (r < 0.48) {                                   // T2: shield 18%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shield'));
-    } else if (r < 0.58) {                                   // T3: maxhp 10%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'maxhp'));
-    } else if (r < 0.62) {                                   // T3: shuriken 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shuriken'));
-    } else if (r < 0.78) {                                   // T3: ultcharge 16%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
-    } else if (r < 0.84) {                                   // T4: damage 6%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
-    } else if (r < 0.87) {                                   // T4: elDmg 3%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'elDmg'));
-    } else if (r < 0.91) {                                   // T4: speed 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'speed'));
-    } else if (r < 0.95) {                                   // T4: reach 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'reach'));
-    } else if (r < 0.98) {                                   // T4: armor 3%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'armor'));
-    } else {                                                  // T4: element 2%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
+    const ox = this.x + this.w / 2 - 5;
+    if (this.big || this instanceof Boss) {
+      if (r < 0.20) {                                        // T2: shield upgrade 20%
+        game.orbs.push(new Orb(ox, this.y, 'shield'));
+      } else if (r < 0.35) {                                 // T3: maxhp 15%
+        game.orbs.push(new Orb(ox, this.y, 'maxhp'));
+      } else if (r < 0.43) {                                 // T3: shuriken 8%
+        game.orbs.push(new Orb(ox, this.y, 'shuriken'));
+      } else if (r < 0.55) {                                 // T4: damage 12%
+        game.orbs.push(new Orb(ox, this.y, 'damage'));
+      } else if (r < 0.63) {                                 // T4: elDmg 8%
+        game.orbs.push(new Orb(ox, this.y, 'elDmg'));
+      } else if (r < 0.73) {                                 // T4: speed 10%
+        game.orbs.push(new Orb(ox, this.y, 'speed'));
+      } else if (r < 0.83) {                                 // T4: reach 10%
+        game.orbs.push(new Orb(ox, this.y, 'reach'));
+      } else if (r < 0.92) {                                 // T4: armor 9%
+        game.orbs.push(new Orb(ox, this.y, 'armor'));
+      } else {                                               // T4: element 8%
+        game.orbs.push(new Orb(ox, this.y, 'element'));
+      }
+    } else {
+      if (r < 0.50) {                                        // T1: heal 50%
+        game.orbs.push(new Orb(ox, this.y, 'heal'));
+      } else if (r < 0.85) {                                 // T2: shield recharge 35%
+        game.orbs.push(new Orb(ox, this.y, 'shieldrecharge'));
+      } else {                                               // T3: ultcharge 15%
+        game.orbs.push(new Orb(ox, this.y, 'ultcharge'));
+      }
     }
   }
 

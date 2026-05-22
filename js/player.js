@@ -9,7 +9,7 @@ class Player {
     this.hp = 10;
     this.maxHp = 10;
     this.shield = 0;
-    this.maxShield = 0;
+    this.maxShield = 3;
     this.displayHp = 10;
     this.displayShield = 0;
     this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
@@ -1771,7 +1771,7 @@ class Player {
             if (b instanceof EarthWall && !b.launched) {
               b.launch(this.facing);
               triggerHitstop(3);
-            } else if (b instanceof IceBlock && b.landed) {
+            } else if (b instanceof IceBlock && (b.landed || b.falling)) {
               b.playerHit(game);
             } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
               let nearest = null, nd = Infinity;
@@ -3691,6 +3691,9 @@ class Player {
         ctx.fillRect(-1.5, -24, 3, 28);
         ctx.fillStyle = '#4a4a4a';
         ctx.fillRect(-1.5, -24, 1.5, 28);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -24, 3, 28);
         // Purple grip wraps
         ctx.fillStyle = '#a4e';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -4 + i * 6, 4, 3);
@@ -3707,7 +3710,10 @@ class Player {
         ctx.shadowColor = '#c060ff';
         ctx.shadowBlur = 6;
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
         ctx.shadowBlur = 0;
+        ctx.stroke();
         ctx.restore();
         // Pommel gem
         ctx.fillStyle = '#c060ff';
@@ -3725,6 +3731,9 @@ class Player {
         ctx.fillRect(-1.5, -26, 3, 30);
         ctx.fillStyle = '#5ab0d0';
         ctx.fillRect(-1.5, -26, 1.5, 30);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -26, 3, 30);
         // Grip wraps
         ctx.fillStyle = '#2a6888';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
@@ -3754,8 +3763,8 @@ class Player {
         ctx.fillRect(-3, -16, 6, 20);
         ctx.fillStyle = '#a8844a';
         ctx.fillRect(-3, -16, 3, 20);
-        ctx.strokeStyle = '#5a3a1a';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
         ctx.strokeRect(-3, -16, 6, 20);
         // Knuckle studs at top
         ctx.fillStyle = '#e8d0b0';
@@ -3773,6 +3782,9 @@ class Player {
         ctx.fillRect(-1.5, -24, 3, 28);
         ctx.fillStyle = '#6ab8c8';
         ctx.fillRect(-1.5, -24, 1.5, 28);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -24, 3, 28);
         // Grip wraps
         ctx.fillStyle = '#2a6878';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
@@ -3789,6 +3801,10 @@ class Player {
         ctx.lineTo(-3, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.shadowBlur = 0;
+        ctx.stroke();
         // Inner facet
         ctx.fillStyle = '#2dd';
         ctx.globalAlpha = 0.6;
@@ -3800,7 +3816,6 @@ class Player {
         ctx.closePath();
         ctx.fill();
         ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
         ctx.restore();
         // Pommel gem
         ctx.fillStyle = '#2dd';
@@ -3813,7 +3828,7 @@ class Player {
 
 
       } else {
-        // Default katana scabbard (fire, storm)
+        // Default katana scabbard (fire, storm, wind)
         if (this.ninjaType === 'storm') { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6; }
         ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
         ctx.fillRect(-2, -28, 4, 32);
@@ -3821,15 +3836,19 @@ class Player {
         ctx.fillRect(-2, 2, 4, 3);
         ctx.fillStyle = '#555';
         ctx.fillRect(-3, -6, 6, 2);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-2.5, -28.5, 5, 34);
         ctx.fillStyle = t.accentColor;
         ctx.fillRect(-2, -36, 4, 9);
+        ctx.strokeRect(-2.5, -36.5, 5, 10);
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         for (let i = 0; i < 3; i++) ctx.fillRect(-1, -35 + i * 3, 2, 1);
         ctx.fillStyle = '#aa8';
         ctx.fillRect(-3, -28, 6, 2);
         ctx.fillStyle = '#888';
         ctx.fillRect(-1, -38, 2, 3);
-        ctx.shadowBlur = 0;
       }
       ctx.restore();
     }
@@ -3979,6 +3998,15 @@ class Player {
         ctx.lineTo(-8, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-8, -2.5);
+        ctx.lineTo(40 * sc, -1.5);
+        ctx.lineTo(40 * sc, 1.5);
+        ctx.lineTo(-8, 2.5);
+        ctx.closePath();
+        ctx.stroke();
         // Purple grip wraps
         ctx.fillStyle = '#a4e';
         for (let i = 0; i < 4; i++) {
@@ -4061,6 +4089,15 @@ class Player {
         ctx.lineTo(-6, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.5);
+        ctx.lineTo(26, -1);
+        ctx.lineTo(26, 1);
+        ctx.lineTo(-6, 1.5);
+        ctx.closePath();
+        ctx.stroke();
         // Grip wraps
         ctx.fillStyle = '#2a6888';
         for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -2, 3, 4);
@@ -4114,6 +4151,15 @@ class Player {
         ctx.lineTo(-6, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.2);
+        ctx.lineTo(28, -0.8);
+        ctx.lineTo(28, 0.8);
+        ctx.lineTo(-6, 1.2);
+        ctx.closePath();
+        ctx.stroke();
         // Grip wraps
         ctx.fillStyle = '#2a6878';
         for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -1.8, 3, 3.6);

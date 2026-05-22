@@ -443,16 +443,25 @@ class IceBlock {
     this.sliding = false;
     this.slideTimer = 0;
     this.slideHitSet = new Set();
-    this.autoSlideOnLand = !!midair;
+    this.autoSlideOnLand = false;
   }
 
   isCollidable() { return this.landed; }
 
   playerHit(game, dmg = 1) {
     if (this.done) return;
-    const dBright = (c) => blendToWhite(c, (game.deadNinjas ? game.deadNinjas.size / 6 : 0) * 0.5);
+    if (this.falling) {
+      // Hit while airborne — cancel fall, launch horizontally
+      this.falling = false;
+      this.sliding = true;
+      this.vx = this.facing * 13;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 5, 12));
+      triggerHitstop(2);
+      SFX.hit();
+      return;
+    }
     if (!this.sliding && this.landed) {
-      // First hit: send the block sliding forward
+      // Hit while grounded — send the block sliding forward
       this.sliding = true;
       this.vx = this.facing * 11;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 5, 12));
@@ -560,7 +569,6 @@ class IceBlock {
           }
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
           SFX.slam();
-          if (this.autoSlideOnLand) { this.sliding = true; this.vx = this.facing * 10; }
           break;
         }
       }
@@ -576,7 +584,6 @@ class IceBlock {
           this.grounded = true;
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
           SFX.slam();
-          if (this.autoSlideOnLand) { this.sliding = true; this.vx = this.facing * 10; }
           break;
         }
       }
@@ -586,7 +593,7 @@ class IceBlock {
     }
 
     // Grounded: if not landed yet (spawned on ground), snap to ground
-    if (!this.landed) {
+    if (!this.landed && !this.sliding) {
       // Apply gravity to settle
       this.vy += GRAVITY;
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
@@ -601,6 +608,88 @@ class IceBlock {
         }
       }
       if (this.y > CANVAS_H + 200) { this.done = true; return; }
+    }
+
+    // Sliding physics — block moves after player hit, shatters on enemy/wall contact
+    if (this.sliding) {
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.grounded = false;
+
+      // Platform collision
+      for (const p of game.platforms) {
+        if (!rectOverlap(this, p)) continue;
+        if (p.thin) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 2) {
+            this.y = p.y - this.h;
+            this.vy = 0;
+            this.grounded = true;
+          }
+          continue;
+        }
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          // Floor — land and keep sliding
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+        } else if (this.vx > 0 && this.x + this.w - this.vx <= p.x + 2) {
+          // Right wall — shatter
+          this.shatter(game);
+          return;
+        } else if (this.vx < 0 && this.x - this.vx >= p.x + p.w - 2) {
+          // Left wall — shatter
+          this.shatter(game);
+          return;
+        }
+      }
+
+      // Enemy collision → shatter + damage + freeze
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        if (rectOverlap(this, e)) {
+          const kbDir = Math.sign(this.vx) || 1;
+          e.takeDamage(this.baseDmg * 2, game, this.x + this.w / 2, 'crystal');
+          e.freezeTimer = Math.max(e.freezeTimer || 0, 90);
+          e.stunTimer = Math.max(e.stunTimer || 0, 40);
+          e.vx += kbDir * 8;
+          e.vy = -3;
+          if (e.knockbackTimer !== undefined) e.knockbackTimer = Math.max(e.knockbackTimer, 12);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 12, 4, 14));
+          this.shatter(game);
+          return;
+        }
+      }
+      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+        const kbDir = Math.sign(this.vx) || 1;
+        game.boss.takeDamage(this.baseDmg, game, this.x + this.w / 2, 'crystal');
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 50);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer || 0, 25);
+        game.boss.vx = (game.boss.vx || 0) + kbDir * 5;
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 14, 5, 16));
+        this.shatter(game);
+        return;
+      }
+
+      // Ice friction — very slippery, decelerates slowly
+      if (this.grounded) this.vx *= 0.96;
+      if (Math.abs(this.vx) < 0.4 && this.grounded) {
+        this.vx = 0;
+        this.sliding = false;
+      }
+
+      // Slide ice-chip particles along the floor
+      if (this.grounded && Math.random() < 0.4) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + this.h,
+          '#cff', 2, 1, 8
+        ));
+      }
+
+      if (this.y > CANVAS_H + 200) { this.done = true; return; }
+      return;
     }
 
     // Freeze enemies on contact (grounded)
