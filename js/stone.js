@@ -439,18 +439,26 @@ class IceBlock {
     this.freezeCooldown = 0;
     this.shimmer = 0;
     this.hoverPause = midair ? 25 : 0;
+
+    this.sliding = false;
+    this.slideTimer = 0;
+    this.slideHitSet = new Set();
+    this.autoSlideOnLand = !!midair;
   }
 
   isCollidable() { return this.landed; }
 
   playerHit(game, dmg = 1) {
-    if (this.damageCd > 0) return;
-    this.hp -= dmg;
-    this.damageCd = 15;
-    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
-    triggerHitstop(3);
-    SFX.hit();
-    if (this.hp <= 0) this.shatter(game);
+    if (this.done) return;
+    const dBright = (c) => blendToWhite(c, (game.deadNinjas ? game.deadNinjas.size / 6 : 0) * 0.5);
+    if (!this.sliding && this.landed) {
+      // First hit: send the block sliding forward
+      this.sliding = true;
+      this.vx = this.facing * 11;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 5, 12));
+      triggerHitstop(2);
+      SFX.hit();
+    }
   }
 
   shatter(game) {
@@ -552,6 +560,7 @@ class IceBlock {
           }
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
           SFX.slam();
+          if (this.autoSlideOnLand) { this.sliding = true; this.vx = this.facing * 10; }
           break;
         }
       }
@@ -567,6 +576,7 @@ class IceBlock {
           this.grounded = true;
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h, '#aff', 10, 4, 12));
           SFX.slam();
+          if (this.autoSlideOnLand) { this.sliding = true; this.vx = this.facing * 10; }
           break;
         }
       }
