@@ -97,10 +97,15 @@ class Enemy {
     this.elementColors = null;
     this.baseColor = this.color; // preserve original type color
     this.juggleState = false;
+    // Stagger system
+    this.staggerBar = 0;
+    this.disableTimer = 0;
   }
 
   update(game) {
     if (this.dead) return;
+    if (this.disableTimer > 0) this.disableTimer--;
+    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.grounded) this.juggleState = false;
@@ -1138,6 +1143,7 @@ class Enemy {
     // Ghost: immune to blade & shuriken (only abilities/elemental can hurt)
     // Exception: sword hits on a shielded/protector can still chip the physical shield
     const hasActiveShield = (this.type === 'shielded' || this.type === 'protector') && this.shieldHp > 0;
+    const rawAmount = amount;
     if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken') && !hasActiveShield) {
       this.flashTimer = 4;
       if (this.resistTimer <= 0) {
@@ -1164,8 +1170,8 @@ class Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#6ff', 8, 3, 12));
     }
 
-    // Elemental interaction — checked early so heals/resists bypass iframes
-    if (this.element && game) {
+    // Elemental interaction — only specials trigger resist/heal (not sword or shuriken)
+    if (this.element && game && sourceType !== 'sword' && sourceType !== 'shuriken') {
       const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
       if (atkEl && ELEMENT_MATRIX[atkEl]) {
         let result = ELEMENT_MATRIX[atkEl][this.element];
@@ -1179,6 +1185,17 @@ class Enemy {
             game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
             game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
             this.resistTimer = 30;
+          }
+          // Stagger bar still fills despite elemental resistance
+          if (!hasActiveShield && sourceType !== 'chain') {
+            this.staggerBar += rawAmount;
+            if (this.staggerBar >= this.maxHp * 1.5) {
+              this.staggerBar = 0;
+              this.disableTimer = 300;
+              this.stunTimer = 300;
+              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+            }
           }
           return false;
         }
@@ -1218,6 +1235,36 @@ class Enemy {
         }
       }
     }
+
+    // ── Chain strike: hitting a disabled enemy starts a player teleport chain ──
+    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+      const base = game.player.type.attackDamage + game.player.bonusDamage;
+      game.player.staggerChaining = true;
+      game.player.staggerChainTimer = 4;
+      game.player.staggerChainHit = new Set();
+      game.player.staggerChainHit.add(this);
+      game.player.staggerChainDmg = Math.round(base * 5);
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    } else if (this.disableTimer > 0) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+    }
+
+    // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
+    if (!hasActiveShield && sourceType !== 'chain' && game) {
+      this.staggerBar += rawAmount;
+      if (this.staggerBar >= this.maxHp * 1.5) {
+        this.staggerBar = 0;
+        this.disableTimer = 300;
+        this.stunTimer = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+      }
+    }
+
     // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
     if ((sourceType === 'sword' || sourceType === 'boulder') && this._shieldBlocks(fromX, undefined, game)) {
@@ -1467,25 +1514,10 @@ class Enemy {
     const r = Math.random();
     const ox = this.x + this.w / 2 - 5;
     if (this.big || this instanceof Boss) {
-      if (r < 0.20) {                                        // T2: shield upgrade 20%
-        game.orbs.push(new Orb(ox, this.y, 'shield'));
-      } else if (r < 0.35) {                                 // T3: maxhp 15%
-        game.orbs.push(new Orb(ox, this.y, 'maxhp'));
-      } else if (r < 0.43) {                                 // T3: shuriken 8%
-        game.orbs.push(new Orb(ox, this.y, 'shuriken'));
-      } else if (r < 0.55) {                                 // T4: damage 12%
-        game.orbs.push(new Orb(ox, this.y, 'damage'));
-      } else if (r < 0.63) {                                 // T4: elDmg 8%
-        game.orbs.push(new Orb(ox, this.y, 'elDmg'));
-      } else if (r < 0.73) {                                 // T4: speed 10%
-        game.orbs.push(new Orb(ox, this.y, 'speed'));
-      } else if (r < 0.83) {                                 // T4: reach 10%
-        game.orbs.push(new Orb(ox, this.y, 'reach'));
-      } else if (r < 0.92) {                                 // T4: armor 9%
-        game.orbs.push(new Orb(ox, this.y, 'armor'));
-      } else {                                               // T4: element 8%
-        game.orbs.push(new Orb(ox, this.y, 'element'));
-      }
+      // Upgrade orb — always (tiered upgrade pool)
+      const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','shuriken','ultcharge','shield'];
+      const upType = upgradePool[Math.floor(Math.random() * upgradePool.length)];
+      game.orbs.push(new Orb(ox, this.y, upType));
     } else {
       if (r < 0.50) {                                        // T1: heal 50%
         game.orbs.push(new Orb(ox, this.y, 'heal'));
@@ -2175,6 +2207,26 @@ class Enemy {
       }
       ctx.restore();
     }
+    // Disabled / stagger glow
+    if (this.disableTimer > 0) {
+      const dp = 0.45 + 0.35 * Math.sin((game ? game.tick : 0) * 0.18);
+      ctx.save();
+      ctx.globalAlpha = dp;
+      ctx.shadowColor = '#c04fff';
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = '#c04fff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      ctx.restore();
+      // Purple countdown bar above head
+      const pct = this.disableTimer / 300;
+      const dbW = this.w + 6;
+      const dbY = sy - (this.hp < this.maxHp ? 16 : 6);
+      ctx.fillStyle = '#300030';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 3);
+      ctx.fillStyle = '#c04fff';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 3);
+    }
     if (spawning) ctx.restore();
   }
 }
@@ -2247,6 +2299,8 @@ class Boss extends Enemy {
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
+    if (this.disableTimer > 0) this.disableTimer--;
+    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.shieldBump > 0) this.shieldBump--;
@@ -3070,6 +3124,39 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
       return false;
     }
+
+    const hasActiveBossShield = (this.bossType === 'shielded' || this.bossType === 'protector') && this.shieldHp > 0;
+    const rawAmount = amount;
+
+    // ── Chain strike: hitting a disabled boss starts a player teleport chain ──
+    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+      const base = game.player.type.attackDamage + game.player.bonusDamage;
+      game.player.staggerChaining = true;
+      game.player.staggerChainTimer = 4;
+      game.player.staggerChainHit = new Set();
+      game.player.staggerChainHit.add(this);
+      game.player.staggerChainDmg = Math.round(base * 5);
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    } else if (this.disableTimer > 0) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+    }
+
+    // ── Stagger bar ──
+    if (!hasActiveBossShield && sourceType !== 'chain' && game) {
+      this.staggerBar += rawAmount;
+      if (this.staggerBar >= this.maxHp * 1.5) {
+        this.staggerBar = 0;
+        this.disableTimer = 300;
+        this.stunTimer = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+      }
+    }
+
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
     if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
@@ -3779,6 +3866,25 @@ class Boss extends Enemy {
         ctx.fillText('*', scx + Math.cos(a) * 16 - 4, scy + Math.sin(a) * 8);
       }
       ctx.restore();
+    }
+    // Disabled / stagger glow
+    if (this.disableTimer > 0) {
+      const dp = 0.45 + 0.35 * Math.sin(game.tick * 0.18);
+      ctx.save();
+      ctx.globalAlpha = dp;
+      ctx.shadowColor = '#c04fff';
+      ctx.shadowBlur = 22;
+      ctx.strokeStyle = '#c04fff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.restore();
+      const pct = this.disableTimer / 300;
+      const dbW = this.w + 8;
+      const dbY = sy - 18;
+      ctx.fillStyle = '#300030';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 4);
+      ctx.fillStyle = '#c04fff';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 4);
     }
     // Restore fade alpha
     if (_fading) ctx.restore();

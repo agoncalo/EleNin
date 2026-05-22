@@ -28,7 +28,7 @@ const ELEMENT_COLORS = {
 // Steel = melee sword / shuriken hits
 const ELEMENT_MATRIX = {
   fire: {
-    fire: 'heal',      // fire heals fire
+    fire: 'resist',    // fire resists fire
     ghost: 'normal',   // fire hurts ghosts
     water: 'resist',   // water resists fire
     crystal: 'normal', // fire beats crystal (melts)
@@ -48,7 +48,7 @@ const ELEMENT_MATRIX = {
   water: {
     fire: 'normal',    // water beats fire
     ghost: 'normal',
-    water: 'heal',     // water heals water
+    water: 'resist',   // water resists water
     crystal: 'normal',
     wind: 'resist',    // wind resists water (blows it away)
     lightning: 'normal',
@@ -58,7 +58,7 @@ const ELEMENT_MATRIX = {
     fire: 'resist',    // fire resists crystal (melts)
     ghost: 'normal',
     water: 'normal',
-    crystal: 'heal',   // crystal heals crystal
+    crystal: 'resist', // crystal resists crystal
     wind: 'normal',
     lightning: 'normal',
     spiky: 'normal',
@@ -68,7 +68,7 @@ const ELEMENT_MATRIX = {
     ghost: 'normal',
     water: 'normal',   // wind beats water (evaporates)
     crystal: 'normal',
-    wind: 'heal',      // wind heals wind
+    wind: 'resist',    // wind resists wind
     lightning: 'normal',
     spiky: 'normal',
   },
@@ -78,7 +78,7 @@ const ELEMENT_MATRIX = {
     water: 'normal',   // lightning beats water
     crystal: 'normal',
     wind: 'normal',
-    lightning: 'heal',
+    lightning: 'resist',
     spiky: 'normal',
   },
   steel: {
@@ -209,16 +209,27 @@ function getTierName(tierIdx) {
 }
 
 // ── Wave definitions ─────────────────────────────────────────
-const TOTAL_WAVES = 5; // 5 rounds (choose-your-path system)
+const TOTAL_WAVES = 8; // 8 rounds (dynamic persistent-pool system)
 
 // Boss path pools per round (0-indexed).
-// Each entry: a fixed WAVE_DEFS index, or an array of indices to choose from.
+// Legacy reference — actual runtime pools are managed dynamically in game.js.
+// Round 1: BRUTE — mandatory
+// Round 2: [1,2,3] — GUNNER / JUMPER / FLYER, pick 1
+// Round 3: [remaining 2] + [6 GUARDIAN] — pick 1
+// Round 4: [remaining 2] + [5 BOUNCER] — pick 1
+// Round 5: [4,7,8] — RONIN / AEGIS / NEMESIS — all three must be fought, pick order
+// Round 6: [remaining 2 of 4,7,8] — pick 1
+// Round 7: [last 1 of 4,7,8] — forced
+// Round 8: [9] OVERLORD — final boss, always
 const BOSS_PATH_POOLS = [
-  0,         // Round 1: BRUTE (walker) — always first, no choice
-  [1, 2, 3], // Round 2: GUNNER / LEAPER / SWOOPER
-  [3, 5, 6], // Round 3: SWOOPER / BOUNCER / GUARDIAN
-  [4, 7, 8], // Round 4: RONIN / AEGIS / NEMESIS
-  'random',  // Round 5: OVERLORD — always, no choice shown
+  0,         // Round 1: BRUTE — always first, no choice
+  [1, 2, 3], // Round 2: GUNNER / JUMPER / FLYER
+  null,      // Round 3: dynamic — remaining 2 + GUARDIAN
+  null,      // Round 4: dynamic — remaining 2 + BOUNCER
+  null,      // Round 5: dynamic — RONIN/AEGIS/NEMESIS
+  null,      // Round 6: dynamic
+  null,      // Round 7: dynamic
+  9,         // Round 8: OVERLORD — final boss
 ];
 
 // Reward budget multipliers per element (harder = bigger reward)

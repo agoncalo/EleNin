@@ -58,6 +58,10 @@ class Game {
     this.currentWaveDefIdx = 0;    // which WAVE_DEFS entry is active
     this.levelElement = null;      // elemental theme of current level (null = normal)
     this.pathChoiceScreen = null;  // { choices:[{waveIdx,element,label}], selected, delay }
+    // Dynamic boss progression pools (replaces static BOSS_PATH_POOLS)
+    this.bossPool = null;          // early-group pool ([1,2,3] + replacements) for waves 1-3
+    this.mandatoryPool = null;     // mandatory group pool ([5,6,7]) for waves 4-6
+    this.currentKillsForBoss = 20; // per-wave kill target (scales linearly by wave)
 
     // Weather & hazards
     this.levelHazards = [];
@@ -637,10 +641,13 @@ class Game {
     this.weatherParticles = this.weatherParticles.filter(p => p.life > 0 && p.y < this.camera.y + CANVAS_H + 20);
   }
 
-  _renderWeather(ctx, cam) {
+  _renderWeather(ctx, cam, bgOnly = false) {
     if (!this.weatherParticles || this.weatherParticles.length === 0) return;
     ctx.save();
     for (const p of this.weatherParticles) {
+      const isFog = p.type === 'fog';
+      if (bgOnly && !isFog) continue;
+      if (!bgOnly && isFog) continue;
       const sx = p.x - cam.x, sy = p.y - cam.y;
       if (sx < -20 || sx > CANVAS_W + 20 || sy < -20 || sy > CANVAS_H + 20) continue;
       const alpha = Math.min(1, p.life / (p.maxLife * 0.3));
@@ -978,6 +985,57 @@ class Game {
   // Generates path choice options for the next round.
   // pool: array of WAVE_DEFS indices to offer.
   // normalCount: how many of those should be 'normal' (no element).
+  // ── Dynamic Boss Progression ──────────────────────────────
+  // Returns the pool of WAVE_DEFS indices for the next round, or null if next
+  // round is the final boss (OVERLORD, set directly by caller).
+  // Mutates this.bossPool / this.mandatoryPool to track which bosses remain.
+  //
+  // Progression:
+  //  Wave 1 → 2 : [1,2,3]  GUNNER/JUMPER/FLYER — pick 1
+  //  Wave 2 → 3 : [rem 2] + [6 GUARDIAN]       — pick 1
+  //  Wave 3 → 4 : [rem 2] + [5 BOUNCER]        — pick 1
+  //  Wave 4 → 5 : [4,7,8] RONIN/AEGIS/NEMESIS  — mandatory, pick order
+  //  Wave 5 → 6 : [rem 2 of mandatory]          — pick 1
+  //  Wave 6 → 7 : [rem 1 of mandatory]          — forced single choice
+  //  Wave 7 → 8 : null → OVERLORD final boss
+  _getNextBossPool() {
+    const wave = this.wave; // current wave just completed (1-indexed)
+    if (wave === 1) {
+      this.bossPool = [1, 2, 3];
+      return this.bossPool.slice();
+    } else if (wave === 2) {
+      // Remove chosen, add GUARDIAN (6) in its place
+      const chosen = this.currentWaveDefIdx;
+      this.bossPool = (this.bossPool || [1, 2, 3]).filter(i => i !== chosen);
+      this.bossPool.push(6);
+      return this.bossPool.slice();
+    } else if (wave === 3) {
+      // Remove chosen, add BOUNCER (5) in its place
+      const chosen = this.currentWaveDefIdx;
+      this.bossPool = (this.bossPool || []).filter(i => i !== chosen);
+      this.bossPool.push(5);
+      return this.bossPool.slice();
+    } else if (wave === 4) {
+      // Start mandatory group: RONIN / AEGIS / NEMESIS
+      this.mandatoryPool = [4, 7, 8];
+      return this.mandatoryPool.slice();
+    } else if (wave === 5) {
+      // Remove first-chosen mandatory boss, show remaining 2
+      const chosen = this.currentWaveDefIdx;
+      this.mandatoryPool = (this.mandatoryPool || [4, 7, 8]).filter(i => i !== chosen);
+      return this.mandatoryPool.slice();
+    } else if (wave === 6) {
+      // Remove second-chosen, show last 1 (single-item confirmation)
+      const chosen = this.currentWaveDefIdx;
+      this.mandatoryPool = (this.mandatoryPool || []).filter(i => i !== chosen);
+      return this.mandatoryPool.slice(); // length === 1
+    } else if (wave === 7) {
+      // Round 8: OVERLORD — caller sets WAVE_DEFS[9] directly
+      return null;
+    }
+    return null;
+  }
+
   _generatePathChoices(pool, normalCount) {
     normalCount = normalCount !== undefined ? normalCount : 1;
     const shuffled = pool.slice().sort(() => Math.random() - 0.5);
@@ -1185,6 +1243,9 @@ class Game {
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     recordWaveClear(this.wave, this.player.ninjaType);
     this.wave++;
+    // Scale kill target linearly: 20 kills at wave 1, +6 per wave (~62 at wave 8)
+    const _wkt = [20, 26, 32, 38, 44, 50, 56, 62];
+    this.currentKillsForBoss = _wkt[this.wave - 1] !== undefined ? _wkt[this.wave - 1] : 62;
     this.waveKills = 0;
     this.spawnedMiniboss = new Set();
     this.boss = null;
@@ -1316,7 +1377,7 @@ class Game {
       const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (waveDef) {
         const pl = this.player;
-        const kills = waveDef.killsForBoss;
+        const kills = this.currentKillsForBoss;
         const bossOrbs = this.wave + 1; // avg boss orb count (wave + random 0-2)
         const drops = kills + bossOrbs;
         // Actual drop table rates × orb stat values per drop
@@ -1344,21 +1405,18 @@ class Game {
       this.bossRewardItem = rItem;
       // Trigger the path choice / reward screen instead of skipping straight to next wave
       if (this.wave < TOTAL_WAVES) {
-        const nextPool = BOSS_PATH_POOLS[this.wave];
-        if (Array.isArray(nextPool)) {
-          this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
-        } else if (nextPool === 'random') {
-          const finalPool = [8, 9];
-          this.currentWaveDefIdx = finalPool[Math.floor(Math.random() * finalPool.length)];
-          const randomElement = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
-          this.levelElement = Math.random() < 0.7 ? randomElement : null;
+        const nextPool = this._getNextBossPool();
+        if (nextPool === null) {
+          // Final boss (round 8): OVERLORD, no choice
+          this.currentWaveDefIdx = 9;
+          this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
           const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
           this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
           this.orbBucketChoice.delay = 60;
           this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
           this.bossRewardItem = null;
         } else {
-          this.advanceWave();
+          this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
         }
       } else {
         this.advanceWave();
@@ -1486,10 +1544,10 @@ class Game {
     if (!this.gameWon) {
       const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (!this.bossActive) {
-        if (this.waveKills >= waveDef.killsForBoss) {
+        if (this.waveKills >= this.currentKillsForBoss) {
           this.spawnBoss();
         } else {
-          const aliveCount = this.enemies.filter(e => !e.dead).length;
+          const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
           this.spawnTimer++;
           if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
             this.spawnTimer = 0;
@@ -1497,7 +1555,7 @@ class Game {
           }
         }
       } else {
-        const aliveCount = this.enemies.filter(e => !e.dead).length;
+        const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
         this.spawnTimer++;
         if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
           this.spawnTimer = 0;
@@ -1506,30 +1564,20 @@ class Game {
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
         if (this.wave < TOTAL_WAVES) {
-          // Determine next round's boss pool
-          const nextPool = BOSS_PATH_POOLS[this.wave]; // wave is 1-indexed; BOSS_PATH_POOLS[wave] = next round's pool
-          if (Array.isArray(nextPool)) {
-            // Show combined path+reward choice screen
-            this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
-          } else if (nextPool === 'random') {
-            // Round 5: fully random, no choice — pick randomly from [8,9] with random element
-            const finalPool = [9];
-            this.currentWaveDefIdx = finalPool[Math.floor(Math.random() * finalPool.length)];
-            const randomElement = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
-            this.levelElement = Math.random() < 0.7 ? randomElement : null; // 70% chance of elemental final boss
+          // Determine next round's boss pool dynamically
+          const nextPool = this._getNextBossPool();
+          if (nextPool === null) {
+            // Final boss (round 8): OVERLORD, no choice
+            this.currentWaveDefIdx = 9;
+            this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
             const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
             this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
             this.orbBucketChoice.delay = 60;
             this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
             this.bossRewardItem = null;
           } else {
-            // Fixed single choice (shouldn't normally occur with current pools)
-            this.currentWaveDefIdx = typeof nextPool === 'number' ? nextPool : 0;
-            this.levelElement = null;
-            this.orbBucketChoice = this._generateOrbBuckets(1.0);
-            this.orbBucketChoice.delay = 60;
-            this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-            this.bossRewardItem = null;
+            // Show combined path+reward choice screen
+            this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
           }
         } else {
           this.gameWon = true;
@@ -1566,6 +1614,7 @@ class Game {
     this.enemies = this.enemies.filter(e => !e.dead);
     this.projectiles = this.projectiles.filter(p => !p.done);
     this.effects = this.effects.filter(e => !e.done);
+    if (this.effects.length > 300) this.effects.splice(0, this.effects.length - 300);
     this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
     this.bubbles = this.bubbles.filter(b => !b.done);
     this.orbs = this.orbs.filter(o => !o.done);
@@ -2554,6 +2603,9 @@ class Game {
     // Spawn house
     this.renderSpawnHouse(ctx, cam);
 
+    // Fog clouds in background (before platforms)
+    this._renderWeather(ctx, cam, true);
+
     // Level hazards (below platforms)
     this._renderHazards(ctx, cam);
 
@@ -3315,8 +3367,8 @@ class Game {
 
     if (!this.simplePause) this.renderUI();
 
-    // Weather overlay (on top of everything except UI)
-    this._renderWeather(ctx, cam);
+    // Weather overlay (on top of everything except UI — fog handled in background)
+    this._renderWeather(ctx, cam, false);
   }
 
   renderUI() {
@@ -3340,81 +3392,46 @@ class Game {
 
     // Ninja bar at top, status bars stacked up from bottom
     const ninjaBarY = 4;
-    const gap = 6;
 
-    // Mana pip bar
+    // ── Bottom HUD ──
     const manaColors = { fire: '#f93', earth: '#8b5e3c', bubble: '#6af', shadow: '#a4e', crystal: '#0ff', wind: '#8d8', storm: '#48f' };
     const manaColor = manaColors[pl.ninjaType] || '#aaa';
-    const pipSize = 14;
-    const pipGap = 4;
+
+    // Y anchors (all measured from bottom)
+    const barH = 26;
+    const barY   = CANVAS_H - barH - 6;  // 508
+    const ultY   = CANVAS_H - 46;        // 494
+    const buffY  = CANVAS_H - 66;        // 474
+    const pipY   = CANVAS_H - 92;        // 448
+
+    // ── Mana pips (above buff icons) ──
+    const pipSize = 16, pipGap = 4;
     const totalPips = pl.maxMana;
     const pipBarW = totalPips * (pipSize + pipGap) - pipGap;
     const pipBarX = CANVAS_W / 2 - pipBarW / 2;
-    const elemBarH = pipSize;
-    const elemBarY = CANVAS_H - elemBarH - gap;
     for (let i = 0; i < totalPips; i++) {
       const px = pipBarX + i * (pipSize + pipGap);
       const fillAmount = Math.min(1, Math.max(0, pl.mana - i));
       ctx.fillStyle = '#222';
-      ctx.fillRect(px, elemBarY, pipSize, pipSize);
+      ctx.fillRect(px, pipY, pipSize, pipSize);
       if (fillAmount > 0) {
         ctx.save();
-        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 8; }
+        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 6; }
         ctx.fillStyle = manaColor;
-        ctx.fillRect(px, elemBarY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
+        ctx.fillRect(px, pipY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
         ctx.restore();
       }
-      ctx.strokeStyle = '#555';
+      ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
-      ctx.strokeRect(px, elemBarY, pipSize, pipSize);
+      ctx.strokeRect(px, pipY, pipSize, pipSize);
     }
     const elemLabels = { fire: 'FIRE', earth: 'EARTH', bubble: 'WATER', shadow: 'SHADOW', crystal: 'CRYSTAL', wind: 'WIND', storm: 'STORM' };
-    ctx.fillStyle = '#ccc';
-    ctx.font = 'bold 9px monospace';
     const elemLabel = elemLabels[pl.ninjaType] || 'ELEM';
-    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, elemBarY + 11);
-
-    // Shield bar (separate row, only if player has shield)
-    const hasShield = pl.maxShield > 0;
-    const shieldBarH = 8;
-    const shieldBarW = Math.min(CANVAS_W - 40, 100 + pl.maxShield * 2);
-    const shieldBarY = hasShield ? elemBarY - shieldBarH - gap : elemBarY;
-    const shieldBarX = CANVAS_W / 2 - shieldBarW / 2;
-    if (hasShield) {
-      const shieldRatio = pl.displayShield / pl.maxShield;
-      ctx.fillStyle = '#112';
-      ctx.fillRect(shieldBarX, shieldBarY, shieldBarW, shieldBarH);
-      ctx.fillStyle = '#4af';
-      ctx.fillRect(shieldBarX, shieldBarY, shieldBarW * shieldRatio, shieldBarH);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px monospace';
-      ctx.fillText(`SH ${Math.round(pl.shield)}/${Math.round(pl.maxShield)}`, shieldBarX + 3, shieldBarY + 7);
-    }
-
-    // HP bar
-    const hpBarH = 10;
-    const hpBarW = Math.min(CANVAS_W - 40, 120 + pl.maxHp * 6);
-    const hpBarY = (hasShield ? shieldBarY : elemBarY) - hpBarH - gap;
-    const hpBarX = CANVAS_W / 2 - hpBarW / 2;
-    const hpRatio = pl.hp / pl.maxHp;
-    const displayHpRatio = pl.displayHp / pl.maxHp;
-    ctx.fillStyle = '#400';
-    ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
-    // Trailing damage bar (shows recent damage draining away)
-    if (displayHpRatio > hpRatio) {
-      ctx.fillStyle = '#f84';
-      ctx.fillRect(hpBarX, hpBarY, hpBarW * displayHpRatio, hpBarH);
-    }
-    ctx.fillStyle = '#e44';
-    ctx.fillRect(hpBarX, hpBarY, hpBarW * hpRatio, hpBarH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#aaa';
     ctx.font = 'bold 10px monospace';
-    ctx.fillText(`HP ${Math.round(pl.hp)}/${Math.round(pl.maxHp)}`, hpBarX + 3, hpBarY + 9);
+    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, pipY + 12);
 
-    // Buff icons data
+    // ── Buff icons ──
     const buffItems = [];
     const baseAtk = pl.type.attackDamage;
     const totalAtk = baseAtk + pl.bonusDamage;
@@ -3426,14 +3443,6 @@ class Game {
     buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
     buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
     buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: '#ccc' });
-
-    // Ultimate bar
-    const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
-    const ultimateBarH = 14;
-    const ultimateBarX = CANVAS_W / 2 - ultimateBarW / 2;
-    const ultimateBarY = hpBarY - ultimateBarH - gap;
-
-    // Buff icons above ultimate bar (ICON -> value)
     if (buffItems.length > 0) {
       ctx.font = 'bold 14px monospace';
       let totalBW = 0;
@@ -3450,67 +3459,122 @@ class Game {
       }
       totalBW += (buffItems.length - 1) * 14;
       let bx = CANVAS_W / 2 - totalBW / 2;
-      const by = ultimateBarY - 6;
       for (let i = 0; i < buffItems.length; i++) {
         const b = buffItems[i];
         ctx.fillStyle = b.color;
-        ctx.fillText(b.icon, bx, by);
+        ctx.fillText(b.icon, bx, buffY);
         const iconW = ctx.measureText(b.icon).width;
         ctx.fillStyle = '#fff';
-        ctx.fillText(String(b.value), bx + iconW + 3, by);
+        ctx.fillText(String(b.value), bx + iconW + 3, buffY);
         if (b.hasBonus) {
           const valW = ctx.measureText(String(b.value)).width;
           ctx.font = '10px monospace';
           ctx.fillStyle = '#5f5';
-          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, by);
+          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, buffY);
           ctx.font = 'bold 14px monospace';
         }
         bx += itemWidths[i] + 14;
       }
     }
 
-    ctx.save();
-    if (pl.ultimateReady || pl.ultimateActive) {
-      ctx.shadowColor = '#ff0';
-      ctx.shadowBlur = 12;
-    }
-    ctx.fillStyle = '#222';
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.fillStyle = pl.ultimateActive ? '#ff0' : (pl.ultimateReady ? '#ffd700' : '#555');
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW * Math.min(1, pl.ultimateCharge / pl.ultimateMax), ultimateBarH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.shadowBlur = 0;
-    ctx.restore();
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.globalAlpha = 0.8;
-    ctx.fillStyle = pl.ultimateActive ? '#ff0' : (pl.ultimateReady ? '#ffd700' : '#555');
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW * Math.min(1, pl.ultimateCharge / pl.ultimateMax), ultimateBarH);
-    ctx.globalAlpha = 1;
-    ctx.font = 'bold 10px monospace';
+    // ── Ult bar ──
+    const ultBarW = 280;
+    const ultBarH = 14;
+    const ultBarX = CANVAS_W / 2 - ultBarW / 2;
+    const ultBarTop = ultY - ultBarH;  // anchored at ultY baseline
+    ctx.textAlign = 'center';
     if (pl.ultimateReady && !pl.ultimateActive) {
-      const readyText = 'ULTIMATE READY! [V/M/Y]';
-      const tw = ctx.measureText(readyText).width;
-      const tx = CANVAS_W / 2 - tw / 2;
-      const ty = ultimateBarY + 11;
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#000';
-      ctx.strokeText(readyText, tx, ty);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(readyText, tx, ty);
+      const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
+      ctx.save();
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 16 : 6;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.fillStyle = blinkOn ? '#ffd700' : '#a88000';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = blinkOn ? '#fff' : '#ffd700';
+      ctx.fillText('ULTIMATE READY!  [V / M / Y]', CANVAS_W / 2, ultBarTop + ultBarH - 2);
     } else if (pl.ultimateActive) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#000';
-      ctx.strokeText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
+      ctx.save();
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
       ctx.fillStyle = '#fff';
-      ctx.fillText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
+      ctx.fillText('ULTIMATE ACTIVE', CANVAS_W / 2, ultBarTop + ultBarH - 2);
     } else {
-      ctx.fillStyle = '#ccc';
-      const pct = Math.floor((pl.ultimateCharge / pl.ultimateMax) * 100);
-      ctx.fillText(`ULT ${pct}%`, ultimateBarX + 4, ultimateBarY + 11);
+      const pct = pl.ultimateCharge / pl.ultimateMax;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.save();
+      if (pct >= 0.75) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
+      ctx.fillStyle = pct >= 0.75 ? '#c8a800' : '#555';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW * pct, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = pct >= 0.75 ? '#ffd700' : '#888';
+      ctx.fillText(`ULT  ${Math.floor(pct * 100)}%`, CANVAS_W / 2, ultBarTop + ultBarH - 2);
     }
+    ctx.textAlign = 'left';
+
+    // ── Main bar row: HP and Shield, growing outward from center ──
+    const centerX = CANVAS_W / 2;
+    const maxBarW = 220;
+    const hpRatio = pl.hp / pl.maxHp;
+    const displayHpRatio = pl.displayHp / pl.maxHp;
+
+    // HP bar (left half — fills rightward-anchored at center)
+    ctx.fillStyle = '#400';
+    ctx.fillRect(centerX - maxBarW, barY, maxBarW, barH);
+    if (displayHpRatio > hpRatio) {
+      ctx.fillStyle = '#f84';
+      ctx.fillRect(centerX - maxBarW * displayHpRatio, barY, maxBarW * displayHpRatio, barH);
+    }
+    ctx.fillStyle = '#e44';
+    ctx.fillRect(centerX - maxBarW * hpRatio, barY, maxBarW * hpRatio, barH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(centerX - maxBarW, barY, maxBarW, barH);
+    // HP number left of bar
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(Math.round(pl.hp)), centerX - maxBarW - 9, barY + barH - 3);
+    ctx.textAlign = 'left';
+
+    // Shield bar (right half — fills from center)
+    const hasShield = pl.maxShield > 0;
+    if (hasShield) {
+      const shieldRatio = Math.min(1, pl.displayShield / pl.maxShield);
+      ctx.fillStyle = '#112';
+      ctx.fillRect(centerX, barY, maxBarW, barH);
+      ctx.fillStyle = '#4af';
+      ctx.fillRect(centerX, barY, maxBarW * shieldRatio, barH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(centerX, barY, maxBarW, barH);
+      ctx.font = 'bold 22px monospace';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(String(Math.round(pl.shield)), centerX + maxBarW + 9, barY + barH - 3);
+    }
+
+    // Center divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, barY - 1);
+    ctx.lineTo(centerX, barY + barH + 1);
+    ctx.stroke();
 
     // Ninja selection bar
     const ninjaBarX = CANVAS_W / 2 - 182;
@@ -3556,8 +3620,7 @@ class Game {
       const pbW = 400, pbH = 18;
       const pbX = CANVAS_W / 2 - pbW / 2;
       const pbY = 38;
-      const waveDef = WAVE_DEFS[this.wave - 1];
-      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / waveDef.killsForBoss);
+      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / this.currentKillsForBoss);
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
       ctx.fillStyle = '#222';
@@ -3573,7 +3636,7 @@ class Game {
       ctx.font = 'bold 11px monospace';
       const label = this.bossActive
         ? `BOSS ${this.wave}/${TOTAL_WAVES}`
-        : `${this.waveKills}/${waveDef.killsForBoss}`;
+        : `${this.waveKills}/${this.currentKillsForBoss}`;
       const tw = ctx.measureText(label).width;
       ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
     }

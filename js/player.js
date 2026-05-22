@@ -8,7 +8,7 @@ class Player {
     this.grounded = false;
     this.hp = 10;
     this.maxHp = 10;
-    this.shield = 0;
+    this.shield = 3;
     this.maxShield = 3;
     this.displayHp = 10;
     this.displayShield = 0;
@@ -133,6 +133,12 @@ class Player {
     this.stormSheathHits = 0;     // chain hit counter during ult
     this.stormSheathActive = false; // sheathing sword visible
     this.stormSheathFinisher = 0;  // finisher animation timer
+
+    // Stagger chain state (any ninja type)
+    this.staggerChaining = false;
+    this.staggerChainTimer = 0;
+    this.staggerChainHit = new Set();
+    this.staggerChainDmg = 0;
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -518,6 +524,8 @@ class Player {
     this.stormChaining = false;
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
+    this.staggerChaining = false;
+    this.staggerChainHit = new Set();
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
@@ -1623,7 +1631,6 @@ class Player {
     if (this.statusStun > 0) this.statusStun--;
     if (this.curseCooldown > 0) this.curseCooldown--;
     if (this.bleedCooldown > 0) this.bleedCooldown--;
-
     // Slow passive mana recharge
     if (this.mana < this.maxMana) {
       this.mana = Math.min(this.mana + 0.003, this.maxMana);
@@ -1700,6 +1707,12 @@ class Player {
             }
 
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
+            // Elemental affinity: heal 1 HP when hitting an enemy of the ninja's own element (once per swing)
+            if (!this._swingHealDone && e.element && e.element === NINJA_ATTACK_ELEMENTS[this.ninjaType]) {
+              this.hp = Math.min(this.hp + 1, this.maxHp);
+              this._swingHealDone = true;
+              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, '+1', '#4f4'));
+            }
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
               const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -2079,9 +2092,8 @@ class Player {
           // Check element resist — stop chain if target resists
           const atkEl = NINJA_ATTACK_ELEMENTS[this.ninjaType];
           if (nearest.element && atkEl && ELEMENT_MATRIX[atkEl]) {
-            let res = ELEMENT_MATRIX[atkEl][nearest.element];
-            if (atkEl === 'steel' && res === 'heal') res = 'resist';
-            if (res === 'resist' || res === 'heal') {
+            const res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (res === 'resist') {
               game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.chainStriking = false;
@@ -2172,8 +2184,8 @@ class Player {
           // Check element resist — stop chain if target resists
           const atkEl = 'lightning';
           if (nearest.element && ELEMENT_MATRIX[atkEl]) {
-            let res = ELEMENT_MATRIX[atkEl][nearest.element];
-            if (res === 'resist' || res === 'heal') {
+            const res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (res === 'resist') {
               game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.stormChaining = false;
@@ -2251,8 +2263,8 @@ class Player {
           if (loopTarget) {
             // Check element resist — stop chain if target resists
             if (loopTarget.element && ELEMENT_MATRIX['lightning']) {
-              let res = ELEMENT_MATRIX['lightning'][loopTarget.element];
-              if (res === 'resist' || res === 'heal') {
+              const res = ELEMENT_MATRIX['lightning'][loopTarget.element];
+              if (res === 'resist') {
                 game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'RESIST', loopTarget.elementColors.accent));
                 game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, loopTarget.elementColors.accent, 8, 3, 12));
                 this.stormChaining = false;
@@ -2332,6 +2344,55 @@ class Player {
       }
     }
 
+    // Stagger chain: player teleports through enemies one by one (any ninja type)
+    if (this.staggerChaining) {
+      this.staggerChainTimer--;
+      if (this.staggerChainTimer <= 0) {
+        let nearest = null;
+        let nearDist = 250;
+        const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        for (const e of game.enemies) {
+          if (e.dead || this.staggerChainHit.has(e)) continue;
+          const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearDist = d; nearest = e; }
+        }
+        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+          nearest = game.boss;
+        }
+        if (nearest) {
+          const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
+          this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
+          this.y = nearest.y + nearest.h / 2 - this.h / 2;
+          this.facing = -behind;
+          this.vx = 0; this.vy = 0;
+          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, staggerChain: true });
+          nearest.disableTimer = 0;
+          nearest.staggerBar = 0;
+          nearest.takeDamage(this.staggerChainDmg, game, this.x + this.w / 2, null, 'chain');
+          this.staggerChainHit.add(nearest);
+          this._spawnChainCut(nearest);
+          SFX.chain();
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#c04fff', 12, 5, 18));
+          triggerHitstop(3);
+          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this.staggerChainTimer = 4;
+        } else {
+          this.staggerChaining = false;
+          this.staggerChainHit.clear();
+          for (const a of this.afterimages) { if (a.staggerChain) a.life = 20; }
+        }
+      }
+    }
+
+    // Stagger chain afterimage decay (all ninja types)
+    this.afterimages = this.afterimages.filter(a => {
+      if (!a.staggerChain) return true; // handled by per-ninja logic below
+      if (this.staggerChaining) return true; // persist while chaining
+      a.life--;
+      return a.life > 0;
+    });
+
     // Shadow ninja: stealth accumulation
     if (this.ninjaType === 'shadow') {
       const now = game.tick;
@@ -2367,7 +2428,8 @@ class Player {
         this.afterimages.push({ x: this.x, y: this.y, life: 8 });
       }
       this.afterimages = this.afterimages.filter(a => {
-        if (a.chain && this.chainStriking) return true; // persist during chain
+        if (a.chain && this.chainStriking) return true; // persist during shadow chain
+        if (a.staggerChain && this.staggerChaining) return true; // persist during stagger chain
         a.life--;
         return a.life > 0;
       });
@@ -2553,6 +2615,7 @@ class Player {
     this.attacking = true;
     this.attackTimer = 10;
     this.swingHitSet = new Set();
+    this._swingHealDone = false;
     this.attackCooldown = this.ninjaType === 'earth' ? 10 : 15;
     if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();
@@ -3229,6 +3292,58 @@ class Player {
       ctx.arc(cx + this.facing * 3, cy, r * 0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+
+    // Stagger chain afterimages + lines (all ninja types, color-coded by ninja)
+    if (this.staggerChaining || this.afterimages.some(a => a.staggerChain)) {
+      const chainColor = this.type.accentColor;
+      const staggerImages = this.afterimages.filter(a => a.staggerChain);
+      if (staggerImages.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = chainColor;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = chainColor;
+        ctx.shadowBlur = 8;
+        ctx.globalAlpha = this.staggerChaining ? 0.65 : 0.25;
+        for (let i = 1; i < staggerImages.length; i++) {
+          const prev = staggerImages[i - 1];
+          const curr = staggerImages[i];
+          const px1 = prev.x + this.w / 2 - cam.x, py1 = prev.y + this.h / 2 - cam.y;
+          const px2 = curr.x + this.w / 2 - cam.x, py2 = curr.y + this.h / 2 - cam.y;
+          const mx1 = px1 + (px2 - px1) * 0.33 + (Math.random() - 0.5) * 10;
+          const my1 = py1 + (py2 - py1) * 0.33 + (Math.random() - 0.5) * 10;
+          const mx2 = px1 + (px2 - px1) * 0.66 + (Math.random() - 0.5) * 10;
+          const my2 = py1 + (py2 - py1) * 0.66 + (Math.random() - 0.5) * 10;
+          ctx.beginPath();
+          ctx.moveTo(px1, py1);
+          ctx.lineTo(mx1, my1);
+          ctx.lineTo(mx2, my2);
+          ctx.lineTo(px2, py2);
+          ctx.stroke();
+        }
+        if (this.staggerChaining) {
+          const last = staggerImages[staggerImages.length - 1];
+          ctx.beginPath();
+          ctx.moveTo(last.x + this.w / 2 - cam.x, last.y + this.h / 2 - cam.y);
+          ctx.lineTo(this.x + this.w / 2 - cam.x, this.y + this.h / 2 - cam.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      for (const a of staggerImages) {
+        const alpha = this.staggerChaining ? 0.5 : (a.life / 20) * 0.45;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = chainColor;
+        ctx.shadowColor = chainColor;
+        ctx.shadowBlur = 12;
+        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = alpha * 0.8;
+        const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
+        ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+      }
+      ctx.globalAlpha = 1;
     }
 
     // Storm afterimages (during lightning chain)
@@ -4420,6 +4535,7 @@ class Player {
       ctx.stroke();
       ctx.restore();
     }
+
   }
 }
 

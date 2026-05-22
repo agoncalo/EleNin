@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-03-21 23:40 UTC
-console.log("EleNin build: 2026-03-21 23:40 UTC");
+// BUILD TIMESTAMP: 2026-05-22 21:11 UTC
+console.log("EleNin build: 2026-05-22 21:11 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -47,7 +47,7 @@ const ELEMENT_COLORS = {
 // Steel = melee sword / shuriken hits
 const ELEMENT_MATRIX = {
   fire: {
-    fire: 'heal',      // fire heals fire
+    fire: 'resist',    // fire resists fire
     ghost: 'normal',   // fire hurts ghosts
     water: 'resist',   // water resists fire
     crystal: 'normal', // fire beats crystal (melts)
@@ -67,7 +67,7 @@ const ELEMENT_MATRIX = {
   water: {
     fire: 'normal',    // water beats fire
     ghost: 'normal',
-    water: 'heal',     // water heals water
+    water: 'resist',   // water resists water
     crystal: 'normal',
     wind: 'resist',    // wind resists water (blows it away)
     lightning: 'normal',
@@ -77,7 +77,7 @@ const ELEMENT_MATRIX = {
     fire: 'resist',    // fire resists crystal (melts)
     ghost: 'normal',
     water: 'normal',
-    crystal: 'heal',   // crystal heals crystal
+    crystal: 'resist', // crystal resists crystal
     wind: 'normal',
     lightning: 'normal',
     spiky: 'normal',
@@ -87,7 +87,7 @@ const ELEMENT_MATRIX = {
     ghost: 'normal',
     water: 'normal',   // wind beats water (evaporates)
     crystal: 'normal',
-    wind: 'heal',      // wind heals wind
+    wind: 'resist',    // wind resists wind
     lightning: 'normal',
     spiky: 'normal',
   },
@@ -97,7 +97,7 @@ const ELEMENT_MATRIX = {
     water: 'normal',   // lightning beats water
     crystal: 'normal',
     wind: 'normal',
-    lightning: 'heal',
+    lightning: 'resist',
     spiky: 'normal',
   },
   steel: {
@@ -135,7 +135,7 @@ const MANA_CAPS = {
 };
 
 // Chance for an enemy to be elemental (per spawn)
-const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% chance
+const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% base chance (boosted when level has an element)
 
 const NINJA_TYPES = {
   fire: {
@@ -206,16 +206,16 @@ const NINJA_TYPES = {
 // ── Enemy tier system ────────────────────────────────────────
 const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
-  walker:     { color: '#a55', hp: 3, dmg: 3, name: 'Walker' },
-  shooter:    { color: '#aa5', hp: 3, dmg: 3, name: 'Shooter' },
-  jumper:     { color: '#a8a', hp: 4, dmg: 4, name: 'Jumper' },
-  bouncer:    { color: '#a5a', hp: 5, dmg: 4, name: 'Bouncer' },
-  shielded:   { color: '#5a8', hp: 6, dmg: 4, name: 'Shielded' },
-  deflector:  { color: '#88a', hp: 14, dmg: 6, name: 'Deflector' },
-  protector:  { color: '#4a6', hp: 18, dmg: 4, name: 'Protector' },
-  attacker:   { color: '#a44', hp: 1, dmg: 10, name: 'Attacker' },
-  flyer:      { color: '#8c5', hp: 2, dmg: 5, name: 'Flyer' },
-  flyshooter: { color: '#c85', hp: 3, dmg: 5, name: 'Fly-Shooter' }
+  walker:     { color: '#a55', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
+  shooter:    { color: '#aa5', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
+  jumper:     { color: '#a8a', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
+  bouncer:    { color: '#a5a', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  shielded:   { color: '#5a8', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
+  deflector:  { color: '#88a', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
+  protector:  { color: '#4a6', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
+  attacker:   { color: '#a44', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
+  flyer:      { color: '#8c5', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
+  flyshooter: { color: '#c85', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
 };
 
 function getTierInfo(tierIdx) {
@@ -228,16 +228,94 @@ function getTierName(tierIdx) {
 }
 
 // ── Wave definitions ─────────────────────────────────────────
-const TOTAL_WAVES = 10;
+const TOTAL_WAVES = 8; // 8 rounds (dynamic persistent-pool system)
+
+// Boss path pools per round (0-indexed).
+// Legacy reference — actual runtime pools are managed dynamically in game.js.
+// Round 1: BRUTE — mandatory
+// Round 2: [1,2,3] — GUNNER / JUMPER / FLYER, pick 1
+// Round 3: [remaining 2] + [6 GUARDIAN] — pick 1
+// Round 4: [remaining 2] + [5 BOUNCER] — pick 1
+// Round 5: [4,7,8] — RONIN / AEGIS / NEMESIS — all three must be fought, pick order
+// Round 6: [remaining 2 of 4,7,8] — pick 1
+// Round 7: [last 1 of 4,7,8] — forced
+// Round 8: [9] OVERLORD — final boss, always
+const BOSS_PATH_POOLS = [
+  0,         // Round 1: BRUTE — always first, no choice
+  [1, 2, 3], // Round 2: GUNNER / JUMPER / FLYER
+  null,      // Round 3: dynamic — remaining 2 + GUARDIAN
+  null,      // Round 4: dynamic — remaining 2 + BOUNCER
+  null,      // Round 5: dynamic — RONIN/AEGIS/NEMESIS
+  null,      // Round 6: dynamic
+  null,      // Round 7: dynamic
+  9,         // Round 8: OVERLORD — final boss
+];
+
+// Reward budget multipliers per element (harder = bigger reward)
+const ELEMENT_BUDGET_MULT = {
+  fire:      1.30,
+  ghost:     1.60,  // hard: immune to steel
+  water:     1.20,
+  crystal:   1.35,
+  wind:      1.20,
+  lightning: 1.50,  // hard: strong DOT paralysis
+  spiky:     1.60,  // hard: reflects sword damage
+};
+
+// Visual and gameplay theming per level element
+const ELEMENT_LEVEL_THEMES = {
+  fire: {
+    skyTop: '#280808', skyBot: '#180404',
+    mountainColor: '#380a0a',
+    platformColor: '#664433', platformColorAlt: '#553322', groundColor: '#554433',
+    weather: 'embers', hazard: 'flame',
+  },
+  ghost: {
+    skyTop: '#0d0a18', skyBot: '#080614',
+    mountainColor: '#12091e',
+    platformColor: '#443356', platformColorAlt: '#332244', groundColor: '#2a1a3a',
+    weather: 'fog', hazard: null,
+  },
+  water: {
+    skyTop: '#081828', skyBot: '#041020',
+    mountainColor: '#0a1e2e',
+    platformColor: '#244466', platformColorAlt: '#1a3355', groundColor: '#1a3050',
+    weather: 'rain', hazard: 'current',
+  },
+  crystal: {
+    skyTop: '#081820', skyBot: '#041018',
+    mountainColor: '#0e1c28',
+    platformColor: '#2a3f5a', platformColorAlt: '#1e3044', groundColor: '#1a2c3a',
+    weather: 'snow', hazard: 'icicle',
+  },
+  wind: {
+    skyTop: '#081008', skyBot: '#050b04',
+    mountainColor: '#0c180a',
+    platformColor: '#3a4a2a', platformColorAlt: '#283520', groundColor: '#2a3a1a',
+    weather: 'leaves', hazard: 'gust',
+  },
+  lightning: {
+    skyTop: '#08080e', skyBot: '#040408',
+    mountainColor: '#0c0c18',
+    platformColor: '#2a2a44', platformColorAlt: '#1e1e33', groundColor: '#1e1e33',
+    weather: 'storm', hazard: 'thunder',
+  },
+  spiky: {
+    skyTop: '#160a0a', skyBot: '#0e0606',
+    mountainColor: '#1e0c0c',
+    platformColor: '#554433', platformColorAlt: '#443322', groundColor: '#442200',
+    weather: null, hazard: 'rockfall',
+  },
+};
 const WAVE_DEFS = [
-  { boss: 'walker', killsForBoss: 20,
+  { boss: 'walker', killsForBoss: 20,  // Round 1
     pool: [
       { type: 'walker', weight: 5 },
       { type: 'shooter', weight: 3 },
       { type: 'walker', weight: 2, big: true },
     ]
   },
-  { boss: 'shooter', killsForBoss: 25,
+  { boss: 'shooter', killsForBoss: 26,  // Round 2 choice
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
@@ -246,7 +324,7 @@ const WAVE_DEFS = [
       { type: 'shooter', weight: 1, big: true },
     ]
   },
-  { boss: 'jumper', killsForBoss: 30,
+  { boss: 'jumper', killsForBoss: 30,   // Round 2 choice
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -255,7 +333,7 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 1, big: true },
     ]
   },
-  { boss: 'flyer', killsForBoss: 35,
+  { boss: 'flyer', killsForBoss: 28,    // Round 2-3 choice
     pool: [
       { type: 'shooter', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -264,7 +342,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'deflector', killsForBoss: 45,
+  { boss: 'deflector', killsForBoss: 48, // Round 4 choice
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 3 },
@@ -272,7 +350,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'bouncer', killsForBoss: 40,
+  { boss: 'bouncer', killsForBoss: 38,   // Round 3 choice
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
@@ -284,7 +362,7 @@ const WAVE_DEFS = [
     ]
   },
 
-  { boss: 'shielded', killsForBoss: 50,
+  { boss: 'shielded', killsForBoss: 42,  // Round 3 choice
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -295,7 +373,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true }
     ]
   },
-  { boss: 'protector', killsForBoss: 56,
+  { boss: 'protector', killsForBoss: 50, // Round 4 choice
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -305,7 +383,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true },
     ]
   },
-  { boss: 'attacker', killsForBoss: 64,
+  { boss: 'attacker', killsForBoss: 52,  // Round 4 choice only
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -317,7 +395,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'flyshooter', killsForBoss: 70,
+  { boss: 'flyshooter', killsForBoss: 56, // Round 5
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -3095,7 +3173,7 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 5, shield: 6, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 5, shield: 6, shieldrecharge: 5, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
@@ -3124,6 +3202,12 @@ class Orb {
     const dy = py - oy;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    // Skip attraction and pickup if player is already full of this resource
+    const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
+                 (this.type === 'shieldrecharge' && pl.shield >= pl.maxShield) ||
+                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive));
+    if (full) return;
+
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
     let attracted = dist < magnetRange;
@@ -3142,6 +3226,7 @@ class Orb {
             case 'damage': pl.bonusDamage += 1 * _m; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
             case 'elDmg': pl.bonusElemental += 1 * _m; game.effects.push(new Effect(ox, oy, '#c4f', 8, 3, 12)); break;
             case 'shield': pl.maxShield += 2 * _m; pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
+            case 'shieldrecharge': pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#6cf', 6, 2, 10)); break;
             case 'shuriken': pl.maxShurikens += 1 * _m; pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
             case 'speed': pl.bonusSpeed += 1 * _m; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
             case 'reach': pl.bonusReach += 1 * _m; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
@@ -3201,6 +3286,10 @@ class Orb {
           pl.maxShield += 2 * _m;
           pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
+          break;
+        case 'shieldrecharge':
+          pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#6cf', 6, 2, 10));
           break;
         case 'shuriken':
           pl.maxShurikens += 1 * _m;
@@ -3281,6 +3370,10 @@ class Orb {
             pl.shield = Math.min(pl.shield + 3, pl.maxShield);
             game.effects.push(new Effect(cx, cy, '#4af', 8, 3, 12));
             break;
+          case 'shieldrecharge':
+            pl.shield = Math.min(pl.shield + 3, pl.maxShield);
+            game.effects.push(new Effect(cx, cy, '#6cf', 6, 2, 10));
+            break;
           case 'shuriken':
             pl.maxShurikens += 1;
             pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
@@ -3319,7 +3412,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shieldrecharge: '#6cf', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
@@ -3357,7 +3450,7 @@ class Orb {
     ctx.fillStyle = '#fff';
     const fontSize = Math.max(8, r * 1.4) | 0;
     ctx.font = 'bold ' + fontSize + 'px monospace';
-    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
+    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shieldrecharge: '◇', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
     ctx.fillText(icons[this.type], cx - fontSize * 0.35, cy + fontSize * 0.35);
   }
 }
@@ -4299,18 +4392,35 @@ class IceBlock {
     this.freezeCooldown = 0;
     this.shimmer = 0;
     this.hoverPause = midair ? 25 : 0;
+
+    this.sliding = false;
+    this.slideTimer = 0;
+    this.slideHitSet = new Set();
+    this.autoSlideOnLand = false;
   }
 
   isCollidable() { return this.landed; }
 
   playerHit(game, dmg = 1) {
-    if (this.damageCd > 0) return;
-    this.hp -= dmg;
-    this.damageCd = 15;
-    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 8, 3, 10));
-    triggerHitstop(3);
-    SFX.hit();
-    if (this.hp <= 0) this.shatter(game);
+    if (this.done) return;
+    if (this.falling) {
+      // Hit while airborne — cancel fall, launch horizontally
+      this.falling = false;
+      this.sliding = true;
+      this.vx = this.facing * 13;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 5, 12));
+      triggerHitstop(2);
+      SFX.hit();
+      return;
+    }
+    if (!this.sliding && this.landed) {
+      // Hit while grounded — send the block sliding forward
+      this.sliding = true;
+      this.vx = this.facing * 11;
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#aff', 12, 5, 12));
+      triggerHitstop(2);
+      SFX.hit();
+    }
   }
 
   shatter(game) {
@@ -4436,7 +4546,7 @@ class IceBlock {
     }
 
     // Grounded: if not landed yet (spawned on ground), snap to ground
-    if (!this.landed) {
+    if (!this.landed && !this.sliding) {
       // Apply gravity to settle
       this.vy += GRAVITY;
       if (this.vy > MAX_FALL) this.vy = MAX_FALL;
@@ -4451,6 +4561,88 @@ class IceBlock {
         }
       }
       if (this.y > CANVAS_H + 200) { this.done = true; return; }
+    }
+
+    // Sliding physics — block moves after player hit, shatters on enemy/wall contact
+    if (this.sliding) {
+      this.vy += GRAVITY;
+      if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.grounded = false;
+
+      // Platform collision
+      for (const p of game.platforms) {
+        if (!rectOverlap(this, p)) continue;
+        if (p.thin) {
+          if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 2) {
+            this.y = p.y - this.h;
+            this.vy = 0;
+            this.grounded = true;
+          }
+          continue;
+        }
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          // Floor — land and keep sliding
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+        } else if (this.vx > 0 && this.x + this.w - this.vx <= p.x + 2) {
+          // Right wall — shatter
+          this.shatter(game);
+          return;
+        } else if (this.vx < 0 && this.x - this.vx >= p.x + p.w - 2) {
+          // Left wall — shatter
+          this.shatter(game);
+          return;
+        }
+      }
+
+      // Enemy collision → shatter + damage + freeze
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        if (rectOverlap(this, e)) {
+          const kbDir = Math.sign(this.vx) || 1;
+          e.takeDamage(this.baseDmg * 2, game, this.x + this.w / 2, 'crystal');
+          e.freezeTimer = Math.max(e.freezeTimer || 0, 90);
+          e.stunTimer = Math.max(e.stunTimer || 0, 40);
+          e.vx += kbDir * 8;
+          e.vy = -3;
+          if (e.knockbackTimer !== undefined) e.knockbackTimer = Math.max(e.knockbackTimer, 12);
+          game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aff', 12, 4, 14));
+          this.shatter(game);
+          return;
+        }
+      }
+      if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
+        const kbDir = Math.sign(this.vx) || 1;
+        game.boss.takeDamage(this.baseDmg, game, this.x + this.w / 2, 'crystal');
+        game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 50);
+        game.boss.stunTimer = Math.max(game.boss.stunTimer || 0, 25);
+        game.boss.vx = (game.boss.vx || 0) + kbDir * 5;
+        game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aff', 14, 5, 16));
+        this.shatter(game);
+        return;
+      }
+
+      // Ice friction — very slippery, decelerates slowly
+      if (this.grounded) this.vx *= 0.96;
+      if (Math.abs(this.vx) < 0.4 && this.grounded) {
+        this.vx = 0;
+        this.sliding = false;
+      }
+
+      // Slide ice-chip particles along the floor
+      if (this.grounded && Math.random() < 0.4) {
+        game.effects.push(new Effect(
+          this.x + Math.random() * this.w,
+          this.y + this.h,
+          '#cff', 2, 1, 8
+        ));
+      }
+
+      if (this.y > CANVAS_H + 200) { this.done = true; return; }
+      return;
     }
 
     // Freeze enemies on contact (grounded)
@@ -4824,6 +5016,7 @@ class Trimerang {
     for (const e of game.enemies) {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
         e.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
+        if(!e.grounded && !e.flying) e.juggleState = true;
         this.hitSet.add(e);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
         game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
@@ -4831,6 +5024,7 @@ class Trimerang {
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
       game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
+      if(!game.boss.grounded && !game.boss.flying) game.boss.juggleState = true;
       this.hitSet.add(game.boss);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
       game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
@@ -5040,6 +5234,7 @@ class Projectile {
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
           e.takeDamage(this.damage, game, this.x);
+          if(!e.grounded && !e.flying) e.juggleState = true;
           if (this.soaking) {
             e.soakTimer = Math.max(e.soakTimer, 300);
             game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#48f', 8, 3, 12));
@@ -5053,6 +5248,7 @@ class Projectile {
       // Hit boss while orbiting
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         game.boss.takeDamage(this.damage, game, this.x);
+        if(!game.boss.grounded && !game.boss.flying) game.boss.juggleState = true;
         if (this.soaking) {
           game.boss.soakTimer = Math.max(game.boss.soakTimer, 300);
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#48f', 10, 4, 14));
@@ -5529,8 +5725,8 @@ class Player {
     this.grounded = false;
     this.hp = 10;
     this.maxHp = 10;
-    this.shield = 0;
-    this.maxShield = 0;
+    this.shield = 3;
+    this.maxShield = 3;
     this.displayHp = 10;
     this.displayShield = 0;
     this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
@@ -5654,6 +5850,12 @@ class Player {
     this.stormSheathHits = 0;     // chain hit counter during ult
     this.stormSheathActive = false; // sheathing sword visible
     this.stormSheathFinisher = 0;  // finisher animation timer
+
+    // Stagger chain state (any ninja type)
+    this.staggerChaining = false;
+    this.staggerChainTimer = 0;
+    this.staggerChainHit = new Set();
+    this.staggerChainDmg = 0;
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -6039,6 +6241,8 @@ class Player {
     this.stormChaining = false;
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
+    this.staggerChaining = false;
+    this.staggerChainHit = new Set();
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
@@ -6927,9 +7131,11 @@ class Player {
         const dy = (e.y + e.h / 2) - (this.y + this.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
           e.takeDamage(slamDmg, game, slamCX, 'physical');
-          e.vy = -5;
+          e.vy = -10;
           e.vx = Math.sign(dx) * 4;
           e.stunTimer = Math.max(e.stunTimer, 45);
+          if (!e.flying)
+            e.juggleState = true;
 
           // Per-ninja slam effects
           switch (this.ninjaType) {
@@ -6997,6 +7203,7 @@ class Player {
         if (Math.sqrt(dx * dx + dy * dy) < 100) {
           game.boss.takeDamage(slamDmg, game, slamCX, 'physical');
           game.boss.stunTimer = Math.max(game.boss.stunTimer, 30);
+          game.boss.juggleState = true;
           switch (this.ninjaType) {
             case 'fire':
               game.boss.burnTimer = 150;
@@ -7141,7 +7348,6 @@ class Player {
     if (this.statusStun > 0) this.statusStun--;
     if (this.curseCooldown > 0) this.curseCooldown--;
     if (this.bleedCooldown > 0) this.bleedCooldown--;
-
     // Slow passive mana recharge
     if (this.mana < this.maxMana) {
       this.mana = Math.min(this.mana + 0.003, this.maxMana);
@@ -7216,7 +7422,14 @@ class Player {
               e.grounded = false;
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aaf', 18, 6, 16));
             }
+
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
+            // Elemental affinity: heal 1 HP when hitting an enemy of the ninja's own element (once per swing)
+            if (!this._swingHealDone && e.element && e.element === NINJA_ATTACK_ELEMENTS[this.ninjaType]) {
+              this.hp = Math.min(this.hp + 1, this.maxHp);
+              this._swingHealDone = true;
+              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, '+1', '#4f4'));
+            }
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
               const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -7239,7 +7452,7 @@ class Player {
             }
 
             // Storm: hitting a soaked enemy starts lightning chain
-            if (this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
+            if (e.juggleState &&this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
               this.stormChaining = true;
               this.stormChainTimer = 4;
               this.stormChainHit = new Set();
@@ -7288,7 +7501,7 @@ class Player {
             if (b instanceof EarthWall && !b.launched) {
               b.launch(this.facing);
               triggerHitstop(3);
-            } else if (b instanceof IceBlock && b.landed) {
+            } else if (b instanceof IceBlock && (b.landed || b.falling)) {
               b.playerHit(game);
             } else if (b instanceof EarthBoulder && (b.hovering || b.rising)) {
               let nearest = null, nd = Infinity;
@@ -7596,9 +7809,8 @@ class Player {
           // Check element resist — stop chain if target resists
           const atkEl = NINJA_ATTACK_ELEMENTS[this.ninjaType];
           if (nearest.element && atkEl && ELEMENT_MATRIX[atkEl]) {
-            let res = ELEMENT_MATRIX[atkEl][nearest.element];
-            if (atkEl === 'steel' && res === 'heal') res = 'resist';
-            if (res === 'resist' || res === 'heal') {
+            const res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (res === 'resist') {
               game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.chainStriking = false;
@@ -7689,8 +7901,8 @@ class Player {
           // Check element resist — stop chain if target resists
           const atkEl = 'lightning';
           if (nearest.element && ELEMENT_MATRIX[atkEl]) {
-            let res = ELEMENT_MATRIX[atkEl][nearest.element];
-            if (res === 'resist' || res === 'heal') {
+            const res = ELEMENT_MATRIX[atkEl][nearest.element];
+            if (res === 'resist') {
               game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'RESIST', nearest.elementColors.accent));
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.stormChaining = false;
@@ -7768,8 +7980,8 @@ class Player {
           if (loopTarget) {
             // Check element resist — stop chain if target resists
             if (loopTarget.element && ELEMENT_MATRIX['lightning']) {
-              let res = ELEMENT_MATRIX['lightning'][loopTarget.element];
-              if (res === 'resist' || res === 'heal') {
+              const res = ELEMENT_MATRIX['lightning'][loopTarget.element];
+              if (res === 'resist') {
                 game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'RESIST', loopTarget.elementColors.accent));
                 game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, loopTarget.elementColors.accent, 8, 3, 12));
                 this.stormChaining = false;
@@ -7849,6 +8061,55 @@ class Player {
       }
     }
 
+    // Stagger chain: player teleports through enemies one by one (any ninja type)
+    if (this.staggerChaining) {
+      this.staggerChainTimer--;
+      if (this.staggerChainTimer <= 0) {
+        let nearest = null;
+        let nearDist = 250;
+        const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        for (const e of game.enemies) {
+          if (e.dead || this.staggerChainHit.has(e)) continue;
+          const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nearDist) { nearDist = d; nearest = e; }
+        }
+        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+          nearest = game.boss;
+        }
+        if (nearest) {
+          const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
+          this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
+          this.y = nearest.y + nearest.h / 2 - this.h / 2;
+          this.facing = -behind;
+          this.vx = 0; this.vy = 0;
+          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, staggerChain: true });
+          nearest.disableTimer = 0;
+          nearest.staggerBar = 0;
+          nearest.takeDamage(this.staggerChainDmg, game, this.x + this.w / 2, null, 'chain');
+          this.staggerChainHit.add(nearest);
+          this._spawnChainCut(nearest);
+          SFX.chain();
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#c04fff', 12, 5, 18));
+          triggerHitstop(3);
+          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this.staggerChainTimer = 4;
+        } else {
+          this.staggerChaining = false;
+          this.staggerChainHit.clear();
+          for (const a of this.afterimages) { if (a.staggerChain) a.life = 20; }
+        }
+      }
+    }
+
+    // Stagger chain afterimage decay (all ninja types)
+    this.afterimages = this.afterimages.filter(a => {
+      if (!a.staggerChain) return true; // handled by per-ninja logic below
+      if (this.staggerChaining) return true; // persist while chaining
+      a.life--;
+      return a.life > 0;
+    });
+
     // Shadow ninja: stealth accumulation
     if (this.ninjaType === 'shadow') {
       const now = game.tick;
@@ -7884,7 +8145,8 @@ class Player {
         this.afterimages.push({ x: this.x, y: this.y, life: 8 });
       }
       this.afterimages = this.afterimages.filter(a => {
-        if (a.chain && this.chainStriking) return true; // persist during chain
+        if (a.chain && this.chainStriking) return true; // persist during shadow chain
+        if (a.staggerChain && this.staggerChaining) return true; // persist during stagger chain
         a.life--;
         return a.life > 0;
       });
@@ -8070,6 +8332,7 @@ class Player {
     this.attacking = true;
     this.attackTimer = 10;
     this.swingHitSet = new Set();
+    this._swingHealDone = false;
     this.attackCooldown = this.ninjaType === 'earth' ? 10 : 15;
     if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();
@@ -8748,6 +9011,58 @@ class Player {
       ctx.restore();
     }
 
+    // Stagger chain afterimages + lines (all ninja types, color-coded by ninja)
+    if (this.staggerChaining || this.afterimages.some(a => a.staggerChain)) {
+      const chainColor = this.type.accentColor;
+      const staggerImages = this.afterimages.filter(a => a.staggerChain);
+      if (staggerImages.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = chainColor;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = chainColor;
+        ctx.shadowBlur = 8;
+        ctx.globalAlpha = this.staggerChaining ? 0.65 : 0.25;
+        for (let i = 1; i < staggerImages.length; i++) {
+          const prev = staggerImages[i - 1];
+          const curr = staggerImages[i];
+          const px1 = prev.x + this.w / 2 - cam.x, py1 = prev.y + this.h / 2 - cam.y;
+          const px2 = curr.x + this.w / 2 - cam.x, py2 = curr.y + this.h / 2 - cam.y;
+          const mx1 = px1 + (px2 - px1) * 0.33 + (Math.random() - 0.5) * 10;
+          const my1 = py1 + (py2 - py1) * 0.33 + (Math.random() - 0.5) * 10;
+          const mx2 = px1 + (px2 - px1) * 0.66 + (Math.random() - 0.5) * 10;
+          const my2 = py1 + (py2 - py1) * 0.66 + (Math.random() - 0.5) * 10;
+          ctx.beginPath();
+          ctx.moveTo(px1, py1);
+          ctx.lineTo(mx1, my1);
+          ctx.lineTo(mx2, my2);
+          ctx.lineTo(px2, py2);
+          ctx.stroke();
+        }
+        if (this.staggerChaining) {
+          const last = staggerImages[staggerImages.length - 1];
+          ctx.beginPath();
+          ctx.moveTo(last.x + this.w / 2 - cam.x, last.y + this.h / 2 - cam.y);
+          ctx.lineTo(this.x + this.w / 2 - cam.x, this.y + this.h / 2 - cam.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      for (const a of staggerImages) {
+        const alpha = this.staggerChaining ? 0.5 : (a.life / 20) * 0.45;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = chainColor;
+        ctx.shadowColor = chainColor;
+        ctx.shadowBlur = 12;
+        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = alpha * 0.8;
+        const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
+        ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // Storm afterimages (during lightning chain)
     if (this.ninjaType === 'storm' && this.stormAfterimages.length > 0) {
       // Draw yellow lightning lines between consecutive afterimages
@@ -9137,6 +9452,10 @@ class Player {
     ctx.fillStyle = bodyColor;
     ctx.fillRect(sx, sy, this.w, this.h);
 
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+
     // Eyes
     ctx.fillStyle = '#fff';
     const eyeX = this.facing > 0 ? sx + 14 : sx + 4;
@@ -9156,8 +9475,14 @@ class Player {
     ctx.lineTo(sx + this.w + 6, sy + 2);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
     // Brim
     ctx.fillStyle = t.color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - 6 + 0.5, sy + 0.5, this.w + 11, 2)
     ctx.fillRect(sx - 6, sy, this.w + 12, 3);
 
     // Small flower on hat for bubble, crystal, wind
@@ -9198,6 +9523,9 @@ class Player {
         ctx.fillRect(-1.5, -24, 3, 28);
         ctx.fillStyle = '#4a4a4a';
         ctx.fillRect(-1.5, -24, 1.5, 28);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -24, 3, 28);
         // Purple grip wraps
         ctx.fillStyle = '#a4e';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -4 + i * 6, 4, 3);
@@ -9214,7 +9542,10 @@ class Player {
         ctx.shadowColor = '#c060ff';
         ctx.shadowBlur = 6;
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
         ctx.shadowBlur = 0;
+        ctx.stroke();
         ctx.restore();
         // Pommel gem
         ctx.fillStyle = '#c060ff';
@@ -9232,6 +9563,9 @@ class Player {
         ctx.fillRect(-1.5, -26, 3, 30);
         ctx.fillStyle = '#5ab0d0';
         ctx.fillRect(-1.5, -26, 1.5, 30);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -26, 3, 30);
         // Grip wraps
         ctx.fillStyle = '#2a6888';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
@@ -9261,8 +9595,8 @@ class Player {
         ctx.fillRect(-3, -16, 6, 20);
         ctx.fillStyle = '#a8844a';
         ctx.fillRect(-3, -16, 3, 20);
-        ctx.strokeStyle = '#5a3a1a';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
         ctx.strokeRect(-3, -16, 6, 20);
         // Knuckle studs at top
         ctx.fillStyle = '#e8d0b0';
@@ -9280,6 +9614,9 @@ class Player {
         ctx.fillRect(-1.5, -24, 3, 28);
         ctx.fillStyle = '#6ab8c8';
         ctx.fillRect(-1.5, -24, 1.5, 28);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-1.5, -24, 3, 28);
         // Grip wraps
         ctx.fillStyle = '#2a6878';
         for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
@@ -9296,6 +9633,10 @@ class Player {
         ctx.lineTo(-3, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.shadowBlur = 0;
+        ctx.stroke();
         // Inner facet
         ctx.fillStyle = '#2dd';
         ctx.globalAlpha = 0.6;
@@ -9307,7 +9648,6 @@ class Player {
         ctx.closePath();
         ctx.fill();
         ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
         ctx.restore();
         // Pommel gem
         ctx.fillStyle = '#2dd';
@@ -9320,7 +9660,7 @@ class Player {
 
 
       } else {
-        // Default katana scabbard (fire, storm)
+        // Default katana scabbard (fire, storm, wind)
         if (this.ninjaType === 'storm') { ctx.shadowColor = '#ff0'; ctx.shadowBlur = 6; }
         ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
         ctx.fillRect(-2, -28, 4, 32);
@@ -9328,15 +9668,19 @@ class Player {
         ctx.fillRect(-2, 2, 4, 3);
         ctx.fillStyle = '#555';
         ctx.fillRect(-3, -6, 6, 2);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-2.5, -28.5, 5, 34);
         ctx.fillStyle = t.accentColor;
         ctx.fillRect(-2, -36, 4, 9);
+        ctx.strokeRect(-2.5, -36.5, 5, 10);
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         for (let i = 0; i < 3; i++) ctx.fillRect(-1, -35 + i * 3, 2, 1);
         ctx.fillStyle = '#aa8';
         ctx.fillRect(-3, -28, 6, 2);
         ctx.fillStyle = '#888';
         ctx.fillRect(-1, -38, 2, 3);
-        ctx.shadowBlur = 0;
       }
       ctx.restore();
     }
@@ -9421,9 +9765,9 @@ class Player {
         // Stone fist body
         ctx.fillStyle = '#c8a878';
         ctx.fillRect(fx - (dir > 0 ? 0 : fistW), fy, fistW, fistH);
-        ctx.strokeStyle = '#5a3a1a';
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) + 0.5, fy + 0.5, fistW - 1, fistH - 1);
+        ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) - 0.5, fy - 0.5, fistW + 1, fistH + 1);
         // Knuckle highlights (4 across the tall fist)
         ctx.fillStyle = '#e8d0b0';
         const kx = dir > 0 ? fx + fistW - 5 : fx - fistW + 1;
@@ -9486,6 +9830,15 @@ class Player {
         ctx.lineTo(-8, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-8, -2.5);
+        ctx.lineTo(40 * sc, -1.5);
+        ctx.lineTo(40 * sc, 1.5);
+        ctx.lineTo(-8, 2.5);
+        ctx.closePath();
+        ctx.stroke();
         // Purple grip wraps
         ctx.fillStyle = '#a4e';
         for (let i = 0; i < 4; i++) {
@@ -9509,6 +9862,14 @@ class Player {
         ctx.shadowColor = '#c060ff';
         ctx.shadowBlur = 14;
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+        ctx.shadowBlur = 14;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
         // Inner blade darker fill for depth
         ctx.beginPath();
         ctx.moveTo(0, -4);
@@ -9560,6 +9921,15 @@ class Player {
         ctx.lineTo(-6, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.5);
+        ctx.lineTo(26, -1);
+        ctx.lineTo(26, 1);
+        ctx.lineTo(-6, 1.5);
+        ctx.closePath();
+        ctx.stroke();
         // Grip wraps
         ctx.fillStyle = '#2a6888';
         for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -2, 3, 4);
@@ -9613,6 +9983,15 @@ class Player {
         ctx.lineTo(-6, 0);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-6, -1.2);
+        ctx.lineTo(28, -0.8);
+        ctx.lineTo(28, 0.8);
+        ctx.lineTo(-6, 1.2);
+        ctx.closePath();
+        ctx.stroke();
         // Grip wraps
         ctx.fillStyle = '#2a6878';
         for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 5, -1.8, 3, 3.6);
@@ -9697,6 +10076,9 @@ class Player {
         ctx.lineTo(6, 1.5);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
         ctx.strokeStyle = isLightning ? '#ff8' : '#fff';
         ctx.lineWidth = 0.7;
         ctx.beginPath();
@@ -9870,6 +10252,7 @@ class Player {
       ctx.stroke();
       ctx.restore();
     }
+
   }
 }
 
@@ -10502,12 +10885,19 @@ class Enemy {
     this.element = null;
     this.elementColors = null;
     this.baseColor = this.color; // preserve original type color
+    this.juggleState = false;
+    // Stagger system
+    this.staggerBar = 0;
+    this.disableTimer = 0;
   }
 
   update(game) {
     if (this.dead) return;
+    if (this.disableTimer > 0) this.disableTimer--;
+    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
+    if (this.grounded) this.juggleState = false;
     if (this.freezeTimer > 0) {
       this.freezeTimer--;
       // Ice sliding: frozen enemy was hit, slides and hits others
@@ -11518,11 +11908,13 @@ class Enemy {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
-      game.player.vx = kbDir * kbStr;
-      game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
-      if (isCharging) game.player.knockbackTimer = 10;
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
       const spikyMul = this.element === 'spiky' ? 1.5 : 1;
+      if (game.player.invincibleTimer <= 0) {
+        game.player.vx = kbDir * kbStr;
+        game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
+        if (isCharging) game.player.knockbackTimer = 10;
+      }
       game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.contactTick = 30;
       if (isCharging) {
@@ -11538,7 +11930,10 @@ class Enemy {
     if (this.dead) return false;
     if (this.friendly) return false;
     // Ghost: immune to blade & shuriken (only abilities/elemental can hurt)
-    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken')) {
+    // Exception: sword hits on a shielded/protector can still chip the physical shield
+    const hasActiveShield = (this.type === 'shielded' || this.type === 'protector') && this.shieldHp > 0;
+    const rawAmount = amount;
+    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken') && !hasActiveShield) {
       this.flashTimer = 4;
       if (this.resistTimer <= 0) {
         game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'IMMUNE', '#6f6'));
@@ -11557,8 +11952,15 @@ class Enemy {
       // still take half damage from the sword
       amount = Math.max(1, Math.round(amount * 0.5));
     }
-    // Elemental interaction — checked early so heals/resists bypass iframes
-    if (this.element && game) {
+    // Shock: sword attacks get electrified
+    if (this.element === 'lightning' && sourceType === 'sword' && game && game.player) {
+      game.player.statusParalyse = 120;
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 24, this.y - 10, 'PARALYSED', '#6ff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#6ff', 8, 3, 12));
+    }
+
+    // Elemental interaction — only specials trigger resist/heal (not sword or shuriken)
+    if (this.element && game && sourceType !== 'sword' && sourceType !== 'shuriken') {
       const atkEl = attackElement || (game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
       if (atkEl && ELEMENT_MATRIX[atkEl]) {
         let result = ELEMENT_MATRIX[atkEl][this.element];
@@ -11572,6 +11974,17 @@ class Enemy {
             game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, col, 8, 3, 12));
             game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
             this.resistTimer = 30;
+          }
+          // Stagger bar still fills despite elemental resistance
+          if (!hasActiveShield && sourceType !== 'chain') {
+            this.staggerBar += rawAmount;
+            if (this.staggerBar >= this.maxHp * 1.5) {
+              this.staggerBar = 0;
+              this.disableTimer = 300;
+              this.stunTimer = 300;
+              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+            }
           }
           return false;
         }
@@ -11611,6 +12024,36 @@ class Enemy {
         }
       }
     }
+
+    // ── Chain strike: hitting a disabled enemy starts a player teleport chain ──
+    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+      const base = game.player.type.attackDamage + game.player.bonusDamage;
+      game.player.staggerChaining = true;
+      game.player.staggerChainTimer = 4;
+      game.player.staggerChainHit = new Set();
+      game.player.staggerChainHit.add(this);
+      game.player.staggerChainDmg = Math.round(base * 5);
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    } else if (this.disableTimer > 0) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+    }
+
+    // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
+    if (!hasActiveShield && sourceType !== 'chain' && game) {
+      this.staggerBar += rawAmount;
+      if (this.staggerBar >= this.maxHp * 1.5) {
+        this.staggerBar = 0;
+        this.disableTimer = 300;
+        this.stunTimer = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+      }
+    }
+
     // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
     if ((sourceType === 'sword' || sourceType === 'boulder') && this._shieldBlocks(fromX, undefined, game)) {
@@ -11633,6 +12076,14 @@ class Enemy {
       }
       amount = Math.max(1, Math.round(amount * 0.25));
     }
+    if (this.juggleState) {
+      amount = Math.ceil(amount * 1.5);
+      const dir = Math.sign((this.x + this.w / 2) - (this.x + this.w / 2)) || (game && game.player ? game.player.facing : 1);
+      this.vx = dir * 2;
+      this.vy = -5;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'JUGGLE', '#ff8'));
+    }
+
     this.hp -= amount;
     if (!shieldBlocked) this.flashTimer = 6;
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
@@ -11848,30 +12299,22 @@ class Enemy {
       }
       game.effects.push(new Effect(cx, cy, '#aff', 14, 5, 15));
     }
-    // Drop orb — tiered rarity
+    // Drop orb — tiered rarity (big/boss drop upgrades; normal mobs drop recharges only)
     const r = Math.random();
-    if (r < 0.30) {                                          // T1: heal 30%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'heal'));
-    } else if (r < 0.48) {                                   // T2: shield 18%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shield'));
-    } else if (r < 0.58) {                                   // T3: maxhp 10%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'maxhp'));
-    } else if (r < 0.62) {                                   // T3: shuriken 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'shuriken'));
-    } else if (r < 0.78) {                                   // T3: ultcharge 16%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'ultcharge'));
-    } else if (r < 0.84) {                                   // T4: damage 6%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'damage'));
-    } else if (r < 0.87) {                                   // T4: elDmg 3%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'elDmg'));
-    } else if (r < 0.91) {                                   // T4: speed 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'speed'));
-    } else if (r < 0.95) {                                   // T4: reach 4%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'reach'));
-    } else if (r < 0.98) {                                   // T4: armor 3%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'armor'));
-    } else {                                                  // T4: element 2%
-      game.orbs.push(new Orb(this.x + this.w / 2 - 5, this.y, 'element'));
+    const ox = this.x + this.w / 2 - 5;
+    if (this.big || this instanceof Boss) {
+      // Upgrade orb — always (tiered upgrade pool)
+      const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','shuriken','ultcharge','shield'];
+      const upType = upgradePool[Math.floor(Math.random() * upgradePool.length)];
+      game.orbs.push(new Orb(ox, this.y, upType));
+    } else {
+      if (r < 0.50) {                                        // T1: heal 50%
+        game.orbs.push(new Orb(ox, this.y, 'heal'));
+      } else if (r < 0.85) {                                 // T2: shield recharge 35%
+        game.orbs.push(new Orb(ox, this.y, 'shieldrecharge'));
+      } else {                                               // T3: ultcharge 15%
+        game.orbs.push(new Orb(ox, this.y, 'ultcharge'));
+      }
     }
   }
 
@@ -11985,6 +12428,13 @@ class Enemy {
       ctx.beginPath();
       ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
       // Inner eye
       ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
       ctx.beginPath();
@@ -11998,6 +12448,11 @@ class Enemy {
       }
       ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
       ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       if (this.element === 'ghost') ctx.restore();
     }
 
@@ -12541,6 +12996,26 @@ class Enemy {
       }
       ctx.restore();
     }
+    // Disabled / stagger glow
+    if (this.disableTimer > 0) {
+      const dp = 0.45 + 0.35 * Math.sin((game ? game.tick : 0) * 0.18);
+      ctx.save();
+      ctx.globalAlpha = dp;
+      ctx.shadowColor = '#c04fff';
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = '#c04fff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      ctx.restore();
+      // Purple countdown bar above head
+      const pct = this.disableTimer / 300;
+      const dbW = this.w + 6;
+      const dbY = sy - (this.hp < this.maxHp ? 16 : 6);
+      ctx.fillStyle = '#300030';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 3);
+      ctx.fillStyle = '#c04fff';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 3);
+    }
     if (spawning) ctx.restore();
   }
 }
@@ -12553,10 +13028,8 @@ class Boss extends Enemy {
     this.bossType = bossType;
     // Override dimensions — boss is bigger than any regular enemy
     this.w = 56; this.h = 56;
-    // Override HP — based on mob's base HP
-    this.hp = ENEMY_STATS[bossType].hp * 10 * wave;
-    if (bossType === 'attacker') this.hp = Math.max(this.hp, 500);
-    if (bossType === 'flyshooter') this.hp = Math.max(this.hp, 1000);
+    // Override HP — uses bossBase * wave for consistent per-round scaling
+    this.hp = (ENEMY_STATS[bossType].bossBase || 200) * wave;
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     // Override contact damage — boss takes 3 hits to kill player
@@ -12615,6 +13088,8 @@ class Boss extends Enemy {
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
+    if (this.disableTimer > 0) this.disableTimer--;
+    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.shieldBump > 0) this.shieldBump--;
@@ -13221,10 +13696,14 @@ class Boss extends Enemy {
             game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
             if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
               const kbDir = Math.sign(game.player.x - cx) || 1;
-              game.player.vx = kbDir * 18;
-              game.player.vy = -9;
-              game.player.knockbackTimer = 12;
-              if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+              if (!game.player.slamming) {
+                if (game.player.invincibleTimer <= 0) {
+                  game.player.vx = kbDir * 18;
+                  game.player.vy = -9;
+                  game.player.knockbackTimer = 12;
+                }
+                game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+              }
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -13386,9 +13865,11 @@ class Boss extends Enemy {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
       if (isCharging) {
-        game.player.vx = kbDir * 22;
-        game.player.vy = -5;
-        game.player.knockbackTimer = 14;
+        if (game.player.invincibleTimer <= 0) {
+          game.player.vx = kbDir * 22;
+          game.player.vy = -5;
+          game.player.knockbackTimer = 14;
+        }
         const chargeDmg = Math.round(this.contactDmg * 1.5);
         game.player.takeDamage(chargeDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
         this.chargeState = 'recoil';
@@ -13396,9 +13877,11 @@ class Boss extends Enemy {
         this.vx = -this.facing * speed * 3;
         this.vy = -8;
       } else {
-        game.player.vx = kbDir * 18;
-        game.player.vy = -9;
-        game.player.knockbackTimer = 12;
+        if (game.player.invincibleTimer <= 0) {
+          game.player.vx = kbDir * 18;
+          game.player.vy = -9;
+          game.player.knockbackTimer = 12;
+        }
         game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
       this.contactTick = 45;
@@ -13430,6 +13913,39 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
       return false;
     }
+
+    const hasActiveBossShield = (this.bossType === 'shielded' || this.bossType === 'protector') && this.shieldHp > 0;
+    const rawAmount = amount;
+
+    // ── Chain strike: hitting a disabled boss starts a player teleport chain ──
+    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+      const base = game.player.type.attackDamage + game.player.bonusDamage;
+      game.player.staggerChaining = true;
+      game.player.staggerChainTimer = 4;
+      game.player.staggerChainHit = new Set();
+      game.player.staggerChainHit.add(this);
+      game.player.staggerChainDmg = Math.round(base * 5);
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    } else if (this.disableTimer > 0) {
+      this.disableTimer = 0;
+      this.staggerBar = 0;
+    }
+
+    // ── Stagger bar ──
+    if (!hasActiveBossShield && sourceType !== 'chain' && game) {
+      this.staggerBar += rawAmount;
+      if (this.staggerBar >= this.maxHp * 1.5) {
+        this.staggerBar = 0;
+        this.disableTimer = 300;
+        this.stunTimer = 300;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+      }
+    }
+
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
     if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
@@ -13575,6 +14091,13 @@ class Boss extends Enemy {
       ctx.beginPath();
       ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
       // Inner eye
       ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
       ctx.beginPath();
@@ -13589,6 +14112,12 @@ class Boss extends Enemy {
       // Armored knight body
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       // Helmet with visor
       ctx.fillStyle = '#5a7';
       ctx.fillRect(sx - 3, sy - 8, this.w + 6, 14);
@@ -13725,6 +14254,12 @@ class Boss extends Enemy {
       // Ronin samurai body
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       // Kasa (farmer hat)
       ctx.fillStyle = '#aac';
       ctx.beginPath();
@@ -13809,6 +14344,12 @@ class Boss extends Enemy {
       // Default boss body (walker, shooter, jumper, bouncer, shielded, flyer, flyshooter)
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
 
       // Flying wings
       if (this.flying) {
@@ -14114,6 +14655,25 @@ class Boss extends Enemy {
         ctx.fillText('*', scx + Math.cos(a) * 16 - 4, scy + Math.sin(a) * 8);
       }
       ctx.restore();
+    }
+    // Disabled / stagger glow
+    if (this.disableTimer > 0) {
+      const dp = 0.45 + 0.35 * Math.sin(game.tick * 0.18);
+      ctx.save();
+      ctx.globalAlpha = dp;
+      ctx.shadowColor = '#c04fff';
+      ctx.shadowBlur = 22;
+      ctx.strokeStyle = '#c04fff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.restore();
+      const pct = this.disableTimer / 300;
+      const dbW = this.w + 8;
+      const dbY = sy - 18;
+      ctx.fillStyle = '#300030';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 4);
+      ctx.fillStyle = '#c04fff';
+      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 4);
     }
     // Restore fade alpha
     if (_fading) ctx.restore();
@@ -15614,6 +16174,21 @@ class Game {
     this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
     this.bossRewardItem = null;
 
+    // Choose-your-path system
+    this.currentWaveDefIdx = 0;    // which WAVE_DEFS entry is active
+    this.levelElement = null;      // elemental theme of current level (null = normal)
+    this.pathChoiceScreen = null;  // { choices:[{waveIdx,element,label}], selected, delay }
+    // Dynamic boss progression pools (replaces static BOSS_PATH_POOLS)
+    this.bossPool = null;          // early-group pool ([1,2,3] + replacements) for waves 1-3
+    this.mandatoryPool = null;     // mandatory group pool ([5,6,7]) for waves 4-6
+    this.currentKillsForBoss = 20; // per-wave kill target (scales linearly by wave)
+
+    // Weather & hazards
+    this.levelHazards = [];
+    this.hazardTimer = 0;
+    this.weatherParticles = [];
+    this.weatherTimer = 0;
+
     // Phrase system
     this.phraseText = '';
     this.phraseTimer = 0;
@@ -15641,7 +16216,7 @@ class Game {
     this.transitionTimer = 0;
 
     this.buildLevel();
-    this.showWaveMessage('Wave 1/' + TOTAL_WAVES + ' — Fight!');
+    this.showWaveMessage('Round 1/' + TOTAL_WAVES + ' — Fight!');
     // Start phrase (character-specific)
     const startPool = NINJA_START_PHRASES[this.player.ninjaType] || START_PHRASES;
     this.phraseText = pickPhrase(startPool);
@@ -15663,6 +16238,8 @@ class Game {
       tentX = 380; tentGroundY = 440;
     } else if (this.levelType === 'arena') {
       tentX = 130; tentGroundY = 400;
+    } else if (this.levelType === 'narrow') {
+      tentX = 130; tentGroundY = 380;
     } else {
       tentX = 170; tentGroundY = 340; // on leftmost thin platform
     }
@@ -15721,75 +16298,86 @@ class Game {
   buildLevel() {
     this.platforms = [];
     this.spikes = [];
-    const waveDef = WAVE_DEFS[this.wave - 1];
+    this.levelHazards = [];
+    this.weatherParticles = [];
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const bossType = waveDef ? waveDef.boss : 'walker';
-    // Flying bosses → TOWER (except flyshooter on last wave → OPEN), miniboss types → ARENA, else OPEN
+    const theme = this.levelElement ? ELEMENT_LEVEL_THEMES[this.levelElement] : null;
+
+    // Level type based on boss type
     if (bossType === 'flyer') {
       this.levelType = 'tower';
     } else if (bossType === 'flyshooter') {
       this.levelType = 'open';
-    } else if (bossType === 'deflector' || bossType === 'protector' || bossType === 'attacker') {
+    } else if (bossType === 'deflector' || bossType === 'attacker') {
       this.levelType = 'arena';
+    } else if (bossType === 'shielded' || bossType === 'protector') {
+      this.levelType = 'narrow';
     } else {
       this.levelType = 'open';
     }
     switch (this.levelType) {
-      case 'arena': this.buildArena(); break;
-      case 'tower': this.buildTower(); break;
-      default: this.buildOpen(); break;
+      case 'arena':  this.buildArena(theme);  break;
+      case 'tower':  this.buildTower();        break;
+      case 'narrow': this.buildNarrow(theme);  break;
+      default:       this.buildOpen(theme);    break;
     }
   }
 
-  buildOpen() {
+  buildOpen(theme) {
     this.levelW = 3200;
     this.levelH = 540;
+    const c1 = theme ? theme.groundColor  : '#555';
+    const c2 = theme ? theme.platformColor    : '#666';
+    const c3 = theme ? theme.platformColorAlt : '#777';
+    const c4 = (theme && theme.platformColorAlt) ? theme.platformColor : '#888';
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
-    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
+    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
 
     // Ground
-    P(0, 480, 3200, 60, '#555');
+    P(0, 480, 3200, 60, c1);
 
     // Lower platforms
-    P(200, 400, 160, 16, '#666');
-    P(450, 360, 120, 16, '#666');
-    P(650, 320, 140, 16, '#666');
-    P(900, 380, 120, 16, '#666');
-    P(1100, 340, 160, 16, '#666');
+    P(200, 400, 160, 16, c2);
+    P(450, 360, 120, 16, c2);
+    P(650, 320, 140, 16, c2);
+    P(900, 380, 120, 16, c2);
+    P(1100, 340, 160, 16, c2);
 
     // Mid platforms
-    P(300, 260, 120, 16, '#777');
-    P(550, 220, 100, 16, '#777');
-    P(780, 180, 140, 16, '#777');
-    P(1050, 240, 140, 16, '#777');
-    P(1300, 200, 120, 16, '#777');
+    P(300, 260, 120, 16, c3);
+    P(550, 220, 100, 16, c3);
+    P(780, 180, 140, 16, c3);
+    P(1050, 240, 140, 16, c3);
+    P(1300, 200, 120, 16, c3);
 
     // High platforms
-    P(400, 140, 100, 16, '#888');
-    P(700, 100, 140, 16, '#888');
-    P(1000, 130, 120, 16, '#888');
+    P(400, 140, 100, 16, c4);
+    P(700, 100, 140, 16, c4);
+    P(1000, 130, 120, 16, c4);
 
     // Extended area
-    P(1500, 420, 200, 16, '#666');
-    P(1750, 360, 160, 16, '#666');
-    P(1950, 300, 140, 16, '#666');
-    P(2150, 380, 120, 16, '#666');
-    P(2350, 320, 180, 16, '#666');
-    P(2600, 400, 200, 16, '#666');
-    P(2850, 350, 160, 16, '#666');
+    P(1500, 420, 200, 16, c2);
+    P(1750, 360, 160, 16, c2);
+    P(1950, 300, 140, 16, c2);
+    P(2150, 380, 120, 16, c2);
+    P(2350, 320, 180, 16, c2);
+    P(2600, 400, 200, 16, c2);
+    P(2850, 350, 160, 16, c2);
 
     // L-shaped platforms
-    P(150, 440, 80, 16, '#686'); P(150, 380, 16, 60, '#686');
-    P(830, 260, 16, 70, '#686'); P(830, 260, 90, 16, '#686');
-    P(1400, 370, 80, 16, '#686'); P(1464, 310, 16, 60, '#686');
-    P(2050, 240, 16, 70, '#686'); P(2050, 240, 90, 16, '#686');
-    P(2750, 280, 80, 16, '#686'); P(2750, 280, 16, 70, '#686');
+    P(150, 440, 80, 16, c3); P(150, 380, 16, 60, c3);
+    P(830, 260, 16, 70, c3); P(830, 260, 90, 16, c3);
+    P(1400, 370, 80, 16, c3); P(1464, 310, 16, 60, c3);
+    P(2050, 240, 16, 70, c3); P(2050, 240, 90, 16, c3);
+    P(2750, 280, 80, 16, c3); P(2750, 280, 16, 70, c3);
 
     // Vertical walls
-    P(580, 380, 16, 100, '#555');
-    P(1200, 300, 16, 180, '#555');
-    P(1850, 350, 16, 130, '#555');
-    P(2500, 280, 16, 200, '#555');
+    P(580, 380, 16, 100, c1);
+    P(1200, 300, 16, 180, c1);
+    P(1850, 350, 16, 130, c1);
+    P(2500, 280, 16, 200, c1);
 
     // Thin passable platforms
     TP(120, 340, 100);
@@ -15818,33 +16406,37 @@ class Game {
     P(3200, 0, 32, 540, '#444');
   }
 
-  buildArena() {
+  buildArena(theme) {
     this.levelW = 1200;
     this.levelH = 540;
+    const c1 = theme ? theme.groundColor  : '#555';
+    const c2 = theme ? theme.platformColor    : '#666';
+    const c3 = theme ? theme.platformColorAlt : '#777';
+    const c4 = (theme && theme.platformColorAlt) ? theme.platformColor : '#888';
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
-    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
+    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
 
     // Ground
-    P(0, 480, 1200, 60, '#555');
+    P(0, 480, 1200, 60, c1);
 
     // Side walls
     P(-32, 0, 32, 540, '#444');
     P(1200, 0, 32, 540, '#444');
 
     // Layer 1 — lower platforms
-    P(80, 400, 200, 16, '#666');
-    P(500, 400, 200, 16, '#666');
-    P(920, 400, 200, 16, '#666');
+    P(80, 400, 200, 16, c2);
+    P(500, 400, 200, 16, c2);
+    P(920, 400, 200, 16, c2);
 
     // Layer 2 — mid platforms
-    P(200, 310, 180, 16, '#777');
-    P(510, 310, 180, 16, '#777');
-    P(820, 310, 180, 16, '#777');
+    P(200, 310, 180, 16, c3);
+    P(510, 310, 180, 16, c3);
+    P(820, 310, 180, 16, c3);
 
     // Layer 3 — top platforms
-    P(350, 220, 160, 16, '#888');
-    P(690, 220, 160, 16, '#888');
+    P(350, 220, 160, 16, c4);
+    P(690, 220, 160, 16, c4);
 
     // Thin platforms scattered
     TP(50, 340, 100);
@@ -15863,6 +16455,474 @@ class Game {
     S(850, 468, 48);
     S(400, 304, 36);
     S(720, 304, 36);
+  }
+
+  buildNarrow(theme) {
+    // Narrow horizontal corridor — good for shield boss fights
+    this.levelW = 2000;
+    this.levelH = 540;
+    const c1 = theme ? theme.groundColor     : '#555';
+    const c2 = theme ? theme.platformColor   : '#666';
+    const c3 = theme ? theme.platformColorAlt: '#777';
+    const P  = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+    const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
+    const S  = (x, y, w) => this.spikes.push(new Spike(x, y, w));
+
+    // Ground
+    P(0, 440, 2000, 100, c1);
+
+    // Mid-level platforms (one level up — shield fights need horizontal space)
+    P(100, 320, 180, 16, c2);
+    P(380, 300, 160, 16, c2);
+    P(660, 320, 200, 16, c2);
+    P(960, 300, 160, 16, c2);
+    P(1240, 320, 180, 16, c2);
+    P(1520, 300, 160, 16, c2);
+    P(1750, 320, 160, 16, c2);
+
+    // High platforms (sparse — sniping positions, flanks)
+    P(250, 200, 120, 16, c3);
+    P(540, 180, 100, 16, c3);
+    P(840, 200, 130, 16, c3);
+    P(1120, 180, 110, 16, c3);
+    P(1400, 200, 120, 16, c3);
+    P(1660, 180, 140, 16, c3);
+
+    // Thin passable platforms
+    TP(170, 365, 90);
+    TP(450, 350, 80);
+    TP(730, 365, 90);
+    TP(1030, 350, 80);
+    TP(1310, 365, 90);
+    TP(1590, 350, 80);
+
+    // Low shield-cover walls (good for tactical play against shield boss)
+    P(320, 384, 16, 56, c1);
+    P(600, 384, 16, 56, c1);
+    P(880, 384, 16, 56, c1);
+    P(1160, 384, 16, 56, c1);
+    P(1440, 384, 16, 56, c1);
+
+    // Spikes in pits
+    S(440, 428, 48);
+    S(940, 428, 48);
+    S(1440, 428, 48);
+
+    // Boundary walls
+    P(-32, 0, 32, 540, '#444');
+    P(2000, 0, 32, 540, '#444');
+
+    // Mark shield-boss platforms as slippery for ice/crystal levels
+    if (this.levelElement === 'crystal' || this.levelElement === 'water') {
+      for (const p of this.platforms) {
+        if (!p.thin && p.y < 440) p.slippery = true;
+      }
+    }
+  }
+
+  // ── Boss Preview Sprite (for path choice cards) ──
+  _drawBossPreview(ctx, bossType, element, cx, cy) {
+    ctx.save();
+    const baseColors = {
+      walker: '#c33', shooter: '#cc5', jumper: '#c8c', bouncer: '#c5c',
+      shielded: '#5cc', deflector: '#88a', protector: '#4a6',
+      attacker: '#a44', flyer: '#8c5', flyshooter: '#c85',
+    };
+    const bodyColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].body : (baseColors[bossType] || '#c33');
+    const accentColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].accent : '#fff';
+    const glowColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].glow : bodyColor;
+
+    // Elemental aura behind sprite
+    if (element) {
+      ctx.globalAlpha = 0.20;
+      ctx.fillStyle = glowColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = bodyColor;
+
+    switch (bossType) {
+      case 'walker': {
+        // Chunky block with yellow border
+        ctx.fillRect(cx - 22, cy - 26, 44, 52);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 22, cy - 26, 44, 52);
+        // Eyes (right side)
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 4, cy - 18, 10, 10);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 8, cy - 15, 5, 6);
+        break;
+      }
+      case 'shooter': {
+        ctx.fillRect(cx - 18, cy - 20, 36, 40);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 18, cy - 20, 36, 40);
+        // Barrel
+        ctx.fillStyle = '#cc5'; ctx.fillRect(cx + 18, cy - 4, 16, 7);
+        ctx.fillStyle = '#aa3'; ctx.fillRect(cx + 30, cy - 5, 4, 9); // muzzle
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 14, 9, 9);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 11, 5, 5);
+        break;
+      }
+      case 'jumper': {
+        ctx.fillRect(cx - 16, cy - 18, 32, 36);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 16, cy - 18, 32, 36);
+        // Spring feet
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(cx - 12, cy + 18, 8, 6);
+        ctx.fillRect(cx + 4, cy + 18, 8, 6);
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 12, 8, 8);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 9, 4, 5);
+        break;
+      }
+      case 'flyer': {
+        ctx.fillRect(cx - 16, cy - 18, 32, 36);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 16, cy - 18, 32, 36);
+        // Wings
+        ctx.fillStyle = '#bdb';
+        ctx.fillRect(cx - 30, cy - 8, 14, 20);
+        ctx.fillRect(cx + 16, cy - 8, 14, 20);
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 12, 8, 8);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 9, 4, 5);
+        break;
+      }
+      case 'deflector': {
+        ctx.fillRect(cx - 16, cy - 18, 32, 36);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 16, cy - 18, 32, 36);
+        // Kasa hat
+        ctx.fillStyle = '#aac';
+        ctx.beginPath(); ctx.moveTo(cx - 24, cy - 18); ctx.lineTo(cx, cy - 40); ctx.lineTo(cx + 24, cy - 18); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#889'; ctx.fillRect(cx - 24, cy - 22, 48, 5); // brim
+        // Katana (diagonal)
+        ctx.save();
+        ctx.translate(cx + 16, cy - 4);
+        ctx.rotate(-0.6);
+        ctx.fillStyle = '#dde'; ctx.fillRect(0, -2, 28, 4);
+        ctx.fillStyle = '#aa8'; ctx.fillRect(-4, -4, 5, 8); // guard
+        ctx.restore();
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 12, 8, 8);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 9, 4, 5);
+        break;
+      }
+      case 'bouncer': {
+        ctx.fillRect(cx - 18, cy - 20, 36, 40);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 18, cy - 20, 36, 40);
+        // Cannon barrel (angled up-right)
+        ctx.save();
+        ctx.translate(cx + 18, cy - 2);
+        ctx.rotate(-0.7);
+        ctx.fillStyle = '#555'; ctx.fillRect(0, -4, 22, 8);
+        ctx.fillStyle = accentColor; ctx.fillRect(19, -5, 4, 10); // muzzle
+        ctx.restore();
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 14, 9, 9);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 11, 5, 5);
+        break;
+      }
+      case 'shielded': {
+        ctx.fillRect(cx - 16, cy - 18, 32, 36);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 16, cy - 18, 32, 36);
+        // Floating shield (right side)
+        ctx.fillStyle = 'rgba(100,220,255,0.8)';
+        ctx.fillRect(cx + 20, cy - 22, 7, 44);
+        ctx.strokeStyle = '#aff'; ctx.lineWidth = 1.5;
+        ctx.strokeRect(cx + 20, cy - 22, 7, 44);
+        // Headband
+        ctx.fillStyle = '#5a8'; ctx.fillRect(cx - 14, cy - 18, 28, 4);
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 12, 8, 8);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 9, 4, 5);
+        break;
+      }
+      case 'protector': {
+        // Armored body (wider)
+        ctx.fillRect(cx - 20, cy - 24, 40, 48);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 20, cy - 24, 40, 48);
+        // Helmet
+        ctx.fillStyle = '#5a7'; ctx.fillRect(cx - 22, cy - 30, 44, 12);
+        // Tower shield (right side, wider)
+        ctx.fillStyle = '#3b7'; ctx.fillRect(cx + 24, cy - 28, 12, 56);
+        ctx.strokeStyle = '#2a5'; ctx.lineWidth = 1.5;
+        ctx.strokeRect(cx + 24, cy - 28, 12, 56);
+        // Shield emblem cross
+        ctx.fillStyle = '#8d8';
+        ctx.fillRect(cx + 28, cy - 10, 4, 20);
+        ctx.fillRect(cx + 24, cy - 2, 12, 4);
+        // Glowing visor
+        ctx.fillStyle = '#4f8'; ctx.fillRect(cx - 10, cy - 24, 20, 5);
+        // Aura hint
+        ctx.globalAlpha = 0.12;
+        ctx.strokeStyle = '#4f8'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, cy, 42, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'attacker': {
+        // Orb body
+        ctx.beginPath(); ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+        ctx.fillStyle = bodyColor; ctx.fill();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#f44';
+        ctx.beginPath(); ctx.arc(cx, cy, 30, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        // Inner eye
+        ctx.fillStyle = '#866';
+        ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+        // Crown horns
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(cx - 18, cy - 30, 6, 10);
+        ctx.fillRect(cx - 3, cy - 34, 6, 14);
+        ctx.fillRect(cx + 12, cy - 30, 6, 10);
+        break;
+      }
+      case 'flyshooter': {
+        ctx.fillRect(cx - 18, cy - 20, 36, 40);
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 18, cy - 20, 36, 40);
+        // Wings
+        ctx.fillStyle = '#dba';
+        ctx.fillRect(cx - 32, cy - 10, 14, 22);
+        ctx.fillRect(cx + 18, cy - 10, 14, 22);
+        // Barrel (right)
+        ctx.fillStyle = '#fa4'; ctx.fillRect(cx + 18, cy - 3, 14, 6);
+        ctx.fillStyle = '#fc6'; ctx.fillRect(cx + 29, cy - 4, 3, 8);
+        // Eyes
+        ctx.fillStyle = '#fff'; ctx.fillRect(cx + 2, cy - 14, 9, 9);
+        ctx.fillStyle = '#200'; ctx.fillRect(cx + 5, cy - 11, 5, 5);
+        break;
+      }
+    }
+
+    // Element pip above head
+    if (element && ELEMENT_COLORS[element]) {
+      const pipY = cy - 44;
+      ctx.fillStyle = accentColor;
+      ctx.beginPath();
+      ctx.moveTo(cx, pipY - 5);
+      ctx.lineTo(cx + 4, pipY);
+      ctx.lineTo(cx, pipY + 5);
+      ctx.lineTo(cx - 4, pipY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ── Weather System ──
+  _updateWeather() {
+    if (!this.levelElement) { this.weatherParticles = []; return; }
+    const theme = ELEMENT_LEVEL_THEMES[this.levelElement];
+    if (!theme || !theme.weather) { this.weatherParticles = []; return; }
+    const weather = theme.weather;
+    this.weatherTimer = (this.weatherTimer || 0) + 1;
+    // Spawn new particles
+    const spawnRate = weather === 'rain' ? 4 : (weather === 'storm' ? 6 : (weather === 'snow' ? 2 : (weather === 'embers' ? 3 : (weather === 'fog' ? 1 : 2))));
+    if (this.weatherTimer % spawnRate === 0) {
+      const cam = this.camera;
+      const px = cam.x + Math.random() * CANVAS_W;
+      const py = cam.y - 10;
+      if (weather === 'rain') {
+        this.weatherParticles.push({ x: px, y: py, vx: -0.5, vy: 12 + Math.random() * 4, life: 80, maxLife: 80, type: 'rain' });
+      } else if (weather === 'storm') {
+        this.weatherParticles.push({ x: px, y: py, vx: -1 + Math.random() * 2, vy: 15 + Math.random() * 5, life: 60, maxLife: 60, type: 'storm' });
+      } else if (weather === 'snow') {
+        this.weatherParticles.push({ x: px, y: py, vx: -0.8 + Math.random() * 1.6, vy: 1.5 + Math.random() * 2, life: 200, maxLife: 200, type: 'snow' });
+      } else if (weather === 'embers') {
+        this.weatherParticles.push({ x: cam.x + Math.random() * CANVAS_W, y: cam.y + CANVAS_H - 60, vx: -0.5 + Math.random(), vy: -(2 + Math.random() * 3), life: 120, maxLife: 120, type: 'embers' });
+      } else if (weather === 'fog') {
+        this.weatherParticles.push({ x: px, y: cam.y + 200 + Math.random() * 200, vx: 0.3 + Math.random() * 0.5, vy: 0, life: 300, maxLife: 300, type: 'fog' });
+      } else if (weather === 'leaves') {
+        this.weatherParticles.push({ x: px, y: py, vx: 1 + Math.random() * 2, vy: 2 + Math.random() * 2, life: 180, maxLife: 180, type: 'leaves', rot: Math.random() * Math.PI * 2 });
+      }
+    }
+    // Update particles
+    for (const p of this.weatherParticles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      if (p.type === 'leaves' && p.rot !== undefined) {
+        p.rot += 0.05;
+        p.vx += Math.sin(this.weatherTimer * 0.03) * 0.05;
+      }
+    }
+    this.weatherParticles = this.weatherParticles.filter(p => p.life > 0 && p.y < this.camera.y + CANVAS_H + 20);
+  }
+
+  _renderWeather(ctx, cam, bgOnly = false) {
+    if (!this.weatherParticles || this.weatherParticles.length === 0) return;
+    ctx.save();
+    for (const p of this.weatherParticles) {
+      const isFog = p.type === 'fog';
+      if (bgOnly && !isFog) continue;
+      if (!bgOnly && isFog) continue;
+      const sx = p.x - cam.x, sy = p.y - cam.y;
+      if (sx < -20 || sx > CANVAS_W + 20 || sy < -20 || sy > CANVAS_H + 20) continue;
+      const alpha = Math.min(1, p.life / (p.maxLife * 0.3));
+      if (p.type === 'rain' || p.type === 'storm') {
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.strokeStyle = p.type === 'storm' ? '#8888cc' : '#8899cc';
+        ctx.lineWidth = p.type === 'storm' ? 1.5 : 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + p.vx * 3, sy - 10);
+        ctx.stroke();
+      } else if (p.type === 'snow') {
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.fillStyle = '#cce8ff';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2 + Math.sin(p.life * 0.1), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'embers') {
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.fillStyle = Math.random() < 0.5 ? '#ff6622' : '#ff9900';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'fog') {
+        ctx.globalAlpha = Math.min(0.12, alpha * 0.12);
+        ctx.fillStyle = '#6644aa';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 60, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'leaves') {
+        ctx.globalAlpha = alpha * 0.75;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(p.rot || 0);
+        ctx.fillStyle = '#88aa44';
+        ctx.fillRect(-4, -2, 8, 4);
+        ctx.restore();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ── Hazard System ──
+  _updateHazards() {
+    if (!this.levelElement) { this.levelHazards = []; return; }
+    const theme = ELEMENT_LEVEL_THEMES[this.levelElement];
+    if (!theme || !theme.hazard) { this.levelHazards = []; return; }
+    this.hazardTimer = (this.hazardTimer || 0) + 1;
+    const hazardType = theme.hazard;
+    const pl = this.player;
+    // Spawn new hazards periodically
+    const spawnInterval = hazardType === 'thunder' ? 240 : (hazardType === 'rockfall' ? 180 : (hazardType === 'icicle' ? 200 : 0));
+    if (spawnInterval > 0 && this.hazardTimer % spawnInterval === 0 && !this.pathChoiceScreen && !this.orbBucketChoice) {
+      const spawnX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
+      if (hazardType === 'thunder') {
+        // Warning first, then strike
+        this.levelHazards.push({ type: 'thunder', x: spawnX, y: this.levelH - 80, phase: 'warn', timer: 90 });
+      } else if (hazardType === 'rockfall') {
+        this.levelHazards.push({ type: 'rock', x: spawnX, y: -20, vy: 2 + Math.random() * 3, r: 10 + Math.random() * 8, timer: 200 });
+      } else if (hazardType === 'icicle') {
+        // Find a platform to drop from
+        const icicleX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
+        this.levelHazards.push({ type: 'icicle', x: icicleX, y: 0, vy: 0, phase: 'fall', timer: 120 });
+      }
+    }
+    // Update existing hazards
+    for (const h of this.levelHazards) {
+      h.timer--;
+      if (h.type === 'thunder') {
+        if (h.phase === 'warn' && h.timer <= 0) {
+          // Strike!
+          h.phase = 'strike';
+          h.timer = 20;
+          // Damage player if in range
+          const dist = Math.abs(pl.x - h.x);
+          if (dist < 40 && !pl.invincibleTimer) {
+            pl.hp -= 2;
+            pl.invincibleTimer = 60;
+          }
+        }
+      } else if (h.type === 'rock') {
+        h.y += h.vy;
+        h.vy = Math.min(h.vy + 0.15, 10);
+        // Hurt player
+        const dx = Math.abs(pl.x - h.x), dy = Math.abs(pl.y - h.y);
+        if (dx < h.r + 12 && dy < h.r + 24 && !pl.invincibleTimer && h.timer > 0) {
+          pl.hp -= 1;
+          pl.invincibleTimer = 60;
+        }
+      } else if (h.type === 'icicle') {
+        h.vy += 0.3;
+        h.y += h.vy;
+        const dx = Math.abs(pl.x - h.x), dy = Math.abs(pl.y - h.y);
+        if (dx < 14 && dy < 24 && !pl.invincibleTimer && h.timer > 0) {
+          pl.hp -= 2;
+          pl.invincibleTimer = 60;
+        }
+      }
+    }
+    this.levelHazards = this.levelHazards.filter(h => h.timer > 0 && h.y < this.levelH + 60);
+  }
+
+  _renderHazards(ctx, cam) {
+    if (!this.levelHazards || this.levelHazards.length === 0) return;
+    ctx.save();
+    for (const h of this.levelHazards) {
+      const sx = h.x - cam.x, sy = h.y - cam.y;
+      if (h.type === 'thunder') {
+        if (h.phase === 'warn') {
+          // Glow warning column
+          const alpha = (1 - h.timer / 90) * 0.5;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = '#aa99ff';
+          ctx.fillRect(sx - 20, 0, 40, CANVAS_H);
+          ctx.globalAlpha = 1;
+        } else if (h.phase === 'strike') {
+          // Bright lightning bolt column
+          ctx.globalAlpha = h.timer / 20;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.shadowColor = '#8888ff';
+          ctx.shadowBlur = 20;
+          ctx.beginPath();
+          ctx.moveTo(sx, 0);
+          ctx.lineTo(sx - 8, CANVAS_H / 3);
+          ctx.lineTo(sx + 6, CANVAS_H * 0.6);
+          ctx.lineTo(sx, CANVAS_H);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha = 1;
+        }
+      } else if (h.type === 'rock') {
+        ctx.globalAlpha = Math.min(1, h.timer / 30);
+        ctx.fillStyle = '#886644';
+        ctx.beginPath();
+        ctx.arc(sx, sy, h.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#554422';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (h.type === 'icicle') {
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = '#aaddff';
+        ctx.beginPath();
+        ctx.moveTo(sx - 8, sy);
+        ctx.lineTo(sx + 8, sy);
+        ctx.lineTo(sx, sy + 28);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
   }
 
   buildTower() {
@@ -15950,7 +17010,7 @@ class Game {
   }
 
   spawnEnemy() {
-    const waveDef = WAVE_DEFS[this.wave - 1];
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     let totalW = 0;
     for (const e of waveDef.pool) totalW += e.weight;
     let r = Math.random() * totalW;
@@ -15979,9 +17039,16 @@ class Game {
     const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
-    // Elemental variant chance
-    if (Math.random() < ELEMENTAL_SPAWN_CHANCE + (this.wave - 1) * 0.03) {
-      e.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+    // Elemental variant chance — boosted when level has a theme element
+    const baseElemChance = ELEMENTAL_SPAWN_CHANCE + (this.wave - 1) * 0.04;
+    const boostedChance = this.levelElement ? Math.min(0.7, baseElemChance + 0.4) : baseElemChance;
+    if (Math.random() < boostedChance) {
+      // When a level element is active, bias 75% toward that element
+      if (this.levelElement && Math.random() < 0.75) {
+        e.element = this.levelElement;
+      } else {
+        e.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+      }
       e.elementColors = ELEMENT_COLORS[e.element];
       e.color = e.elementColors.body;
     }
@@ -15993,12 +17060,16 @@ class Game {
   }
 
   spawnBoss() {
-    const waveDef = WAVE_DEFS[this.wave - 1];
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
     this.boss = new Boss(bx, by, waveDef.boss, this.wave);
-    // Elemental variant chance
-    if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
+    // Use forced level element if set, otherwise small random chance
+    if (this.levelElement) {
+      this.boss.element = this.levelElement;
+      this.boss.elementColors = ELEMENT_COLORS[this.levelElement];
+      this.boss.color = this.boss.elementColors.body;
+    } else if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
       this.boss.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
       this.boss.elementColors = ELEMENT_COLORS[this.boss.element];
       this.boss.color = this.boss.elementColors.body;
@@ -16008,7 +17079,8 @@ class Game {
     this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, this.boss.element ? this.boss.elementColors.particle : '#f44', 25, 6, 25));
     SFX.bossSpawn();
     SFX.bossRoar();
-    this.showWaveMessage(this.boss.name + ` (${this.wave}/${TOTAL_WAVES})`);
+    const elemTag = this.boss.element ? ` [${this.boss.element.toUpperCase()}]` : '';
+    this.showWaveMessage(this.boss.name + elemTag + ` (${this.wave}/${TOTAL_WAVES})`);
     // Boss entrance phrase
     this.ninjaResponseActive = false;
     const bPhrase = getBattlePhrase(waveDef.boss, this.player.ninjaType, this.boss.element);
@@ -16029,8 +17101,92 @@ class Game {
     }
   }
 
+  // ── Path Choice Generation ──
+  // Generates path choice options for the next round.
+  // pool: array of WAVE_DEFS indices to offer.
+  // normalCount: how many of those should be 'normal' (no element).
+  // ── Dynamic Boss Progression ──────────────────────────────
+  // Returns the pool of WAVE_DEFS indices for the next round, or null if next
+  // round is the final boss (OVERLORD, set directly by caller).
+  // Mutates this.bossPool / this.mandatoryPool to track which bosses remain.
+  //
+  // Progression:
+  //  Wave 1 → 2 : [1,2,3]  GUNNER/JUMPER/FLYER — pick 1
+  //  Wave 2 → 3 : [rem 2] + [6 GUARDIAN]       — pick 1
+  //  Wave 3 → 4 : [rem 2] + [5 BOUNCER]        — pick 1
+  //  Wave 4 → 5 : [4,7,8] RONIN/AEGIS/NEMESIS  — mandatory, pick order
+  //  Wave 5 → 6 : [rem 2 of mandatory]          — pick 1
+  //  Wave 6 → 7 : [rem 1 of mandatory]          — forced single choice
+  //  Wave 7 → 8 : null → OVERLORD final boss
+  _getNextBossPool() {
+    const wave = this.wave; // current wave just completed (1-indexed)
+    if (wave === 1) {
+      this.bossPool = [1, 2, 3];
+      return this.bossPool.slice();
+    } else if (wave === 2) {
+      // Remove chosen, add GUARDIAN (6) in its place
+      const chosen = this.currentWaveDefIdx;
+      this.bossPool = (this.bossPool || [1, 2, 3]).filter(i => i !== chosen);
+      this.bossPool.push(6);
+      return this.bossPool.slice();
+    } else if (wave === 3) {
+      // Remove chosen, add BOUNCER (5) in its place
+      const chosen = this.currentWaveDefIdx;
+      this.bossPool = (this.bossPool || []).filter(i => i !== chosen);
+      this.bossPool.push(5);
+      return this.bossPool.slice();
+    } else if (wave === 4) {
+      // Start mandatory group: RONIN / AEGIS / NEMESIS
+      this.mandatoryPool = [4, 7, 8];
+      return this.mandatoryPool.slice();
+    } else if (wave === 5) {
+      // Remove first-chosen mandatory boss, show remaining 2
+      const chosen = this.currentWaveDefIdx;
+      this.mandatoryPool = (this.mandatoryPool || [4, 7, 8]).filter(i => i !== chosen);
+      return this.mandatoryPool.slice();
+    } else if (wave === 6) {
+      // Remove second-chosen, show last 1 (single-item confirmation)
+      const chosen = this.currentWaveDefIdx;
+      this.mandatoryPool = (this.mandatoryPool || []).filter(i => i !== chosen);
+      return this.mandatoryPool.slice(); // length === 1
+    } else if (wave === 7) {
+      // Round 8: OVERLORD — caller sets WAVE_DEFS[9] directly
+      return null;
+    }
+    return null;
+  }
+
+  _generatePathChoices(pool, normalCount) {
+    normalCount = normalCount !== undefined ? normalCount : 1;
+    const shuffled = pool.slice().sort(() => Math.random() - 0.5);
+    const choices = [];
+    const usedElements = [];
+    for (let i = 0; i < shuffled.length; i++) {
+      const waveIdx = shuffled[i];
+      const wd = WAVE_DEFS[waveIdx];
+      let element = null;
+      if (i >= normalCount) {
+        const available = ENEMY_ELEMENTS.filter(el => !usedElements.includes(el));
+        if (available.length > 0) {
+          element = available[Math.floor(Math.random() * available.length)];
+          usedElements.push(element);
+        }
+      }
+      const bossName = BOSS_NAMES[wd.boss] || wd.boss.toUpperCase();
+      // Pre-generate the orb reward for this specific choice
+      const mult = element ? (ELEMENT_BUDGET_MULT[element] || 1.0) : 1.0;
+      const orbData = this._generateOrbBuckets(mult);
+      choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta });
+    }
+    // Consume the boss item reward (shown at the top of the path screen)
+    const rewardItem = this.bossRewardItem || null;
+    this.bossRewardItem = null;
+    return { choices, selected: 0, delay: 60, rewardItem };
+  }
+
   // ── Orb Bucket Generation ──
-  _generateOrbBuckets() {
+  _generateOrbBuckets(budgetMult) {
+    budgetMult = budgetMult || 1.0;
     const pl = this.player;
 
     // How far behind the expected curve is the player?
@@ -16050,7 +17206,7 @@ class Game {
     // Budget: 1 element minimum (50), 2 elements max (100) when no perms
     // Scales up with wave and deficit
     const baseBudget = 50 + this.wave * 8;
-    const budget = Math.round(baseBudget * (1 + deficitRatio * 0.6));
+    const budget = Math.round(baseBudget * (1 + deficitRatio * 0.6) * budgetMult);
 
     const ORB_META = {
       heal:      { icon: '\u2665', color: '#f44', label: 'HP',       per: 3,  cost: 3 },
@@ -16203,17 +17359,20 @@ class Game {
       return;
     }
     // Track defeated boss type for earth construct unlocks
-    const waveDef = WAVE_DEFS[this.wave - 1];
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     recordWaveClear(this.wave, this.player.ninjaType);
     this.wave++;
+    // Scale kill target linearly: 20 kills at wave 1, +6 per wave (~62 at wave 8)
+    const _wkt = [20, 26, 32, 38, 44, 50, 56, 62];
+    this.currentKillsForBoss = _wkt[this.wave - 1] !== undefined ? _wkt[this.wave - 1] : 62;
     this.waveKills = 0;
     this.spawnedMiniboss = new Set();
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
     this.enemies = [];
-    // Boss kill phrase (skip if player is dying)
+    // Boss kill phrase
     const isLastBoss = this.wave > TOTAL_WAVES;
     if (!isLastBoss && !this.gameOverDelay) {
       const killPool = NEXT_WAVE_PHRASES[this.player.ninjaType] || BOSS_KILL_PHRASES;
@@ -16239,7 +17398,8 @@ class Game {
     this.spawnTimer = -120;
     SFX.wave();
     if (!this.gameOverDelay) {
-      this.showWaveMessage(`Wave ${this.wave}/${TOTAL_WAVES} — Fight!`);
+      const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
+      this.showWaveMessage(`Round ${this.wave}/${TOTAL_WAVES}${elemTag} — Fight!`);
     }
   }
 
@@ -16256,18 +17416,49 @@ class Game {
       return;
     }
 
+    // Path choice screen (combined boss selection + reward preview)
+    if (this.pathChoiceScreen) {
+      const pcs = this.pathChoiceScreen;
+      const numChoices = pcs.choices.length;
+      if (pcs.delay > 0) {
+        pcs.delay--;
+        // Only eat confirm buttons during delay; let arrows through
+        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
+      }
+      if (consumePress('ArrowLeft') || consumePress('KeyA')) pcs.selected = (pcs.selected + numChoices - 1) % numChoices;
+      if (consumePress('ArrowRight') || consumePress('KeyD')) pcs.selected = (pcs.selected + 1) % numChoices;
+      if (pcs.delay <= 0) {
+        if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
+          const chosen = pcs.choices[pcs.selected];
+          this.currentWaveDefIdx = chosen.waveIdx;
+          this.levelElement = chosen.element;
+          this.pathChoiceScreen = null;
+          // Apply the boss item reward if present
+          if (pcs.rewardItem) {
+            this.player.items[pcs.rewardItem] = true;
+            if (pcs.rewardItem === 'deathsKey') this.player.deathsKeyUsed = false;
+            this.itemPickupOverlay = { itemId: pcs.rewardItem, timer: 180 };
+            recordItemFound(pcs.rewardItem);
+          }
+          // Apply the pre-generated orb reward for the chosen path
+          this._applyOrbBucket(chosen.reward);
+          this.advanceWave();
+        }
+      }
+      return;
+    }
+
     // Orb bucket choice menu
     if (this.orbBucketChoice) {
       const obc = this.orbBucketChoice;
       if (obc.delay > 0) {
         obc.delay--;
-        // Consume stale inputs during delay
-        consumePress('ArrowLeft'); consumePress('KeyA');
-        consumePress('ArrowRight'); consumePress('KeyD');
+        // Only eat confirm buttons during delay; let arrows through
         consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
-      } else {
-        if (consumePress('ArrowLeft') || consumePress('KeyA')) obc.selected = (obc.selected + 2) % 3;
-        if (consumePress('ArrowRight') || consumePress('KeyD')) obc.selected = (obc.selected + 1) % 3;
+      }
+      if (consumePress('ArrowLeft') || consumePress('KeyA')) obc.selected = (obc.selected + 2) % 3;
+      if (consumePress('ArrowRight') || consumePress('KeyD')) obc.selected = (obc.selected + 1) % 3;
+      if (obc.delay <= 0) {
         if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this._applyOrbBucket(obc.buckets[obc.selected]);
           this.orbBucketChoice = null;
@@ -16303,10 +17494,10 @@ class Game {
       this.cheated = true;
       recordCheatUsed();
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
-      const waveDef = WAVE_DEFS[this.wave - 1];
+      const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (waveDef) {
         const pl = this.player;
-        const kills = waveDef.killsForBoss;
+        const kills = this.currentKillsForBoss;
         const bossOrbs = this.wave + 1; // avg boss orb count (wave + random 0-2)
         const drops = kills + bossOrbs;
         // Actual drop table rates × orb stat values per drop
@@ -16327,17 +17518,29 @@ class Game {
         pl.ultimateCharge  = 0;
         pl.ultimateReady   = false;
       }
-      // Give a random uncollected boss item
+      // Give a random uncollected boss item (stored in pcs.rewardItem or applied directly)
       const allItemKeys = Object.keys(BOSS_ITEMS);
       const uncollected = allItemKeys.filter(k => !this.player.items[k]);
-      if (uncollected.length > 0) {
-        const rItem = uncollected[Math.floor(Math.random() * uncollected.length)];
-        this.player.items[rItem] = true;
-        if (rItem === 'deathsKey') this.player.deathsKeyUsed = false;
-        this.itemPickupOverlay = { itemId: rItem, timer: 180 };
-        recordItemFound(rItem);
+      const rItem = uncollected.length > 0 ? uncollected[Math.floor(Math.random() * uncollected.length)] : null;
+      this.bossRewardItem = rItem;
+      // Trigger the path choice / reward screen instead of skipping straight to next wave
+      if (this.wave < TOTAL_WAVES) {
+        const nextPool = this._getNextBossPool();
+        if (nextPool === null) {
+          // Final boss (round 8): OVERLORD, no choice
+          this.currentWaveDefIdx = 9;
+          this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
+          const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
+          this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
+          this.orbBucketChoice.delay = 60;
+          this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
+          this.bossRewardItem = null;
+        } else {
+          this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
+        }
+      } else {
+        this.advanceWave();
       }
-      this.advanceWave();
     }
     // Cheat: 0 to toggle god mode
     if (consumePress('Digit0') || consumePress('Numpad0')) {
@@ -16451,14 +17654,20 @@ class Game {
     }
     this.fireTrails = this.fireTrails.filter(ft => ft.life > 0);
 
+    // Weather & hazard updates
+    if (!this.pathChoiceScreen && !this.orbBucketChoice) {
+      this._updateWeather();
+      this._updateHazards();
+    }
+
     // Wave / spawn logic
     if (!this.gameWon) {
-      const waveDef = WAVE_DEFS[this.wave - 1];
+      const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (!this.bossActive) {
-        if (this.waveKills >= waveDef.killsForBoss) {
+        if (this.waveKills >= this.currentKillsForBoss) {
           this.spawnBoss();
         } else {
-          const aliveCount = this.enemies.filter(e => !e.dead).length;
+          const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
           this.spawnTimer++;
           if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
             this.spawnTimer = 0;
@@ -16466,19 +17675,30 @@ class Game {
           }
         }
       } else {
-        const aliveCount = this.enemies.filter(e => !e.dead).length;
+        const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
         this.spawnTimer++;
         if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
           this.spawnTimer = 0;
           this.spawnEnemy();
         }
       }
-      if (this.boss && this.boss.dead && !this.orbBucketChoice) {
-        if(this.wave < TOTAL_WAVES) {
-          this.orbBucketChoice = this._generateOrbBuckets();
-          this.orbBucketChoice.delay = 60; // 1 second delay before selection allowed
-          this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-          this.bossRewardItem = null;
+      if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
+        if (this.wave < TOTAL_WAVES) {
+          // Determine next round's boss pool dynamically
+          const nextPool = this._getNextBossPool();
+          if (nextPool === null) {
+            // Final boss (round 8): OVERLORD, no choice
+            this.currentWaveDefIdx = 9;
+            this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
+            const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
+            this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
+            this.orbBucketChoice.delay = 60;
+            this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
+            this.bossRewardItem = null;
+          } else {
+            // Show combined path+reward choice screen
+            this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
+          }
         } else {
           this.gameWon = true;
           this.advanceWave();
@@ -16514,6 +17734,7 @@ class Game {
     this.enemies = this.enemies.filter(e => !e.dead);
     this.projectiles = this.projectiles.filter(p => !p.done);
     this.effects = this.effects.filter(e => !e.done);
+    if (this.effects.length > 300) this.effects.splice(0, this.effects.length - 300);
     this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
     this.bubbles = this.bubbles.filter(b => !b.done);
     this.orbs = this.orbs.filter(o => !o.done);
@@ -17331,6 +18552,10 @@ class Game {
     } else if (bubbleUltSky) {
       grad.addColorStop(0, '#082040');
       grad.addColorStop(1, '#0a3060');
+    } else if (this.levelElement && ELEMENT_LEVEL_THEMES[this.levelElement]) {
+      const th = ELEMENT_LEVEL_THEMES[this.levelElement];
+      grad.addColorStop(0, th.skyTop);
+      grad.addColorStop(1, th.skyBot);
     } else {
       grad.addColorStop(0, '#0a0a2e');
       grad.addColorStop(1, '#1a1a3e');
@@ -17349,7 +18574,9 @@ class Game {
     }
 
     // Background mountains
-    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : (stormUltSky ? '#0a0a1e' : (bubbleUltSky ? '#0a2040' : '#1a1a3a')));
+    const elemTheme = (!fireUltSky && !shadowUltSky && !stormUltSky && !bubbleUltSky && this.levelElement)
+      ? ELEMENT_LEVEL_THEMES[this.levelElement] : null;
+    ctx.fillStyle = fireUltSky ? '#2a0a0a' : (shadowUltSky ? '#080818' : (stormUltSky ? '#0a0a1e' : (bubbleUltSky ? '#0a2040' : (elemTheme ? elemTheme.mountainColor : '#1a1a3a'))));
     for (let i = 0; i < this.levelW; i += 200) {
       const bx = i - cam.x * 0.2;
       if (bx > -200 && bx < CANVAS_W + 200) {
@@ -17495,6 +18722,12 @@ class Game {
 
     // Spawn house
     this.renderSpawnHouse(ctx, cam);
+
+    // Fog clouds in background (before platforms)
+    this._renderWeather(ctx, cam, true);
+
+    // Level hazards (below platforms)
+    this._renderHazards(ctx, cam);
 
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
@@ -18253,6 +19486,9 @@ class Game {
     }
 
     if (!this.simplePause) this.renderUI();
+
+    // Weather overlay (on top of everything except UI — fog handled in background)
+    this._renderWeather(ctx, cam, false);
   }
 
   renderUI() {
@@ -18276,81 +19512,46 @@ class Game {
 
     // Ninja bar at top, status bars stacked up from bottom
     const ninjaBarY = 4;
-    const gap = 6;
 
-    // Mana pip bar
+    // ── Bottom HUD ──
     const manaColors = { fire: '#f93', earth: '#8b5e3c', bubble: '#6af', shadow: '#a4e', crystal: '#0ff', wind: '#8d8', storm: '#48f' };
     const manaColor = manaColors[pl.ninjaType] || '#aaa';
-    const pipSize = 14;
-    const pipGap = 4;
+
+    // Y anchors (all measured from bottom)
+    const barH = 26;
+    const barY   = CANVAS_H - barH - 6;  // 508
+    const ultY   = CANVAS_H - 46;        // 494
+    const buffY  = CANVAS_H - 66;        // 474
+    const pipY   = CANVAS_H - 92;        // 448
+
+    // ── Mana pips (above buff icons) ──
+    const pipSize = 16, pipGap = 4;
     const totalPips = pl.maxMana;
     const pipBarW = totalPips * (pipSize + pipGap) - pipGap;
     const pipBarX = CANVAS_W / 2 - pipBarW / 2;
-    const elemBarH = pipSize;
-    const elemBarY = CANVAS_H - elemBarH - gap;
     for (let i = 0; i < totalPips; i++) {
       const px = pipBarX + i * (pipSize + pipGap);
       const fillAmount = Math.min(1, Math.max(0, pl.mana - i));
       ctx.fillStyle = '#222';
-      ctx.fillRect(px, elemBarY, pipSize, pipSize);
+      ctx.fillRect(px, pipY, pipSize, pipSize);
       if (fillAmount > 0) {
         ctx.save();
-        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 8; }
+        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 6; }
         ctx.fillStyle = manaColor;
-        ctx.fillRect(px, elemBarY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
+        ctx.fillRect(px, pipY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
         ctx.restore();
       }
-      ctx.strokeStyle = '#555';
+      ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
-      ctx.strokeRect(px, elemBarY, pipSize, pipSize);
+      ctx.strokeRect(px, pipY, pipSize, pipSize);
     }
     const elemLabels = { fire: 'FIRE', earth: 'EARTH', bubble: 'WATER', shadow: 'SHADOW', crystal: 'CRYSTAL', wind: 'WIND', storm: 'STORM' };
-    ctx.fillStyle = '#ccc';
-    ctx.font = 'bold 9px monospace';
     const elemLabel = elemLabels[pl.ninjaType] || 'ELEM';
-    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, elemBarY + 11);
-
-    // Shield bar (separate row, only if player has shield)
-    const hasShield = pl.maxShield > 0;
-    const shieldBarH = 8;
-    const shieldBarW = Math.min(CANVAS_W - 40, 100 + pl.maxShield * 2);
-    const shieldBarY = hasShield ? elemBarY - shieldBarH - gap : elemBarY;
-    const shieldBarX = CANVAS_W / 2 - shieldBarW / 2;
-    if (hasShield) {
-      const shieldRatio = pl.displayShield / pl.maxShield;
-      ctx.fillStyle = '#112';
-      ctx.fillRect(shieldBarX, shieldBarY, shieldBarW, shieldBarH);
-      ctx.fillStyle = '#4af';
-      ctx.fillRect(shieldBarX, shieldBarY, shieldBarW * shieldRatio, shieldBarH);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px monospace';
-      ctx.fillText(`SH ${Math.round(pl.shield)}/${Math.round(pl.maxShield)}`, shieldBarX + 3, shieldBarY + 7);
-    }
-
-    // HP bar
-    const hpBarH = 10;
-    const hpBarW = Math.min(CANVAS_W - 40, 120 + pl.maxHp * 6);
-    const hpBarY = (hasShield ? shieldBarY : elemBarY) - hpBarH - gap;
-    const hpBarX = CANVAS_W / 2 - hpBarW / 2;
-    const hpRatio = pl.hp / pl.maxHp;
-    const displayHpRatio = pl.displayHp / pl.maxHp;
-    ctx.fillStyle = '#400';
-    ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
-    // Trailing damage bar (shows recent damage draining away)
-    if (displayHpRatio > hpRatio) {
-      ctx.fillStyle = '#f84';
-      ctx.fillRect(hpBarX, hpBarY, hpBarW * displayHpRatio, hpBarH);
-    }
-    ctx.fillStyle = '#e44';
-    ctx.fillRect(hpBarX, hpBarY, hpBarW * hpRatio, hpBarH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(hpBarX, hpBarY, hpBarW, hpBarH);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#aaa';
     ctx.font = 'bold 10px monospace';
-    ctx.fillText(`HP ${Math.round(pl.hp)}/${Math.round(pl.maxHp)}`, hpBarX + 3, hpBarY + 9);
+    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, pipY + 12);
 
-    // Buff icons data
+    // ── Buff icons ──
     const buffItems = [];
     const baseAtk = pl.type.attackDamage;
     const totalAtk = baseAtk + pl.bonusDamage;
@@ -18362,14 +19563,6 @@ class Game {
     buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
     buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
     buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: '#ccc' });
-
-    // Ultimate bar
-    const ultimateBarW = Math.min(CANVAS_W - 40, 140 + Math.floor(pl.ultimateMax / 5));
-    const ultimateBarH = 14;
-    const ultimateBarX = CANVAS_W / 2 - ultimateBarW / 2;
-    const ultimateBarY = hpBarY - ultimateBarH - gap;
-
-    // Buff icons above ultimate bar (ICON -> value)
     if (buffItems.length > 0) {
       ctx.font = 'bold 14px monospace';
       let totalBW = 0;
@@ -18386,67 +19579,122 @@ class Game {
       }
       totalBW += (buffItems.length - 1) * 14;
       let bx = CANVAS_W / 2 - totalBW / 2;
-      const by = ultimateBarY - 6;
       for (let i = 0; i < buffItems.length; i++) {
         const b = buffItems[i];
         ctx.fillStyle = b.color;
-        ctx.fillText(b.icon, bx, by);
+        ctx.fillText(b.icon, bx, buffY);
         const iconW = ctx.measureText(b.icon).width;
         ctx.fillStyle = '#fff';
-        ctx.fillText(String(b.value), bx + iconW + 3, by);
+        ctx.fillText(String(b.value), bx + iconW + 3, buffY);
         if (b.hasBonus) {
           const valW = ctx.measureText(String(b.value)).width;
           ctx.font = '10px monospace';
           ctx.fillStyle = '#5f5';
-          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, by);
+          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, buffY);
           ctx.font = 'bold 14px monospace';
         }
         bx += itemWidths[i] + 14;
       }
     }
 
-    ctx.save();
-    if (pl.ultimateReady || pl.ultimateActive) {
-      ctx.shadowColor = '#ff0';
-      ctx.shadowBlur = 12;
-    }
-    ctx.fillStyle = '#222';
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.fillStyle = pl.ultimateActive ? '#ff0' : (pl.ultimateReady ? '#ffd700' : '#555');
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW * Math.min(1, pl.ultimateCharge / pl.ultimateMax), ultimateBarH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.shadowBlur = 0;
-    ctx.restore();
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW, ultimateBarH);
-    ctx.globalAlpha = 0.8;
-    ctx.fillStyle = pl.ultimateActive ? '#ff0' : (pl.ultimateReady ? '#ffd700' : '#555');
-    ctx.fillRect(ultimateBarX, ultimateBarY, ultimateBarW * Math.min(1, pl.ultimateCharge / pl.ultimateMax), ultimateBarH);
-    ctx.globalAlpha = 1;
-    ctx.font = 'bold 10px monospace';
+    // ── Ult bar ──
+    const ultBarW = 280;
+    const ultBarH = 14;
+    const ultBarX = CANVAS_W / 2 - ultBarW / 2;
+    const ultBarTop = ultY - ultBarH;  // anchored at ultY baseline
+    ctx.textAlign = 'center';
     if (pl.ultimateReady && !pl.ultimateActive) {
-      const readyText = 'ULTIMATE READY! [V/M/Y]';
-      const tw = ctx.measureText(readyText).width;
-      const tx = CANVAS_W / 2 - tw / 2;
-      const ty = ultimateBarY + 11;
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#000';
-      ctx.strokeText(readyText, tx, ty);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(readyText, tx, ty);
+      const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
+      ctx.save();
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 16 : 6;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.fillStyle = blinkOn ? '#ffd700' : '#a88000';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = blinkOn ? '#fff' : '#ffd700';
+      ctx.fillText('ULTIMATE READY!  [V / M / Y]', CANVAS_W / 2, ultBarTop + ultBarH - 2);
     } else if (pl.ultimateActive) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#000';
-      ctx.strokeText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
+      ctx.save();
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
       ctx.fillStyle = '#fff';
-      ctx.fillText('ULTIMATE ACTIVE', ultimateBarX + 4, ultimateBarY + 11);
+      ctx.fillText('ULTIMATE ACTIVE', CANVAS_W / 2, ultBarTop + ultBarH - 2);
     } else {
-      ctx.fillStyle = '#ccc';
-      const pct = Math.floor((pl.ultimateCharge / pl.ultimateMax) * 100);
-      ctx.fillText(`ULT ${pct}%`, ultimateBarX + 4, ultimateBarY + 11);
+      const pct = pl.ultimateCharge / pl.ultimateMax;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.save();
+      if (pct >= 0.75) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
+      ctx.fillStyle = pct >= 0.75 ? '#c8a800' : '#555';
+      ctx.fillRect(ultBarX, ultBarTop, ultBarW * pct, ultBarH);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = pct >= 0.75 ? '#ffd700' : '#888';
+      ctx.fillText(`ULT  ${Math.floor(pct * 100)}%`, CANVAS_W / 2, ultBarTop + ultBarH - 2);
     }
+    ctx.textAlign = 'left';
+
+    // ── Main bar row: HP and Shield, growing outward from center ──
+    const centerX = CANVAS_W / 2;
+    const maxBarW = 220;
+    const hpRatio = pl.hp / pl.maxHp;
+    const displayHpRatio = pl.displayHp / pl.maxHp;
+
+    // HP bar (left half — fills rightward-anchored at center)
+    ctx.fillStyle = '#400';
+    ctx.fillRect(centerX - maxBarW, barY, maxBarW, barH);
+    if (displayHpRatio > hpRatio) {
+      ctx.fillStyle = '#f84';
+      ctx.fillRect(centerX - maxBarW * displayHpRatio, barY, maxBarW * displayHpRatio, barH);
+    }
+    ctx.fillStyle = '#e44';
+    ctx.fillRect(centerX - maxBarW * hpRatio, barY, maxBarW * hpRatio, barH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(centerX - maxBarW, barY, maxBarW, barH);
+    // HP number left of bar
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(Math.round(pl.hp)), centerX - maxBarW - 9, barY + barH - 3);
+    ctx.textAlign = 'left';
+
+    // Shield bar (right half — fills from center)
+    const hasShield = pl.maxShield > 0;
+    if (hasShield) {
+      const shieldRatio = Math.min(1, pl.displayShield / pl.maxShield);
+      ctx.fillStyle = '#112';
+      ctx.fillRect(centerX, barY, maxBarW, barH);
+      ctx.fillStyle = '#4af';
+      ctx.fillRect(centerX, barY, maxBarW * shieldRatio, barH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(centerX, barY, maxBarW, barH);
+      ctx.font = 'bold 22px monospace';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(String(Math.round(pl.shield)), centerX + maxBarW + 9, barY + barH - 3);
+    }
+
+    // Center divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, barY - 1);
+    ctx.lineTo(centerX, barY + barH + 1);
+    ctx.stroke();
 
     // Ninja selection bar
     const ninjaBarX = CANVAS_W / 2 - 182;
@@ -18481,7 +19729,8 @@ class Game {
     ctx.strokeRect(CANVAS_W - 175, 36, 167, 36);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText(`Wave ${this.wave}/${TOTAL_WAVES}`, CANVAS_W - 167, 52);
+    const roundElemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
+    ctx.fillText(`Round ${this.wave}/${TOTAL_WAVES}${roundElemTag}`, CANVAS_W - 167, 52);
     ctx.font = '10px monospace';
     ctx.fillStyle = '#ccc';
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
@@ -18491,13 +19740,13 @@ class Game {
       const pbW = 400, pbH = 18;
       const pbX = CANVAS_W / 2 - pbW / 2;
       const pbY = 38;
-      const waveDef = WAVE_DEFS[this.wave - 1];
-      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / waveDef.killsForBoss);
+      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / this.currentKillsForBoss);
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
       ctx.fillStyle = '#222';
       ctx.fillRect(pbX, pbY, pbW, pbH);
-      const barColor = this.bossActive ? '#f44' : `hsl(${30 + pct * 90}, 80%, 50%)`;
+      const elemAccent = this.levelElement ? (ELEMENT_COLORS[this.levelElement] ? ELEMENT_COLORS[this.levelElement].accent : null) : null;
+      const barColor = this.bossActive ? '#f44' : (elemAccent || `hsl(${30 + pct * 90}, 80%, 50%)`);
       ctx.fillStyle = barColor;
       ctx.fillRect(pbX, pbY, pbW * pct, pbH);
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
@@ -18507,7 +19756,7 @@ class Game {
       ctx.font = 'bold 11px monospace';
       const label = this.bossActive
         ? `BOSS ${this.wave}/${TOTAL_WAVES}`
-        : `${this.waveKills}/${waveDef.killsForBoss}`;
+        : `${this.waveKills}/${this.currentKillsForBoss}`;
       const tw = ctx.measureText(label).width;
       ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
@@ -18531,7 +19780,8 @@ class Game {
         ctx.fillRect(pbX, pbY, pbW * displayRatio, pbH);
       }
       // HP fill
-      ctx.fillStyle = b.phase === 2 ? '#f22' : '#e44';
+      const bossElemAccent = (b.element && ELEMENT_COLORS[b.element]) ? ELEMENT_COLORS[b.element].accent : null;
+      ctx.fillStyle = bossElemAccent || (b.phase === 2 ? '#f22' : '#e44');
       ctx.fillRect(pbX, pbY, pbW * hpRatio, pbH);
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 1;
@@ -18738,6 +19988,304 @@ class Game {
         }
         if (line) ctx.fillText(line, boxX + 52, lineY);
         ctx.globalAlpha = 1;
+      }
+    }
+
+    // Path choice overlay — combined boss selection + reward preview
+    if (this.pathChoiceScreen) {
+      const pcs = this.pathChoiceScreen;
+      const choices = pcs.choices;
+      ctx.fillStyle = 'rgba(0,0,0,0.82)';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+      // Boss item reward banner at the top (if any)
+      let bannerH = 0;
+      if (pcs.rewardItem) {
+        const def = BOSS_ITEMS[pcs.rewardItem];
+        if (def) {
+          bannerH = 52;
+          const ibW = 380, ibH = 44;
+          const ibX = CANVAS_W / 2 - ibW / 2, ibY = 8;
+          ctx.fillStyle = 'rgba(0,0,0,0.7)';
+          ctx.fillRect(ibX, ibY, ibW, ibH);
+          ctx.strokeStyle = def.color; ctx.lineWidth = 2;
+          ctx.strokeRect(ibX, ibY, ibW, ibH);
+          ctx.shadowColor = def.color; ctx.shadowBlur = 10;
+          drawItemIcon(ctx, pcs.rewardItem, ibX + 22, ibY + ibH / 2, 24, def.color);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = def.color; ctx.font = 'bold 13px monospace';
+          ctx.fillText(def.name, ibX + 44, ibY + 16);
+          ctx.fillStyle = '#ccc'; ctx.font = '10px monospace';
+          ctx.fillText(def.desc, ibX + 44, ibY + 32);
+        }
+      }
+
+      // Title
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px monospace';
+      const titleTxt = `Choose Your Path — Round ${this.wave + 1}/${TOTAL_WAVES}`;
+      ctx.fillText(titleTxt, CANVAS_W / 2 - ctx.measureText(titleTxt).width / 2, bannerH + 28);
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#aaa';
+      const subTxt = pcs.delay > 0
+        ? '\u22ef ' + Math.ceil(pcs.delay / 60) + '\u22ef'
+        : '\u2190 A/D \u2192 to browse   \u25b6 Z / Enter to confirm';
+      ctx.fillText(subTxt, CANVAS_W / 2 - ctx.measureText(subTxt).width / 2, bannerH + 46);
+
+      // Cards
+      const cardW = 218, cardH = 390, cardGap = 12;
+      const numCards = choices.length;
+      const totalCardW = cardW * numCards + cardGap * (numCards - 1);
+      const startCX = CANVAS_W / 2 - totalCardW / 2;
+      const startCY = bannerH + 56;
+
+      for (let ci = 0; ci < numCards; ci++) {
+        const ch = choices[ci];
+        const cx = startCX + ci * (cardW + cardGap);
+        const cy = startCY;
+        const isSel = ci === pcs.selected;
+        const elemColors = ch.element ? ELEMENT_COLORS[ch.element] : null;
+        const borderColor = isSel ? (elemColors ? elemColors.accent : '#ffe033') : (elemColors ? elemColors.body : '#444');
+
+        // Card bg
+        ctx.fillStyle = isSel ? 'rgba(255,255,255,0.08)' : 'rgba(10,10,20,0.80)';
+        ctx.fillRect(cx, cy, cardW, cardH);
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = isSel ? 3 : 1.5;
+        ctx.strokeRect(cx, cy, cardW, cardH);
+
+        // Element color strip at top
+        if (elemColors) {
+          ctx.fillStyle = elemColors.body;
+          ctx.fillRect(cx, cy, cardW, 5);
+        }
+
+        // ── Boss sprite preview (top 110px) ──
+        const previewCX = cx + cardW / 2;
+        const previewCY = cy + 62;
+        this._drawBossPreview(ctx, ch.bossType, ch.element, previewCX, previewCY);
+
+        // Boss name
+        ctx.fillStyle = isSel ? '#fff' : '#ccc';
+        ctx.font = 'bold 15px monospace';
+        const bossLabel = ch.bossName;
+        ctx.fillText(bossLabel, cx + cardW / 2 - ctx.measureText(bossLabel).width / 2, cy + 125);
+
+        // Element / variant tag
+        if (ch.element && elemColors) {
+          ctx.fillStyle = elemColors.accent;
+          ctx.font = 'bold 11px monospace';
+          const elLabel = '\u25c6 ' + ch.element.toUpperCase() + ' VARIANT';
+          ctx.fillText(elLabel, cx + cardW / 2 - ctx.measureText(elLabel).width / 2, cy + 142);
+          // Difficulty stars
+          const mult = ELEMENT_BUDGET_MULT[ch.element] || 1.0;
+          const stars = Math.max(1, Math.round((mult - 1.0) / 0.1));
+          ctx.fillStyle = '#ffd700';
+          ctx.font = '12px monospace';
+          const starStr = '\u2605'.repeat(Math.min(stars, 7));
+          ctx.fillText(starStr, cx + cardW / 2 - ctx.measureText(starStr).width / 2, cy + 158);
+        } else {
+          ctx.fillStyle = '#888';
+          ctx.font = '11px monospace';
+          const normalLabel = '\u25cb NORMAL';
+          ctx.fillText(normalLabel, cx + cardW / 2 - ctx.measureText(normalLabel).width / 2, cy + 142);
+        }
+
+        // Divider
+        ctx.strokeStyle = isSel ? (elemColors ? elemColors.body : '#555') : '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx + 12, cy + 168);
+        ctx.lineTo(cx + cardW - 12, cy + 168);
+        ctx.stroke();
+
+        // ── Rewards section ──
+        ctx.fillStyle = '#aaa';
+        ctx.font = '10px monospace';
+        ctx.fillText('REWARDS', cx + 12, cy + 181);
+
+        if (ch.reward && ch.meta) {
+          const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','shield','heal'];
+          const entries = Object.entries(ch.reward)
+            .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
+          let ey = cy + 195;
+          for (const [type, count] of entries) {
+            const m = ch.meta[type];
+            if (!m) continue;
+            const totalVal = count * m.per;
+            ctx.fillStyle = m.color;
+            ctx.font = 'bold 13px monospace';
+            ctx.fillText(m.icon, cx + 14, ey + 3);
+            ctx.font = '11px monospace';
+            ctx.fillText('+' + totalVal + ' ' + m.label, cx + 32, ey + 3);
+            if (count > 1) {
+              ctx.fillStyle = '#666';
+              ctx.font = '9px monospace';
+              ctx.fillText('x' + count, cx + cardW - 28, ey + 2);
+            }
+            ey += 20;
+            if (ey > cy + cardH - 28) break; // safety clip
+          }
+        }
+
+        // Selection arrow
+        if (isSel) {
+          ctx.fillStyle = elemColors ? elemColors.accent : '#ffe033';
+          ctx.font = 'bold 18px monospace';
+          ctx.fillText('\u25bc', cx + cardW / 2 - 7, cy + cardH - 12);
+        }
+
+        // ── Element ambient particles (drawn on top of card content) ──
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cx + 1, cy + 1, cardW - 2, cardH - 2);
+        ctx.clip();
+        const t = this.tick;
+        const alpha = isSel ? 0.90 : 0.60;
+        if (ch.element === 'fire') {
+          // Rising ember sparks with glow
+          for (let k = 0; k < 14; k++) {
+            const phase = (t * 1.4 + k * 31) % (cardH + 20);
+            const px = cx + 10 + ((k * 53 + 17) % (cardW - 20));
+            const py = cy + cardH - phase;
+            const r = 2.5 + (k % 3) * 1.2;
+            const col = k % 2 === 0 ? '#ff6a00' : '#ffcc00';
+            ctx.globalAlpha = alpha * (0.4 + 0.6 * (phase / (cardH + 20)));
+            ctx.shadowColor = col; ctx.shadowBlur = 8;
+            ctx.fillStyle = col;
+            ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+        } else if (ch.element === 'ghost') {
+          // Drifting wisp rings with glow
+          for (let k = 0; k < 7; k++) {
+            const phase = (t * 0.7 + k * 55) % 280;
+            const px = cx + 16 + ((k * 47 + 10) % (cardW - 32));
+            const py = cy + cardH * 0.25 + Math.sin(t * 0.05 + k * 1.2) * 40 - phase * 0.2;
+            const fade = 1 - phase / 280;
+            ctx.globalAlpha = alpha * fade;
+            ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 12;
+            ctx.strokeStyle = k % 2 === 0 ? '#7cfc00' : '#00ff88';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(px, py, 7 + k * 2.5, 0, Math.PI * 2); ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
+        } else if (ch.element === 'water') {
+          // Falling raindrops with shimmer
+          for (let k = 0; k < 18; k++) {
+            const phase = (t * 3.0 + k * 29) % (cardH + 16);
+            const px = cx + 6 + ((k * 13 + 3) % (cardW - 12));
+            const py = cy + phase;
+            ctx.globalAlpha = alpha * 0.85;
+            ctx.shadowColor = '#4af'; ctx.shadowBlur = 6;
+            ctx.strokeStyle = k % 3 === 0 ? '#8ef' : '#4af';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 1, py + 7); ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
+        } else if (ch.element === 'crystal') {
+          // Rotating sparkle crosses with glow
+          for (let k = 0; k < 8; k++) {
+            const px = cx + 16 + ((k * 29 + 8) % (cardW - 32));
+            const py = cy + 20 + ((k * 41 + 14) % (cardH - 36));
+            const angle = (t * 0.05 + k * 0.7) % (Math.PI * 2);
+            ctx.globalAlpha = alpha * (0.55 + 0.45 * Math.sin(t * 0.08 + k));
+            ctx.shadowColor = '#aef'; ctx.shadowBlur = 10;
+            ctx.strokeStyle = k % 2 === 0 ? '#aef' : '#fff';
+            ctx.lineWidth = 1.5;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(angle);
+            const s = 6 + k % 4;
+            ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(0, s); ctx.stroke();
+            ctx.restore();
+          }
+          ctx.shadowBlur = 0;
+        } else if (ch.element === 'wind') {
+          // Sweeping streaks across the full card
+          for (let k = 0; k < 10; k++) {
+            const phase = (t * 4.5 + k * 41) % (cardW + 80);
+            const py = cy + 16 + ((k * 37) % (cardH - 28));
+            const px = cx - 30 + phase;
+            const len = 24 + (k % 4) * 8;
+            ctx.globalAlpha = alpha * (0.4 + 0.6 * (1 - Math.abs(phase - (cardW / 2 + 40)) / (cardW / 2 + 40)));
+            ctx.shadowColor = '#8f8'; ctx.shadowBlur = 6;
+            ctx.strokeStyle = k % 2 === 0 ? '#cfc' : '#8f8';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + len, py + 4); ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
+        } else if (ch.element === 'lightning') {
+          // Persistent edge sparks + periodic full bolt
+          const bolt = Math.floor(t / 12) % 8 === 0;
+          if (bolt) {
+            ctx.globalAlpha = alpha;
+            ctx.shadowColor = '#6ff'; ctx.shadowBlur = 16;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            const by = cy + cardH * 0.5 + (Math.sin(t * 0.3) * 30);
+            ctx.beginPath();
+            let lx = cx + 6;
+            ctx.moveTo(lx, by);
+            while (lx < cx + cardW - 6) {
+              lx += 8 + Math.random() * 10;
+              ctx.lineTo(lx, by + (Math.random() * 18 - 9));
+            }
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+          }
+          // Persistent crackling corner sparks
+          const corners = [[cx + 6, cy + 6], [cx + cardW - 6, cy + 6], [cx + 6, cy + cardH - 6], [cx + cardW - 6, cy + cardH - 6]];
+          for (let k = 0; k < 4; k++) {
+            ctx.globalAlpha = alpha * (0.5 + 0.5 * Math.abs(Math.sin(t * 0.18 + k * 1.8)));
+            ctx.shadowColor = '#6ff'; ctx.shadowBlur = 14;
+            ctx.fillStyle = '#6ff';
+            ctx.beginPath(); ctx.arc(corners[k][0], corners[k][1], 3.5, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+          // Arc lines from edges
+          for (let k = 0; k < 3; k++) {
+            if ((t + k * 7) % 20 < 3) {
+              const ey = cy + 30 + k * 110;
+              ctx.globalAlpha = alpha * 0.8;
+              ctx.shadowColor = '#6ff'; ctx.shadowBlur = 8;
+              ctx.strokeStyle = '#6ff'; ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(cx + 1, ey);
+              ctx.lineTo(cx + 12 + Math.random() * 10, ey + (Math.random() * 16 - 8));
+              ctx.stroke();
+              ctx.shadowBlur = 0;
+            }
+          }
+        } else if (ch.element === 'spiky') {
+          // Falling rock chunks
+          for (let k = 0; k < 12; k++) {
+            const phase = (t * 2.2 + k * 33) % (cardH + 24);
+            const px = cx + 8 + ((k * 19 + 5) % (cardW - 16));
+            const py = cy + phase - 12;
+            ctx.globalAlpha = alpha * 0.9;
+            ctx.fillStyle = k % 3 === 0 ? '#c8a' : k % 3 === 1 ? '#a86' : '#745';
+            const s = 3 + k % 4;
+            ctx.fillRect(px, py, s, s);
+            // small shadow below
+            ctx.globalAlpha = alpha * 0.25;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(px + 1, py + s, s - 1, 2);
+          }
+        } else {
+          // Normal: drifting light orbs
+          for (let k = 0; k < 6; k++) {
+            const phase = (t * 0.5 + k * 75) % 360;
+            const px = cx + cardW * 0.2 + Math.sin(phase * Math.PI / 180 + k) * cardW * 0.38;
+            const py = cy + cardH * 0.5 + Math.cos(phase * Math.PI / 180 + k * 0.8) * cardH * 0.28;
+            ctx.globalAlpha = alpha * 0.55;
+            ctx.shadowColor = '#fff'; ctx.shadowBlur = 6;
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+        }
+        ctx.restore();
       }
     }
 
