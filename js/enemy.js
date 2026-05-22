@@ -1114,11 +1114,13 @@ class Enemy {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
-      game.player.vx = kbDir * kbStr;
-      game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
-      if (isCharging) game.player.knockbackTimer = 10;
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
       const spikyMul = this.element === 'spiky' ? 1.5 : 1;
+      if (game.player.invincibleTimer <= 0) {
+        game.player.vx = kbDir * kbStr;
+        game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
+        if (isCharging) game.player.knockbackTimer = 10;
+      }
       game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.contactTick = 30;
       if (isCharging) {
@@ -1598,6 +1600,13 @@ class Enemy {
       ctx.beginPath();
       ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
       // Inner eye
       ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
       ctx.beginPath();
@@ -1611,6 +1620,11 @@ class Enemy {
       }
       ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
       ctx.fillRect(sx, sy, this.w, this.h);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       if (this.element === 'ghost') ctx.restore();
     }
 
@@ -2832,10 +2846,14 @@ class Boss extends Enemy {
             game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
             if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
               const kbDir = Math.sign(game.player.x - cx) || 1;
-              game.player.vx = kbDir * 18;
-              game.player.vy = -9;
-              game.player.knockbackTimer = 12;
-              if (!game.player.slamming) game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+              if (!game.player.slamming) {
+                if (game.player.invincibleTimer <= 0) {
+                  game.player.vx = kbDir * 18;
+                  game.player.vy = -9;
+                  game.player.knockbackTimer = 12;
+                }
+                game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+              }
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -2997,9 +3015,11 @@ class Boss extends Enemy {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
       const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
       if (isCharging) {
-        game.player.vx = kbDir * 22;
-        game.player.vy = -5;
-        game.player.knockbackTimer = 14;
+        if (game.player.invincibleTimer <= 0) {
+          game.player.vx = kbDir * 22;
+          game.player.vy = -5;
+          game.player.knockbackTimer = 14;
+        }
         const chargeDmg = Math.round(this.contactDmg * 1.5);
         game.player.takeDamage(chargeDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
         this.chargeState = 'recoil';
@@ -3007,9 +3027,11 @@ class Boss extends Enemy {
         this.vx = -this.facing * speed * 3;
         this.vy = -8;
       } else {
-        game.player.vx = kbDir * 18;
-        game.player.vy = -9;
-        game.player.knockbackTimer = 12;
+        if (game.player.invincibleTimer <= 0) {
+          game.player.vx = kbDir * 18;
+          game.player.vy = -9;
+          game.player.knockbackTimer = 12;
+        }
         game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
       this.contactTick = 45;
@@ -3186,6 +3208,13 @@ class Boss extends Enemy {
       ctx.beginPath();
       ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(orbCx, orbCy, orbR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
       // Inner eye
       ctx.fillStyle = this.attackerInvulnerable ? '#f88' : '#866';
       ctx.beginPath();
@@ -3200,6 +3229,12 @@ class Boss extends Enemy {
       // Armored knight body
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       // Helmet with visor
       ctx.fillStyle = '#5a7';
       ctx.fillRect(sx - 3, sy - 8, this.w + 6, 14);
@@ -3336,6 +3371,12 @@ class Boss extends Enemy {
       // Ronin samurai body
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
       // Kasa (farmer hat)
       ctx.fillStyle = '#aac';
       ctx.beginPath();
@@ -3420,6 +3461,12 @@ class Boss extends Enemy {
       // Default boss body (walker, shooter, jumper, bouncer, shielded, flyer, flyshooter)
       ctx.fillStyle = bodyColor;
       ctx.fillRect(sx, sy, this.w, this.h);
+      // Outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+      ctx.restore();
 
       // Flying wings
       if (this.flying) {

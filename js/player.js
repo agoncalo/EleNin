@@ -3620,6 +3620,10 @@ class Player {
     ctx.fillStyle = bodyColor;
     ctx.fillRect(sx, sy, this.w, this.h);
 
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+
     // Eyes
     ctx.fillStyle = '#fff';
     const eyeX = this.facing > 0 ? sx + 14 : sx + 4;
@@ -3639,8 +3643,14 @@ class Player {
     ctx.lineTo(sx + this.w + 6, sy + 2);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
     // Brim
     ctx.fillStyle = t.color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - 6 + 0.5, sy + 0.5, this.w + 11, 2)
     ctx.fillRect(sx - 6, sy, this.w + 12, 3);
 
     // Small flower on hat for bubble, crystal, wind
@@ -3904,9 +3914,9 @@ class Player {
         // Stone fist body
         ctx.fillStyle = '#c8a878';
         ctx.fillRect(fx - (dir > 0 ? 0 : fistW), fy, fistW, fistH);
-        ctx.strokeStyle = '#5a3a1a';
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) + 0.5, fy + 0.5, fistW - 1, fistH - 1);
+        ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) - 0.5, fy - 0.5, fistW + 1, fistH + 1);
         // Knuckle highlights (4 across the tall fist)
         ctx.fillStyle = '#e8d0b0';
         const kx = dir > 0 ? fx + fistW - 5 : fx - fistW + 1;
@@ -3992,6 +4002,14 @@ class Player {
         ctx.shadowColor = '#c060ff';
         ctx.shadowBlur = 14;
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+        ctx.shadowBlur = 14;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
         // Inner blade darker fill for depth
         ctx.beginPath();
         ctx.moveTo(0, -4);
@@ -4180,6 +4198,9 @@ class Player {
         ctx.lineTo(6, 1.5);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
         ctx.strokeStyle = isLightning ? '#ff8' : '#fff';
         ctx.lineWidth = 0.7;
         ctx.beginPath();
