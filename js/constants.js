@@ -116,7 +116,7 @@ const MANA_CAPS = {
 };
 
 // Chance for an enemy to be elemental (per spawn)
-const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% chance
+const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% base chance (boosted when level has an element)
 
 const NINJA_TYPES = {
   fire: {
@@ -187,16 +187,16 @@ const NINJA_TYPES = {
 // ── Enemy tier system ────────────────────────────────────────
 const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
-  walker:     { color: '#a55', hp: 3, dmg: 3, name: 'Walker' },
-  shooter:    { color: '#aa5', hp: 3, dmg: 3, name: 'Shooter' },
-  jumper:     { color: '#a8a', hp: 4, dmg: 4, name: 'Jumper' },
-  bouncer:    { color: '#a5a', hp: 5, dmg: 4, name: 'Bouncer' },
-  shielded:   { color: '#5a8', hp: 6, dmg: 4, name: 'Shielded' },
-  deflector:  { color: '#88a', hp: 14, dmg: 6, name: 'Deflector' },
-  protector:  { color: '#4a6', hp: 18, dmg: 4, name: 'Protector' },
-  attacker:   { color: '#a44', hp: 1, dmg: 10, name: 'Attacker' },
-  flyer:      { color: '#8c5', hp: 2, dmg: 5, name: 'Flyer' },
-  flyshooter: { color: '#c85', hp: 3, dmg: 5, name: 'Fly-Shooter' }
+  walker:     { color: '#a55', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
+  shooter:    { color: '#aa5', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
+  jumper:     { color: '#a8a', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
+  bouncer:    { color: '#a5a', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  shielded:   { color: '#5a8', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
+  deflector:  { color: '#88a', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
+  protector:  { color: '#4a6', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
+  attacker:   { color: '#a44', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
+  flyer:      { color: '#8c5', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
+  flyshooter: { color: '#c85', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
 };
 
 function getTierInfo(tierIdx) {
@@ -209,16 +209,83 @@ function getTierName(tierIdx) {
 }
 
 // ── Wave definitions ─────────────────────────────────────────
-const TOTAL_WAVES = 10;
+const TOTAL_WAVES = 5; // 5 rounds (choose-your-path system)
+
+// Boss path pools per round (0-indexed).
+// Each entry: a fixed WAVE_DEFS index, or an array of indices to choose from.
+const BOSS_PATH_POOLS = [
+  0,         // Round 1: BRUTE (walker) — always first, no choice
+  [1, 2, 3], // Round 2: GUNNER / LEAPER / SWOOPER
+  [3, 5, 6], // Round 3: SWOOPER / BOUNCER / GUARDIAN
+  [4, 7, 8], // Round 4: RONIN / AEGIS / NEMESIS
+  'random',  // Round 5: OVERLORD — always, no choice shown
+];
+
+// Reward budget multipliers per element (harder = bigger reward)
+const ELEMENT_BUDGET_MULT = {
+  fire:      1.30,
+  ghost:     1.60,  // hard: immune to steel
+  water:     1.20,
+  crystal:   1.35,
+  wind:      1.20,
+  lightning: 1.50,  // hard: strong DOT paralysis
+  spiky:     1.60,  // hard: reflects sword damage
+};
+
+// Visual and gameplay theming per level element
+const ELEMENT_LEVEL_THEMES = {
+  fire: {
+    skyTop: '#280808', skyBot: '#180404',
+    mountainColor: '#380a0a',
+    platformColor: '#664433', platformColorAlt: '#553322', groundColor: '#554433',
+    weather: 'embers', hazard: 'flame',
+  },
+  ghost: {
+    skyTop: '#0d0a18', skyBot: '#080614',
+    mountainColor: '#12091e',
+    platformColor: '#443356', platformColorAlt: '#332244', groundColor: '#2a1a3a',
+    weather: 'fog', hazard: null,
+  },
+  water: {
+    skyTop: '#081828', skyBot: '#041020',
+    mountainColor: '#0a1e2e',
+    platformColor: '#244466', platformColorAlt: '#1a3355', groundColor: '#1a3050',
+    weather: 'rain', hazard: 'current',
+  },
+  crystal: {
+    skyTop: '#081820', skyBot: '#041018',
+    mountainColor: '#0e1c28',
+    platformColor: '#2a3f5a', platformColorAlt: '#1e3044', groundColor: '#1a2c3a',
+    weather: 'snow', hazard: 'icicle',
+  },
+  wind: {
+    skyTop: '#081008', skyBot: '#050b04',
+    mountainColor: '#0c180a',
+    platformColor: '#3a4a2a', platformColorAlt: '#283520', groundColor: '#2a3a1a',
+    weather: 'leaves', hazard: 'gust',
+  },
+  lightning: {
+    skyTop: '#08080e', skyBot: '#040408',
+    mountainColor: '#0c0c18',
+    platformColor: '#2a2a44', platformColorAlt: '#1e1e33', groundColor: '#1e1e33',
+    weather: 'storm', hazard: 'thunder',
+  },
+  spiky: {
+    skyTop: '#160a0a', skyBot: '#0e0606',
+    mountainColor: '#1e0c0c',
+    platformColor: '#554433', platformColorAlt: '#443322', groundColor: '#442200',
+    weather: null, hazard: 'rockfall',
+  },
+};
 const WAVE_DEFS = [
-  { boss: 'walker', killsForBoss: 20,
+  { boss: 'walker', killsForBoss: 20,  // Round 1
     pool: [
       { type: 'walker', weight: 5 },
       { type: 'shooter', weight: 3 },
       { type: 'walker', weight: 2, big: true },
     ]
   },
-  { boss: 'shooter', killsForBoss: 25,
+  { boss: 'shooter', killsForBoss: 26,  // Round 2 choice
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
@@ -227,7 +294,7 @@ const WAVE_DEFS = [
       { type: 'shooter', weight: 1, big: true },
     ]
   },
-  { boss: 'jumper', killsForBoss: 30,
+  { boss: 'jumper', killsForBoss: 30,   // Round 2 choice
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -236,7 +303,7 @@ const WAVE_DEFS = [
       { type: 'jumper', weight: 1, big: true },
     ]
   },
-  { boss: 'flyer', killsForBoss: 35,
+  { boss: 'flyer', killsForBoss: 28,    // Round 2-3 choice
     pool: [
       { type: 'shooter', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -245,7 +312,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'deflector', killsForBoss: 45,
+  { boss: 'deflector', killsForBoss: 48, // Round 4 choice
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 3 },
@@ -253,7 +320,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'bouncer', killsForBoss: 40,
+  { boss: 'bouncer', killsForBoss: 38,   // Round 3 choice
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
@@ -265,7 +332,7 @@ const WAVE_DEFS = [
     ]
   },
 
-  { boss: 'shielded', killsForBoss: 50,
+  { boss: 'shielded', killsForBoss: 42,  // Round 3 choice
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -276,7 +343,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true }
     ]
   },
-  { boss: 'protector', killsForBoss: 56,
+  { boss: 'protector', killsForBoss: 50, // Round 4 choice
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -286,7 +353,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true },
     ]
   },
-  { boss: 'attacker', killsForBoss: 64,
+  { boss: 'attacker', killsForBoss: 52,  // Round 4 choice only
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -298,7 +365,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'flyshooter', killsForBoss: 70,
+  { boss: 'flyshooter', killsForBoss: 56, // Round 5
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },

@@ -1134,7 +1134,9 @@ class Enemy {
     if (this.dead) return false;
     if (this.friendly) return false;
     // Ghost: immune to blade & shuriken (only abilities/elemental can hurt)
-    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken')) {
+    // Exception: sword hits on a shielded/protector can still chip the physical shield
+    const hasActiveShield = (this.type === 'shielded' || this.type === 'protector') && this.shieldHp > 0;
+    if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken') && !hasActiveShield) {
       this.flashTimer = 4;
       if (this.resistTimer <= 0) {
         game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'IMMUNE', '#6f6'));
@@ -1230,9 +1232,7 @@ class Enemy {
       if (this.shieldHp <= 0) {
         this.shieldHp = 0;
         this.stunTimer = Math.max(this.stunTimer, 90);
-        this.chargeSt
-        
-        ate = 'idle';
+        this.chargeState = 'idle';
         this.chargeTimer = 0;
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
@@ -2166,10 +2166,8 @@ class Boss extends Enemy {
     this.bossType = bossType;
     // Override dimensions — boss is bigger than any regular enemy
     this.w = 56; this.h = 56;
-    // Override HP — based on mob's base HP
-    this.hp = ENEMY_STATS[bossType].hp * 10 * wave;
-    if (bossType === 'attacker') this.hp = Math.max(this.hp, 500);
-    if (bossType === 'flyshooter') this.hp = Math.max(this.hp, 1000);
+    // Override HP — uses bossBase * wave for consistent per-round scaling
+    this.hp = (ENEMY_STATS[bossType].bossBase || 200) * wave;
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     // Override contact damage — boss takes 3 hits to kill player
