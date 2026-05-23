@@ -70,12 +70,16 @@ function damageInRadius(game, cx, cy, radius, damage, fromX) {
 }
 
 // Find nearest enemy or boss with line of sight from a point
-function findNearestTarget(x, y, game, facing) {
+function findNearestTarget(x, y, game, facing, preferBoss = false, ignoreLOS = false) {
+  // Boss priority: if preferBoss and boss is alive, always target boss
+  if (preferBoss && game.boss && !game.boss.dead) {
+    return game.boss;
+  }
   let nearest = null, bestDist = Infinity;
   for (const e of game.enemies) {
     if (e.dead) continue;
     if (e.friendly) continue; // Don't target friendly enemies
-    if (!hasLineOfSight(x, y, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
+    if (!ignoreLOS && !hasLineOfSight(x, y, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
     const dx = (e.x + e.w / 2) - x, dy = (e.y + e.h / 2) - y;
     // Skip enemies directly behind the ninja (~90° cone behind)
     if (facing && dx * facing < 0 && Math.abs(dy) < Math.abs(dx)) continue;
@@ -83,7 +87,8 @@ function findNearestTarget(x, y, game, facing) {
     if (d < bestDist) { bestDist = d; nearest = e; }
   }
   if (game.boss && !game.boss.dead) {
-    if (hasLineOfSight(x, y, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game)) {
+    const losOk = ignoreLOS || hasLineOfSight(x, y, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game);
+    if (losOk) {
       const dx = (game.boss.x + game.boss.w / 2) - x, dy = (game.boss.y + game.boss.h / 2) - y;
       if (!(facing && dx * facing < 0 && Math.abs(dy) < Math.abs(dx))) {
         const d = dx * dx + dy * dy;
@@ -96,9 +101,9 @@ function findNearestTarget(x, y, game, facing) {
 
 // Fire a projectile at the nearest enemy or boss with line of sight
 function fireProjectileAtNearestEnemy({
-  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false, facing = 0
+  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false, facing = 0, preferBoss = false, ignoreLOS = false
 }) {
-  const nearest = findNearestTarget(x, y, game, facing);
+  const nearest = findNearestTarget(x, y, game, facing, preferBoss, ignoreLOS);
   const fallbackDir = facing || 1;
   let vx = speed * fallbackDir, vy = 0;
   if (nearest) {

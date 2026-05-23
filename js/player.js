@@ -6,11 +6,11 @@ class Player {
     this.vx = 0; this.vy = 0;
     this.facing = 1; // 1 right, -1 left
     this.grounded = false;
-    this.hp = 10;
-    this.maxHp = 10;
-    this.shield = 3;
-    this.maxShield = 3;
-    this.displayHp = 10;
+    this.hp = 20;
+    this.maxHp = 20;
+    this.shield = 0;
+    this.maxShield = 0;
+    this.displayHp = 20;
     this.displayShield = 0;
     this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
     this.invincibleTimer = 90;
@@ -1077,6 +1077,7 @@ class Player {
       if (this.statusCurse % 40 === 0 && this.statusCurse > 0) {
         const curseDmg = Math.max(1, Math.round(this.maxHp * 0.03));
         this.hp -= curseDmg;
+        if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'ghost', killerInfo: { type: 'curse', element: 'ghost', isBoss: false } }; }
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c8a', 5, 2, 8));
         game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, curseDmg, 'ghost'));
       }
@@ -1096,6 +1097,7 @@ class Player {
       if (this.statusBleed % 30 === 0 && this.statusBleed > 0) {
         const bleedDmg = Math.max(1, Math.round(this.maxHp * 0.04));
         this.hp -= bleedDmg;
+        if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'spiky', killerInfo: { type: 'bleed', element: 'spiky', isBoss: false } }; }
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 4, 2, 8));
         game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, bleedDmg, 'spiky'));
       }
@@ -1131,6 +1133,7 @@ class Player {
         if (this.statusBurn % 30 === 0 && this.statusBurn > 0) {
           const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
           this.hp -= burnDmg;
+          if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'fire', killerInfo: { type: 'burn', element: 'fire', isBoss: false } }; }
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         }
       }
@@ -1199,6 +1202,8 @@ class Player {
     // Ground slam
     const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
     if (holdingDown && !this.grounded && !this.slamming) {
+      const slamCost = Math.max(1, Math.floor(this.hp * 0.20));
+      this.hp = Math.max(1, this.hp - slamCost);
       this.slamming = true;
       this.vx = 0;
     }
@@ -1707,12 +1712,6 @@ class Player {
             }
 
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
-            // Elemental affinity: heal 1 HP when hitting an enemy of the ninja's own element (once per swing)
-            if (!this._swingHealDone && e.element && e.element === NINJA_ATTACK_ELEMENTS[this.ninjaType]) {
-              this.hp = Math.min(this.hp + 1, this.maxHp);
-              this._swingHealDone = true;
-              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, '+1', '#4f4'));
-            }
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
               const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -1934,12 +1933,16 @@ class Player {
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
         const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
         this.hp -= paraDmg;
+        if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
         SFX.play(200, 'square', 0.2, 0.15, 0);
       } else {
+        const attackCost = Math.max(1, Math.floor(this.hp * 0.15));
+        this.hp = Math.max(1, this.hp - attackCost);
         this.shadowAttackHit = false;
         this.attack(game);
+        if (this.hp <= 1) this.attackCooldown = 120; // low-FOCUS penalty
         if (this.items.theCode) this.codeComboCount = 1;
       }
     }
@@ -1959,85 +1962,11 @@ class Player {
     }
 
     // Special ability
-    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.mana >= this.manaCost && this.statusCurse <= 0) {
-      this.mana -= this.manaCost;
+    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
+      const specialCost = Math.max(1, Math.floor(this.hp * 0.35));
+      this.hp = Math.max(1, this.hp - specialCost);
       this.useSpecial(game);
-    }
-
-    // Throw shuriken — recharge only starts when all shurikens are empty
-    if (this.shurikens <= 0) {
-      this.shurikenRechargeTimer++;
-      const rechargeTime = this.items.tripleShuriken ? 30 : 60;
-      if (this.shurikenRechargeTimer >= rechargeTime) {
-        this.shurikens = this.maxShurikens;
-        this.shurikenRechargeTimer = 0;
-      }
-    }
-    // Pick up dropped shurikens
-    if (this.shurikens < this.maxShurikens) {
-      for (const p of game.projectiles) {
-        if (p.isShuriken && p.owner === 'player' && p.dropped && !p.done) {
-          if (rectOverlap(this, p)) {
-            p.done = true;
-            this.shurikens++;
-            this.shurikenRechargeTimer = 0;
-            game.effects.push(new Effect(p.x + p.w / 2, p.y + p.h / 2, '#ccc', 4, 2, 8));
-            SFX.pickup();
-            if (this.shurikens >= this.maxShurikens) break;
-          }
-        }
-      }
-    }
-    // Auto-fire shurikens at nearest enemy in range
-    if (this.shurikenFireCooldown > 0) this.shurikenFireCooldown--;
-    if (this.shurikens > 0 && this.shurikenFireCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
-      const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
-      const target = findNearestTarget(cx, cy, game, 0);
-      if (target) {
-        const tdx = (target.x + target.w / 2) - cx;
-        const tdy = (target.y + target.h / 2) - cy;
-        const dist = Math.sqrt(tdx * tdx + tdy * tdy);
-        if (dist <= 600) {
-          SFX.shuriken();
-          const totalToFire = this.shurikens;
-          const dmg = t.attackDamage + this.shurikenLevel;
-          let idx = 0;
-          const isKunai = this.items.theKunai && this.shurikens === 1;
-          this.shurikens--;
-          const color = isKunai ? '#f66' : (this.ninjaType === 'fire') ? '#f93' : (this.ninjaType === 'crystal') ? '#aff' : (this.ninjaType === 'storm') ? '#48f' : '#ccc';
-          const speedBoost = 8 + idx * 1.5;
-          const sProj = fireProjectileAtNearestEnemy({
-            x: cx, y: cy, game, speed: speedBoost, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
-          });
-          if (sProj) {
-            sProj.isShuriken = true;
-            if (this.ninjaType === 'crystal') sProj.freezeDust = true;
-            if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') sProj.shadowParalyse = true;
-            if (this.items.homingShuriken) sProj.homing = true;
-            if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = this.maxShurikens; sProj.life = 30; }
-            if (this.items.tripleShuriken) {
-              for (const triOff of [0.25, -0.25]) {
-                const tProj = fireProjectileAtNearestEnemy({
-                  x: cx, y: cy, game, speed: speedBoost, color, damage: dmg, owner: 'player', width: 8, height: 6, facing: this.facing
-                });
-                if (tProj) {
-                  tProj.isShuriken = true;
-                  if (this.ninjaType === 'crystal') tProj.freezeDust = true;
-                  if (this.ninjaType === 'shadow' || this.ninjaType === 'storm') tProj.shadowParalyse = true;
-                  if (this.items.homingShuriken) tProj.homing = true;
-                  const ta = Math.atan2(sProj.vy, sProj.vx) + triOff;
-                  const tsp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
-                  tProj.vx = Math.cos(ta) * tsp;
-                  tProj.vy = Math.sin(ta) * tsp;
-                }
-              }
-            }
-          }
-          idx++;
-          this.shurikenFireCooldown = Math.max(3, 24 / (this.shurikenLevel + 2));
-          game.effects.push(new Effect(cx, cy, '#ccc', 6, 3, 10));
-        }
-      }
+      if (this.hp <= 1) this.specialCooldown = 120; // low-FOCUS penalty
     }
 
     // Fire ninja: combo decay & fire armor

@@ -1295,6 +1295,19 @@ class Enemy {
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'JUGGLE', '#ff8'));
     }
 
+    // ── Boss Summon Orb charge: damage dealt fills the meter ──
+    if (game && !game.bossActive) {
+      const waveDef = WAVE_DEFS[game.currentWaveDefIdx] || WAVE_DEFS[0];
+      let chargeMult = 1;
+      if (game.wave > 1) {
+        // +50% if enemy element matches level element (only when level has an element)
+        if (game.levelElement && this.element === game.levelElement) chargeMult += 0.5;
+        // +50% if enemy type matches the wave boss type
+        if (waveDef && waveDef.boss && this.type === waveDef.boss) chargeMult += 0.5;
+      }
+      game.bossOrbCharge = Math.min(game.bossOrbChargeMax, game.bossOrbCharge + amount * chargeMult);
+    }
+
     this.hp -= amount;
     if (!shieldBlocked) this.flashTimer = 6;
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
@@ -1515,15 +1528,13 @@ class Enemy {
     const ox = this.x + this.w / 2 - 5;
     if (this.big || this instanceof Boss) {
       // Upgrade orb — always (tiered upgrade pool)
-      const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','shuriken','ultcharge','shield'];
+      const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','ultcharge'];
       const upType = upgradePool[Math.floor(Math.random() * upgradePool.length)];
       game.orbs.push(new Orb(ox, this.y, upType));
     } else {
-      if (r < 0.50) {                                        // T1: heal 50%
+      if (r < 0.65) {                                        // T1: heal 65%
         game.orbs.push(new Orb(ox, this.y, 'heal'));
-      } else if (r < 0.85) {                                 // T2: shield recharge 35%
-        game.orbs.push(new Orb(ox, this.y, 'shieldrecharge'));
-      } else {                                               // T3: ultcharge 15%
+      } else {                                               // T2: ultcharge 35%
         game.orbs.push(new Orb(ox, this.y, 'ultcharge'));
       }
     }

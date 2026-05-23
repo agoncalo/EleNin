@@ -21,6 +21,7 @@ class Game {
     this.stoneBlocks = [];
     this.bubbles = [];
     this.orbs = [];
+    this.shurikenPickups = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -61,7 +62,14 @@ class Game {
     // Dynamic boss progression pools (replaces static BOSS_PATH_POOLS)
     this.bossPool = null;          // early-group pool ([1,2,3] + replacements) for waves 1-3
     this.mandatoryPool = null;     // mandatory group pool ([5,6,7]) for waves 4-6
-    this.currentKillsForBoss = 20; // per-wave kill target (scales linearly by wave)
+
+    // Boss Summon Orb system
+    this.bossOrbCharge = 0;        // damage accumulated toward next orb
+    this.bossOrbChargeMax = 100;   // damage threshold per orb spawn
+    this.bossOrbCooldown = 0;      // frames remaining until next orb can spawn
+    this.bossOrbsCollected = 0;    // orbs caught this wave
+    this.bossOrbsRequired = 2;     // orbs needed to summon boss (2-5, scales with wave)
+    this.bossOrbPickups = [];      // world pickup objects
 
     // Weather & hazards
     this.levelHazards = [];
@@ -609,7 +617,7 @@ class Game {
     const weather = theme.weather;
     this.weatherTimer = (this.weatherTimer || 0) + 1;
     // Spawn new particles
-    const spawnRate = weather === 'rain' ? 4 : (weather === 'storm' ? 6 : (weather === 'snow' ? 2 : (weather === 'embers' ? 3 : (weather === 'fog' ? 1 : 2))));
+    const spawnRate = weather === 'rain' ? 4 : (weather === 'storm' ? 6 : (weather === 'snow' ? 2 : (weather === 'embers' ? 3 : (weather === 'fog' ? 6 : 2))));
     if (this.weatherTimer % spawnRate === 0) {
       const cam = this.camera;
       const px = cam.x + Math.random() * CANVAS_W;
@@ -623,7 +631,9 @@ class Game {
       } else if (weather === 'embers') {
         this.weatherParticles.push({ x: cam.x + Math.random() * CANVAS_W, y: cam.y + CANVAS_H - 60, vx: -0.5 + Math.random(), vy: -(2 + Math.random() * 3), life: 120, maxLife: 120, type: 'embers' });
       } else if (weather === 'fog') {
-        this.weatherParticles.push({ x: px, y: cam.y + 200 + Math.random() * 200, vx: 0.3 + Math.random() * 0.5, vy: 0, life: 300, maxLife: 300, type: 'fog' });
+        if (this.weatherParticles.filter(p => p.type === 'fog').length < 18) {
+          this.weatherParticles.push({ x: px, y: cam.y + 200 + Math.random() * 200, vx: 0.3 + Math.random() * 0.5, vy: 0, life: 160, maxLife: 160, type: 'fog' });
+        }
       } else if (weather === 'leaves') {
         this.weatherParticles.push({ x: px, y: py, vx: 1 + Math.random() * 2, vy: 2 + Math.random() * 2, life: 180, maxLife: 180, type: 'leaves', rot: Math.random() * Math.PI * 2 });
       }
@@ -672,10 +682,10 @@ class Game {
         ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
         ctx.fill();
       } else if (p.type === 'fog') {
-        ctx.globalAlpha = Math.min(0.12, alpha * 0.12);
+        ctx.globalAlpha = Math.min(0.08, alpha * 0.08);
         ctx.fillStyle = '#6644aa';
         ctx.beginPath();
-        ctx.arc(sx, sy, 60, 0, Math.PI * 2);
+        ctx.arc(sx, sy, 40, 0, Math.PI * 2);
         ctx.fill();
       } else if (p.type === 'leaves') {
         ctx.globalAlpha = alpha * 0.75;
@@ -956,7 +966,17 @@ class Game {
     }
     this.bossActive = true;
     this.bossMessage = 180;
-    this.effects.push(new Effect(this.boss.x + 28, this.boss.y + 28, this.boss.element ? this.boss.elementColors.particle : '#f44', 25, 6, 25));
+    // ── Boss spawn dramatic effect ──
+    const bCX = this.boss.x + 28, bCY = this.boss.y + 28;
+    const bColor = this.boss.element ? this.boss.elementColors.particle : '#f44';
+    this.effects.push(new SlamRing(bCX, bCY, bColor, 200, 24));
+    this.effects.push(new SlamRing(bCX, bCY, '#fff', 120, 14));
+    this.effects.push(new SlamRing(bCX, bCY, bColor, 70, 8));
+    this.effects.push(new Effect(bCX, bCY, '#fff', 30, 8, 30));
+    this.effects.push(new Effect(bCX, bCY, bColor, 22, 6, 25));
+    this.effects.push(new Effect(bCX, bCY, '#f44', 14, 5, 20));
+    triggerScreenShake(10, 20);
+    triggerHitstop(12);
     SFX.bossSpawn();
     SFX.bossRoar();
     const elemTag = this.boss.element ? ` [${this.boss.element.toUpperCase()}]` : '';
@@ -1075,7 +1095,7 @@ class Game {
       cumDrops += WAVE_DEFS[i].killsForBoss + (i + 2);
     }
     const expectedAll = cumDrops * (0.10 + 0.36 + 0.10 + 0.06 + 0.03 + 0.04 + 0.04 + 0.03 + 0.02);
-    const actualAll = (pl.maxHp - 10) + pl.maxShield / 2 + (pl.maxShurikens - 3) +
+    const actualAll = (pl.maxHp - 20) +
       pl.bonusDamage + pl.bonusElemental + pl.bonusSpeed + pl.bonusReach +
       pl.bonusArmor + pl.bonusMana;
     const deficit = Math.max(0, expectedAll - actualAll);
@@ -1089,22 +1109,20 @@ class Game {
     const budget = Math.round(baseBudget * (1 + deficitRatio * 0.6) * budgetMult);
 
     const ORB_META = {
-      heal:      { icon: '\u2665', color: '#f44', label: 'HP',       per: 3,  cost: 3 },
+      heal:      { icon: '\u2665', color: '#f44', label: 'HP',       per: 5,  cost: 5 },
       maxhp:     { icon: '+',  color: '#4f4', label: 'MAX HP',   per: 1,  cost: 8 },
-      shield:    { icon: '\u25c6', color: '#4af', label: 'SHIELD',   per: 2,  cost: 5 },
       damage:    { icon: '!',  color: '#f80', label: 'ATK',      per: 1,  cost: 18 },
       elDmg:     { icon: '\u2737', color: '#c4f', label: 'EL.DMG',  per: 1,  cost: 20 },
       speed:     { icon: '\u00bb', color: '#0f0', label: 'SPD',      per: 1,  cost: 16 },
       reach:     { icon: '\u2194', color: '#fa0', label: 'REACH',    per: 1,  cost: 16 },
       armor:     { icon: '\u25a0', color: '#88f', label: 'ARMOR',    per: 1,  cost: 18 },
-      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKEN', per: 1,  cost: 20 },
+      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKENS', per: 1, cost: 14 },
       ultcharge: { icon: '\u2605', color: '#ff0', label: 'ULT',      per: 50, cost: 6 },
       element:   { icon: '\u25c8', color: '#f0f', label: 'SPECIAL',  per: 1,  cost: 50 },
     };
 
     // Filter useless orbs
     const hpFull = pl.hp >= pl.maxHp;
-    const shieldFull = pl.maxShield > 0 && pl.shield >= pl.maxShield;
     const ultFull = pl.ultimateReady || pl.ultimateActive || pl.ultimateCharge >= pl.ultimateMax;
 
     const _pick = (pool) => {
@@ -1117,17 +1135,15 @@ class Game {
     const rareBoost = 1 + deficitRatio * 3;
     const _basePool = () => {
       const pool = [];
-      if (!hpFull) pool.push({ type: 'heal', w: 20 });
+      if (!hpFull) pool.push({ type: 'heal', w: 24 });
       pool.push({ type: 'maxhp', w: 14 });
-      if (!shieldFull) pool.push({ type: 'shield', w: 15 });
-      else pool.push({ type: 'shield', w: 4 });
-      pool.push({ type: 'shuriken', w: 12 });
       if (!ultFull) pool.push({ type: 'ultcharge', w: 10 });
       pool.push({ type: 'damage', w: 6 * rareBoost });
       pool.push({ type: 'elDmg', w: 4 * rareBoost });
       pool.push({ type: 'speed', w: 6 * rareBoost });
       pool.push({ type: 'reach', w: 6 * rareBoost });
       pool.push({ type: 'armor', w: 5 * rareBoost });
+      pool.push({ type: 'shuriken', w: 6 * rareBoost });
       pool.push({ type: 'element', w: 6 * rareBoost });
       return pool;
     };
@@ -1150,7 +1166,7 @@ class Game {
           if (ORB_META[t].cost > remaining) return false;
           if (t === 'element' && elementCount >= 2) return false;
           // Don't offer more heal than missing HP
-          if (t === 'heal' && (orbs['heal'] || 0) * 3 >= pl.maxHp - pl.hp) return false;
+          if (t === 'heal' && (orbs['heal'] || 0) * 5 >= pl.maxHp - pl.hp) return false;
           return true;
         });
         if (!affordable.length) break;
@@ -1195,16 +1211,15 @@ class Game {
     for (const [type, count] of Object.entries(orbs)) {
       for (let i = 0; i < count; i++) {
         switch (type) {
-          case 'heal':      pl.hp = Math.min(pl.hp + 3, pl.maxHp); break;
+          case 'heal':      pl.hp = Math.min(pl.hp + 5, pl.maxHp); break;
           case 'maxhp':     pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); break;
-          case 'shield':    pl.maxShield += 2; pl.shield = Math.min(pl.shield + 3, pl.maxShield); break;
           case 'damage':    pl.bonusDamage += 1; break;
           case 'elDmg':     pl.bonusElemental += 1; break;
           case 'speed':     pl.bonusSpeed += 1; break;
           case 'reach':     pl.bonusReach += 1; break;
           case 'armor':     pl.bonusArmor += 1; break;
-          case 'shuriken':  pl.maxShurikens += 1; pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens); break;
           case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50); break;
+          case 'shuriken':  pl.maxShurikens += 1; break;
           case 'element':   pl.bonusMana += 1; pl.maxMana += 1; pl.mana = pl.maxMana; break;
         }
       }
@@ -1243,10 +1258,13 @@ class Game {
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     recordWaveClear(this.wave, this.player.ninjaType);
     this.wave++;
-    // Scale kill target linearly: 20 kills at wave 1, +6 per wave (~62 at wave 8)
-    const _wkt = [20, 26, 32, 38, 44, 50, 56, 62];
-    this.currentKillsForBoss = _wkt[this.wave - 1] !== undefined ? _wkt[this.wave - 1] : 62;
     this.waveKills = 0;
+    // Boss Summon Orb reset for new wave
+    this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
+    this.bossOrbCharge = 0;
+    this.bossOrbCooldown = 0;
+    this.bossOrbsCollected = 0;
+    this.bossOrbPickups = [];
     this.spawnedMiniboss = new Set();
     this.boss = null;
     this.bossActive = false;
@@ -1377,7 +1395,7 @@ class Game {
       const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (waveDef) {
         const pl = this.player;
-        const kills = this.currentKillsForBoss;
+        const kills = 20 + this.wave * 5; // estimate: roughly scales with wave
         const bossOrbs = this.wave + 1; // avg boss orb count (wave + random 0-2)
         const drops = kills + bossOrbs;
         // Actual drop table rates × orb stat values per drop
@@ -1437,10 +1455,10 @@ class Game {
       // Total orb sources: completed waves (enemies + boss orbs) + current wave enemies
       let totalDrops = 0;
       for (let i = 0; i < this.wave - 1 && i < WAVE_DEFS.length; i++) {
-        totalDrops += WAVE_DEFS[i].killsForBoss + (i + 2); // enemies + avg boss orbs (wave i+1, avg = i+2)
+        totalDrops += (20 + i * 5) + (i + 2); // estimated enemies + avg boss orbs
       }
       if (this.wave - 1 < WAVE_DEFS.length) {
-        totalDrops += WAVE_DEFS[this.wave - 1].killsForBoss; // current wave enemies only (boss not fought)
+        totalDrops += 20 + (this.wave - 1) * 5; // current wave estimated enemies
       }
       // Set absolute stats: base + average gains from all drops
       pl.maxHp          = 10 + Math.round(totalDrops * 0.10);  // base 10 + maxhp orbs
@@ -1513,6 +1531,69 @@ class Game {
     for (const o of this.orbs) o.update(this);
     for (const bi of this.bossItems) bi.update(this);
 
+    // ── Shuriken pickup icons ──
+    // Spawn one every 5 seconds (up to 3 on screen)
+    if (this.tick % 300 === 60 && this.shurikenPickups.filter(s => !s.done).length < 3) {
+      this.shurikenPickups.push({
+        x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
+        y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
+        bobTimer: Math.random() * Math.PI * 2,
+        life: 600, done: false, w: 20, h: 20,
+      });
+    }
+    for (const sp of this.shurikenPickups) {
+      if (sp.done) continue;
+      sp.bobTimer += 0.06;
+      sp.life--;
+      if (sp.life <= 0) { sp.done = true; continue; }
+      const pl = this.player;
+      if (rectOverlap(pl, sp)) {
+        sp.done = true;
+        SFX.pickup();
+        const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
+        const isKunai = pl.items.theKunai;
+        const color = isKunai ? '#f66' : (pl.ninjaType === 'fire') ? '#f93' : (pl.ninjaType === 'crystal') ? '#aff' : (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
+        const dmg = pl.type.attackDamage + pl.shurikenLevel;
+        for (let i = 0; i < pl.maxShurikens; i++) {
+          const sProj = fireProjectileAtNearestEnemy({
+            x: cx, y: cy, game: this, speed: 8 + i * 1.5, color: isKunai ? '#f66' : color,
+            damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
+            piercing: true, preferBoss: true, ignoreLOS: true,
+          });
+          if (sProj) {
+            sProj.isShuriken = true;
+            if (pl.ninjaType === 'crystal') sProj.freezeDust = true;
+            if (pl.ninjaType === 'shadow' || pl.ninjaType === 'storm') sProj.shadowParalyse = true;
+            if (pl.items.homingShuriken) sProj.homing = true;
+            if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = pl.maxShurikens; sProj.life = 30; }
+            if (pl.items.tripleShuriken) {
+              for (const triOff of [0.25, -0.25]) {
+                const tProj = fireProjectileAtNearestEnemy({
+                  x: cx, y: cy, game: this, speed: 8, color: isKunai ? '#f66' : color,
+                  damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
+                  piercing: true, preferBoss: true, ignoreLOS: true,
+                });
+                if (tProj) {
+                  tProj.isShuriken = true;
+                  if (pl.ninjaType === 'crystal') tProj.freezeDust = true;
+                  if (pl.ninjaType === 'shadow' || pl.ninjaType === 'storm') tProj.shadowParalyse = true;
+                  if (pl.items.homingShuriken) tProj.homing = true;
+                  const ta = Math.atan2(sProj.vy, sProj.vx) + triOff;
+                  const tsp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
+                  tProj.vx = Math.cos(ta) * tsp;
+                  tProj.vy = Math.sin(ta) * tsp;
+                }
+              }
+            }
+          }
+        }
+        SFX.shuriken();
+        this.effects.push(new Effect(cx, cy, '#ccc', 12, 5, 18));
+        this.effects.push(new TextEffect(cx, cy - 22, '\u2726 SHURIKENS!', '#ccc'));
+      }
+    }
+    this.shurikenPickups = this.shurikenPickups.filter(s => !s.done);
+
     // Fire trail update
     if (this.player.ninjaType === 'fire' && this.player.grounded && Math.abs(this.player.vx) > 1) {
       if (this.tick % 4 === 0) {
@@ -1543,24 +1624,63 @@ class Game {
     // Wave / spawn logic
     if (!this.gameWon) {
       const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
-      if (!this.bossActive) {
-        if (this.waveKills >= this.currentKillsForBoss) {
-          this.spawnBoss();
-        } else {
-          const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
-          this.spawnTimer++;
-          if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
-            this.spawnTimer = 0;
-            this.spawnEnemy();
+      // Always spawn enemies regardless of boss state
+      const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
+      this.spawnTimer++;
+      if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
+        this.spawnTimer = 0;
+        this.spawnEnemy();
+      }
+      // ── Boss Summon Orb logic ──
+      if (!this.bossActive && !this.boss) {
+        if (this.bossOrbCooldown > 0) this.bossOrbCooldown--;
+        // Spawn an orb when charge threshold met and cooldown elapsed
+        if (this.bossOrbCharge >= this.bossOrbChargeMax && this.bossOrbCooldown <= 0 &&
+            this.bossOrbsCollected < this.bossOrbsRequired) {
+          this.bossOrbCharge = 0;
+          this.bossOrbCooldown = 1800; // 30s until next orb can spawn
+          const orbSpawnX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
+          const orbSpawnY = this.camera.y + 80 + Math.random() * (CANVAS_H - 200);
+          this.bossOrbPickups.push({
+            x: orbSpawnX, y: orbSpawnY,
+            bobTimer: Math.random() * Math.PI * 2, life: 1800, done: false, w: 28, h: 28,
+          });
+          // ── Boss Orb spawn burst ──
+          this.effects.push(new SlamRing(orbSpawnX + 14, orbSpawnY + 14, '#f80', 120, 18));
+          this.effects.push(new SlamRing(orbSpawnX + 14, orbSpawnY + 14, '#fa0', 70, 10));
+          for (let _i = 0; _i < 10; _i++) {
+            const _a = (_i / 10) * Math.PI * 2;
+            const _spd = 3 + Math.random() * 3;
+            const _p = new Projectile(orbSpawnX + 14, orbSpawnY + 14, Math.cos(_a) * _spd, Math.sin(_a) * _spd, '#fa0', 0, 'none');
+            _p.w = 4; _p.h = 4; _p.life = 30; _p.noPlat = true; _p.passThrough = true;
+            this.projectiles.push(_p);
+          }
+          this.effects.push(new Effect(orbSpawnX + 14, orbSpawnY + 14, '#fff', 22, 7, 20));
+          this.effects.push(new Effect(orbSpawnX + 14, orbSpawnY + 14, '#f80', 16, 5, 18));
+          SFX.wave();
+          const pl = this.player;
+          this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 30, '\u2606 BOSS ORB!', '#f80'));
+        }
+        // Update and collect pickups
+        const pl = this.player;
+        for (const orb of this.bossOrbPickups) {
+          if (orb.done) continue;
+          orb.bobTimer += 0.05;
+          orb.life--;
+          if (orb.life <= 0) { orb.done = true; continue; }
+          if (rectOverlap(pl, orb)) {
+            orb.done = true;
+            this.bossOrbsCollected++;
+            SFX.pickup();
+            const rem = this.bossOrbsRequired - this.bossOrbsCollected;
+            const txt = rem > 0
+              ? '\u2605 ORB (' + this.bossOrbsCollected + '/' + this.bossOrbsRequired + ')'
+              : '\u2605 BOSS SUMMONED!';
+            this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 20, txt, '#f80'));
+            if (this.bossOrbsCollected >= this.bossOrbsRequired) this.spawnBoss();
           }
         }
-      } else {
-        const aliveCount = this.enemies.reduce((n, e) => n + (e.dead ? 0 : 1), 0);
-        this.spawnTimer++;
-        if (this.spawnTimer >= this.spawnInterval && aliveCount < this.maxEnemies) {
-          this.spawnTimer = 0;
-          this.spawnEnemy();
-        }
+        this.bossOrbPickups = this.bossOrbPickups.filter(o => !o.done);
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
         if (this.wave < TOTAL_WAVES) {
@@ -2628,6 +2748,70 @@ class Game {
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
+
+    // Shuriken pickup icons
+    for (const sp of this.shurikenPickups) {
+      if (sp.done) continue;
+      const flash = sp.life < 120 && Math.floor(sp.life / 8) % 2;
+      if (flash) continue;
+      const alpha = sp.life < 60 ? sp.life / 60 : 1;
+      const sx = sp.x - cam.x;
+      const sy = sp.y + Math.sin(sp.bobTimer) * 6 - cam.y;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(sx + 10, sy + 10);
+      ctx.rotate(sp.bobTimer * 1.5);
+      ctx.fillStyle = '#e0e0e0';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#ccc';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        const b = a + Math.PI / 4;
+        ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
+        ctx.lineTo(Math.cos(b) * 4, Math.sin(b) * 4);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Boss Summon Orb pickups
+    for (const bo of this.bossOrbPickups) {
+      if (bo.done) continue;
+      const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
+      if (flash) continue;
+      const alpha = bo.life < 60 ? bo.life / 60 : 1;
+      const bx = bo.x - cam.x;
+      const by = bo.y + Math.sin(bo.bobTimer) * 8 - cam.y;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const t = this.tick;
+      ctx.shadowColor = '#f80';
+      ctx.shadowBlur = 16 + Math.sin(t * 0.12) * 6;
+      ctx.strokeStyle = '#fa0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bx + 14, by + 14, 16 + Math.sin(t * 0.08) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+      const grad = ctx.createRadialGradient(bx + 14, by + 14, 2, bx + 14, by + 14, 12);
+      grad.addColorStop(0, '#fff8e0');
+      grad.addColorStop(0.5, '#f80');
+      grad.addColorStop(1, '#a40');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(bx + 14, by + 14, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('\u2605', bx + 14, by + 19);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
     if (this.crystalCastle) this.crystalCastle.render(ctx, cam);
     for (const p of this.projectiles) p.render(ctx, cam);
     if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
@@ -3401,35 +3585,10 @@ class Game {
     const barH = 26;
     const barY   = CANVAS_H - barH - 6;  // 508
     const ultY   = CANVAS_H - 46;        // 494
-    const buffY  = CANVAS_H - 66;        // 474
+    const buffY  = CANVAS_H - 50;        // 490
     const pipY   = CANVAS_H - 92;        // 448
 
-    // ── Mana pips (above buff icons) ──
-    const pipSize = 16, pipGap = 4;
-    const totalPips = pl.maxMana;
-    const pipBarW = totalPips * (pipSize + pipGap) - pipGap;
-    const pipBarX = CANVAS_W / 2 - pipBarW / 2;
-    for (let i = 0; i < totalPips; i++) {
-      const px = pipBarX + i * (pipSize + pipGap);
-      const fillAmount = Math.min(1, Math.max(0, pl.mana - i));
-      ctx.fillStyle = '#222';
-      ctx.fillRect(px, pipY, pipSize, pipSize);
-      if (fillAmount > 0) {
-        ctx.save();
-        if (fillAmount >= 1) { ctx.shadowColor = manaColor; ctx.shadowBlur = 6; }
-        ctx.fillStyle = manaColor;
-        ctx.fillRect(px, pipY + pipSize * (1 - fillAmount), pipSize, pipSize * fillAmount);
-        ctx.restore();
-      }
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px, pipY, pipSize, pipSize);
-    }
-    const elemLabels = { fire: 'FIRE', earth: 'EARTH', bubble: 'WATER', shadow: 'SHADOW', crystal: 'CRYSTAL', wind: 'WIND', storm: 'STORM' };
-    const elemLabel = elemLabels[pl.ninjaType] || 'ELEM';
-    ctx.fillStyle = '#aaa';
-    ctx.font = 'bold 10px monospace';
-    ctx.fillText(elemLabel, pipBarX - ctx.measureText(elemLabel).width - 6, pipY + 12);
+    // (mana pips removed — special ability cost integrated into FOCUS)
 
     // ── Buff icons ──
     const buffItems = [];
@@ -3477,104 +3636,69 @@ class Game {
       }
     }
 
-    // ── Ult bar ──
-    const ultBarW = 280;
-    const ultBarH = 14;
-    const ultBarX = CANVAS_W / 2 - ultBarW / 2;
-    const ultBarTop = ultY - ultBarH;  // anchored at ultY baseline
-    ctx.textAlign = 'center';
-    if (pl.ultimateReady && !pl.ultimateActive) {
-      const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
-      ctx.save();
-      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 16 : 6;
-      ctx.fillStyle = '#111';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.fillStyle = blinkOn ? '#ffd700' : '#a88000';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.restore();
-      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
-      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = blinkOn ? '#fff' : '#ffd700';
-      ctx.fillText('ULTIMATE READY!  [V / M / Y]', CANVAS_W / 2, ultBarTop + ultBarH - 2);
-    } else if (pl.ultimateActive) {
-      ctx.save();
-      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14;
-      ctx.fillStyle = '#111';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.fillStyle = '#ffd700';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.restore();
-      ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 1;
-      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = '#fff';
-      ctx.fillText('ULTIMATE ACTIVE', CANVAS_W / 2, ultBarTop + ultBarH - 2);
-    } else {
-      const pct = pl.ultimateCharge / pl.ultimateMax;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.save();
-      if (pct >= 0.75) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
-      ctx.fillStyle = pct >= 0.75 ? '#c8a800' : '#555';
-      ctx.fillRect(ultBarX, ultBarTop, ultBarW * pct, ultBarH);
-      ctx.restore();
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
-      ctx.strokeRect(ultBarX, ultBarTop, ultBarW, ultBarH);
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = pct >= 0.75 ? '#ffd700' : '#888';
-      ctx.fillText(`ULT  ${Math.floor(pct * 100)}%`, CANVAS_W / 2, ultBarTop + ultBarH - 2);
-    }
-    ctx.textAlign = 'left';
+    // ── FOCUS bar — ninja-colored, ult charge shown as glow ──
+    const ninjaBarColors = {
+      fire:    { fill: '#f93', dark: '#421800', delay: '#fa8' },
+      earth:   { fill: '#a07040', dark: '#301808', delay: '#c09060' },
+      bubble:  { fill: '#4af', dark: '#013040', delay: '#8cf' },
+      shadow:  { fill: '#a04ec8', dark: '#200840', delay: '#c080e8' },
+      crystal: { fill: '#0ee', dark: '#005050', delay: '#7ff' },
+      wind:    { fill: '#6c6', dark: '#082008', delay: '#9e9' },
+      storm:   { fill: '#38e', dark: '#0a1428', delay: '#6af' },
+    };
+    const nbc = ninjaBarColors[pl.ninjaType] || { fill: '#e44', dark: '#400', delay: '#f84' };
 
-    // ── Main bar row: HP and Shield, growing outward from center ──
     const centerX = CANVAS_W / 2;
-    const maxBarW = 220;
-    const hpRatio = pl.hp / pl.maxHp;
-    const displayHpRatio = pl.displayHp / pl.maxHp;
+    const barTotalW = 440;
+    const barLeft = centerX - barTotalW / 2;
+    const focusRatio = pl.hp / pl.maxHp;
+    const displayFocusRatio = pl.displayHp / pl.maxHp;
 
-    // HP bar (left half — fills rightward-anchored at center)
-    ctx.fillStyle = '#400';
-    ctx.fillRect(centerX - maxBarW, barY, maxBarW, barH);
-    if (displayHpRatio > hpRatio) {
-      ctx.fillStyle = '#f84';
-      ctx.fillRect(centerX - maxBarW * displayHpRatio, barY, maxBarW * displayHpRatio, barH);
+    const ultPct = pl.ultimateCharge / pl.ultimateMax;
+    const ultReady = pl.ultimateReady && !pl.ultimateActive;
+    const ultActive = pl.ultimateActive;
+    const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
+
+    // Glow pass (background rect carries the outer glow)
+    ctx.save();
+    if (ultActive) {
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 22;
+    } else if (ultReady) {
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 24 : 10;
+    } else if (ultPct >= 0.5) {
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = (ultPct - 0.5) / 0.5 * 12;
     }
-    ctx.fillStyle = '#e44';
-    ctx.fillRect(centerX - maxBarW * hpRatio, barY, maxBarW * hpRatio, barH);
+    ctx.fillStyle = nbc.dark;
+    ctx.fillRect(barLeft, barY, barTotalW, barH);
+    ctx.restore();
+
+    // Delayed damage
+    if (displayFocusRatio > focusRatio) {
+      ctx.fillStyle = nbc.delay;
+      ctx.fillRect(barLeft, barY, barTotalW * displayFocusRatio, barH);
+    }
+
+    // Active fill (also glows when ult ready/active)
+    ctx.save();
+    if (ultActive) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14; }
+    else if (ultReady) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 16 : 6; }
+    ctx.fillStyle = nbc.fill;
+    ctx.fillRect(barLeft, barY, barTotalW * focusRatio, barH);
+    ctx.restore();
+
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(centerX - maxBarW, barY, maxBarW, barH);
-    // HP number left of bar
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(String(Math.round(pl.hp)), centerX - maxBarW - 9, barY + barH - 3);
+    ctx.strokeRect(barLeft, barY, barTotalW, barH);
+
+    // Label: show ult state inside bar
+    const focusLabel = String(Math.round(pl.hp)) + ' / ' + String(pl.maxHp);
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillText(focusLabel, centerX + 1, barY + barH - 4);
+    ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : '#fff';
+    ctx.fillText(focusLabel, centerX, barY + barH - 5);
     ctx.textAlign = 'left';
-
-    // Shield bar (right half — fills from center)
-    const hasShield = pl.maxShield > 0;
-    if (hasShield) {
-      const shieldRatio = Math.min(1, pl.displayShield / pl.maxShield);
-      ctx.fillStyle = '#112';
-      ctx.fillRect(centerX, barY, maxBarW, barH);
-      ctx.fillStyle = '#4af';
-      ctx.fillRect(centerX, barY, maxBarW * shieldRatio, barH);
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(centerX, barY, maxBarW, barH);
-      ctx.font = 'bold 22px monospace';
-      ctx.fillStyle = '#fff';
-      ctx.fillText(String(Math.round(pl.shield)), centerX + maxBarW + 9, barY + barH - 3);
-    }
-
-    // Center divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX, barY - 1);
-    ctx.lineTo(centerX, barY + barH + 1);
-    ctx.stroke();
 
     // Ninja selection bar
     const ninjaBarX = CANVAS_W / 2 - 182;
@@ -3615,30 +3739,97 @@ class Game {
     ctx.fillStyle = '#ccc';
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
 
-    // Progress bar (top center)
+    // Boss Summon Orb HUD (top center) — placeholder circles that fill when charge builds
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
-      const pbW = 400, pbH = 18;
-      const pbX = CANVAS_W / 2 - pbW / 2;
-      const pbY = 38;
-      const pct = this.bossActive ? 1 : Math.min(1, this.waveKills / this.currentKillsForBoss);
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
-      ctx.fillStyle = '#222';
-      ctx.fillRect(pbX, pbY, pbW, pbH);
-      const elemAccent = this.levelElement ? (ELEMENT_COLORS[this.levelElement] ? ELEMENT_COLORS[this.levelElement].accent : null) : null;
-      const barColor = this.bossActive ? '#f44' : (elemAccent || `hsl(${30 + pct * 90}, 80%, 50%)`);
-      ctx.fillStyle = barColor;
-      ctx.fillRect(pbX, pbY, pbW * pct, pbH);
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(pbX, pbY, pbW, pbH);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 11px monospace';
-      const label = this.bossActive
-        ? `BOSS ${this.wave}/${TOTAL_WAVES}`
-        : `${this.waveKills}/${this.currentKillsForBoss}`;
-      const tw = ctx.measureText(label).width;
-      ctx.fillText(label, CANVAS_W / 2 - tw / 2, pbY + 14);
+      const cx = CANVAS_W / 2;
+      if (this.bossActive) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(cx - 72, 38, 144, 20);
+        ctx.fillStyle = '#f44';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('BOSS ' + this.wave + '/' + TOTAL_WAVES, cx, 52);
+        ctx.textAlign = 'left';
+        ctx.restore();
+      } else {
+        const req = this.bossOrbsRequired;
+        const col = this.bossOrbsCollected;
+        const chargePct = Math.min(1, this.bossOrbCharge / this.bossOrbChargeMax);
+        const onCooldown = this.bossOrbCooldown > 0;
+        const t = this.tick;
+        const R = 12;
+        const spacing = 34;
+        const oy = 50; // center Y of orb circles
+        const accent = this.levelElement
+          ? (ELEMENT_COLORS[this.levelElement] ? ELEMENT_COLORS[this.levelElement].accent : '#f80')
+          : '#f80';
+
+        for (let i = 0; i < req; i++) {
+          const ox = cx - (req - 1) * spacing / 2 + i * spacing;
+          ctx.save();
+          if (i < col) {
+            // ── Collected: bright filled orb ──
+            const pulse = Math.sin(t * 0.07 + i * 1.2) * 5;
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 14 + pulse;
+            const g = ctx.createRadialGradient(ox, oy, 1, ox, oy, R);
+            g.addColorStop(0, '#fffbe8');
+            g.addColorStop(0.45, accent);
+            g.addColorStop(1, '#70200a');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(ox, oy, R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 11px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('\u2605', ox, oy + 4);
+          } else if (i === col) {
+            // ── Next slot to fill: shows charge progress ──
+            const pulseAmt = onCooldown
+              ? 1 + Math.abs(Math.sin(t * 0.025)) * 2
+              : 2 + chargePct * 10 + Math.abs(Math.sin(t * (0.06 + chargePct * 0.05))) * (chargePct * 6);
+            ctx.shadowColor = onCooldown ? '#443' : accent;
+            ctx.shadowBlur = pulseAmt;
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = '#111';
+            ctx.beginPath();
+            ctx.arc(ox, oy, R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = onCooldown ? '#333' : accent;
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = onCooldown ? 0.3 : 0.35 + chargePct * 0.65;
+            ctx.beginPath();
+            ctx.arc(ox, oy, R, 0, Math.PI * 2);
+            ctx.stroke();
+            if (!onCooldown && chargePct > 0.01) {
+              ctx.globalAlpha = 0.5 + chargePct * 0.45;
+              ctx.strokeStyle = '#fff';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(ox, oy, R - 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * chargePct);
+              ctx.stroke();
+            }
+          } else {
+            // ── Future slots: static dark placeholder ──
+            ctx.globalAlpha = 0.45;
+            ctx.fillStyle = '#111';
+            ctx.beginPath();
+            ctx.arc(ox, oy, R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.25;
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(ox, oy, R, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
     }
 
     // Boss HUD (top center): HP bar matching progress bar size
@@ -3985,7 +4176,7 @@ class Game {
         ctx.fillText('REWARDS', cx + 12, cy + 181);
 
         if (ch.reward && ch.meta) {
-          const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','shield','heal'];
+          const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','heal'];
           const entries = Object.entries(ch.reward)
             .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
           let ey = cy + 195;
@@ -4238,7 +4429,7 @@ class Game {
         ctx.font = 'bold 14px monospace';
         ctx.fillText((b + 1) + '', bx + boxW / 2 - 4, by + 20);
         // Orb entries — sorted by rarity (rarest first)
-        const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','shield','heal'];
+        const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','heal'];
         const entries = Object.entries(obc.buckets[b])
           .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
         let ey = by + 38;

@@ -456,7 +456,7 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 5, shield: 6, shieldrecharge: 5, maxhp: 7, shuriken: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 6, maxhp: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
@@ -472,8 +472,8 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
-    const _bonusLabel = { shuriken: 'SHURIKEN', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL' };
-    const _bonusColor = { shuriken: '#ccc', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
+    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL' };
+    const _bonusColor = { heal: '#f44', maxhp: '#4f4', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
 
     // Attraction to player if nearby
     const pl = game.player;
@@ -487,7 +487,6 @@ class Orb {
 
     // Skip attraction and pickup if player is already full of this resource
     const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
-                 (this.type === 'shieldrecharge' && pl.shield >= pl.maxShield) ||
                  (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive));
     if (full) return;
 
@@ -500,22 +499,20 @@ class Orb {
         if (dist < 200) {
           this.done = true;
           SFX.pickup();
+          pl.jumpsLeft = pl.maxJumps + (pl.bubbleBuffTimer > 0 ? 1 : 0);
           if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(5);
           const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
           if (_m === 2) { pl.x2OrbCounter++; checkX2OrbBreak(pl, game, ox, oy); }
           switch (this.type) {
-            case 'heal': pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
+            case 'heal': pl.hp = Math.min(pl.hp + 5 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#f44', 6, 2, 10)); break;
             case 'maxhp': pl.maxHp += 1 * _m; pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp); game.effects.push(new Effect(ox, oy, '#4f4', 8, 3, 12)); break;
             case 'damage': pl.bonusDamage += 1 * _m; game.effects.push(new Effect(ox, oy, '#f80', 8, 3, 12)); break;
             case 'elDmg': pl.bonusElemental += 1 * _m; game.effects.push(new Effect(ox, oy, '#c4f', 8, 3, 12)); break;
-            case 'shield': pl.maxShield += 2 * _m; pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#4af', 8, 3, 12)); break;
-            case 'shieldrecharge': pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield); game.effects.push(new Effect(ox, oy, '#6cf', 6, 2, 10)); break;
-            case 'shuriken': pl.maxShurikens += 1 * _m; pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens); game.effects.push(new Effect(ox, oy, '#ccc', 6, 2, 10)); break;
             case 'speed': pl.bonusSpeed += 1 * _m; game.effects.push(new Effect(ox, oy, '#0f0', 8, 3, 12)); break;
             case 'reach': pl.bonusReach += 1 * _m; game.effects.push(new Effect(ox, oy, '#fa0', 8, 3, 12)); break;
             case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m); game.effects.push(new Effect(ox, oy, '#ff0', 8, 3, 12)); break;
             case 'armor': pl.bonusArmor += 1 * _m; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
-            case 'element': pl.bonusMana += 1 * _m; pl.maxMana += 1 * _m; pl.mana = pl.maxMana; game.effects.push(new Effect(ox, oy, '#f0f', 8, 3, 12)); break;
+            case 'element': pl.bonusMana += 1 * _m; pl.maxMana += 1 * _m; pl.mana = pl.maxMana; pl.specialCooldown = 0; game.effects.push(new Effect(ox, oy, '#f0f', 8, 3, 12)); break;
           }
           if (_bonusLabel[this.type]) game.effects.push(new TextEffect(ox, oy - 15, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
           return;
@@ -542,6 +539,7 @@ class Orb {
       this.done = true;
       SFX.pickup();
       const pl = game.player;
+      pl.jumpsLeft = pl.maxJumps + (pl.bubbleBuffTimer > 0 ? 1 : 0);
       if (!pl.ultimateReady && !pl.ultimateActive) {
         pl.addUltimateCharge(5);
       }
@@ -549,7 +547,7 @@ class Orb {
       if (_m === 2) { pl.x2OrbCounter++; checkX2OrbBreak(pl, game, pl.x + pl.w/2, pl.y + pl.h/2); }
       switch (this.type) {
         case 'heal':
-          pl.hp = Math.min(pl.hp + 3 * _m, pl.maxHp);
+          pl.hp = Math.min(pl.hp + 5 * _m, pl.maxHp);
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f44', 6, 2, 10));
           break;
         case 'maxhp':
@@ -564,20 +562,6 @@ class Orb {
         case 'elDmg':
           pl.bonusElemental += 1 * _m;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#c4f', 8, 3, 12));
-          break;
-        case 'shield':
-          pl.maxShield += 2 * _m;
-          pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
-          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 8, 3, 12));
-          break;
-        case 'shieldrecharge':
-          pl.shield = Math.min(pl.shield + 3 * _m, pl.maxShield);
-          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#6cf', 6, 2, 10));
-          break;
-        case 'shuriken':
-          pl.maxShurikens += 1 * _m;
-          pl.shurikens = Math.min(pl.shurikens + 1 * _m, pl.maxShurikens);
-          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ccc', 6, 2, 10));
           break;
         case 'speed':
           pl.bonusSpeed += 1 * _m;
@@ -599,6 +583,7 @@ class Orb {
           pl.bonusMana += 1 * _m;
           pl.maxMana += 1 * _m;
           pl.mana = pl.maxMana;
+          pl.specialCooldown = 0;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
           break;
       }
@@ -627,12 +612,13 @@ class Orb {
       if (collected) {
         this.done = true;
         SFX.pickup();
+        pl.jumpsLeft = pl.maxJumps + (pl.bubbleBuffTimer > 0 ? 1 : 0);
         if (!pl.ultimateReady && !pl.ultimateActive) {
           pl.addUltimateCharge(5);
         }
         switch (this.type) {
           case 'heal':
-            pl.hp = Math.min(pl.hp + 3, pl.maxHp);
+            pl.hp = Math.min(pl.hp + 5, pl.maxHp);
             game.effects.push(new Effect(cx, cy, '#f44', 6, 2, 10));
             break;
           case 'maxhp':
@@ -647,20 +633,6 @@ class Orb {
           case 'elDmg':
             pl.bonusElemental += 1;
             game.effects.push(new Effect(cx, cy, '#c4f', 8, 3, 12));
-            break;
-          case 'shield':
-            pl.maxShield += 2;
-            pl.shield = Math.min(pl.shield + 3, pl.maxShield);
-            game.effects.push(new Effect(cx, cy, '#4af', 8, 3, 12));
-            break;
-          case 'shieldrecharge':
-            pl.shield = Math.min(pl.shield + 3, pl.maxShield);
-            game.effects.push(new Effect(cx, cy, '#6cf', 6, 2, 10));
-            break;
-          case 'shuriken':
-            pl.maxShurikens += 1;
-            pl.shurikens = Math.min(pl.shurikens + 1, pl.maxShurikens);
-            game.effects.push(new Effect(cx, cy, '#ccc', 6, 2, 10));
             break;
           case 'speed':
             pl.bonusSpeed += 1;
@@ -682,6 +654,7 @@ class Orb {
             pl.bonusMana += 1;
             pl.maxMana += 1;
             pl.mana = pl.maxMana;
+            pl.specialCooldown = 0;
             game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
             break;
         }
@@ -695,7 +668,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', shield: '#4af', shieldrecharge: '#6cf', shuriken: '#ccc', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
