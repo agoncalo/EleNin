@@ -53,7 +53,7 @@ class Game {
     this.gameWon = false;
     this.itemPickupOverlay = null; // { itemId, timer }
     this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
-    this.bossRewardItem = null;
+    this.bossRewardItems = [];   // up to 3 uncollected items offered on reward screen
 
     // Choose-your-path system
     this.currentWaveDefIdx = 0;    // which WAVE_DEFS entry is active
@@ -1078,10 +1078,10 @@ class Game {
       const orbData = this._generateOrbBuckets(mult);
       choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta });
     }
-    // Consume the boss item reward (shown at the top of the path screen)
-    const rewardItem = this.bossRewardItem || null;
-    this.bossRewardItem = null;
-    return { choices, selected: 0, delay: 60, rewardItem };
+    // Consume the boss item choices (shown at the top of the path screen)
+    const itemChoices = (this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
+    this.bossRewardItems = [];
+    return { choices, selected: 0, delay: 60, itemChoices, itemSelected: 0, focus: 'boss' };
   }
 
   // ── Orb Bucket Generation ──
@@ -1318,6 +1318,7 @@ class Game {
     if (this.pathChoiceScreen) {
       const pcs = this.pathChoiceScreen;
       const numChoices = pcs.choices.length;
+      const numItems = pcs.itemChoices ? pcs.itemChoices.length : 0;
       if (pcs.delay > 0) {
         pcs.delay--;
         // Only eat confirm buttons during delay; let arrows through
@@ -1331,12 +1332,15 @@ class Game {
           this.currentWaveDefIdx = chosen.waveIdx;
           this.levelElement = chosen.element;
           this.pathChoiceScreen = null;
-          // Apply the boss item reward if present
-          if (pcs.rewardItem) {
-            this.player.items[pcs.rewardItem] = true;
-            if (pcs.rewardItem === 'deathsKey') this.player.deathsKeyUsed = false;
-            this.itemPickupOverlay = { itemId: pcs.rewardItem, timer: 180 };
-            recordItemFound(pcs.rewardItem);
+          // Apply the selected boss item
+          if (numItems > 0) {
+            const chosenItem = pcs.itemChoices[pcs.selected];
+            if (chosenItem) {
+              this.player.items[chosenItem] = true;
+              if (chosenItem === 'deathsKey') this.player.deathsKeyUsed = false;
+              this.itemPickupOverlay = { itemId: chosenItem, timer: 180 };
+              recordItemFound(chosenItem);
+            }
           }
           // Apply the pre-generated orb reward for the chosen path
           this._applyOrbBucket(chosen.reward);
@@ -1349,6 +1353,7 @@ class Game {
     // Orb bucket choice menu
     if (this.orbBucketChoice) {
       const obc = this.orbBucketChoice;
+      const numOrbItems = obc.itemChoices ? obc.itemChoices.length : 0;
       if (obc.delay > 0) {
         obc.delay--;
         // Only eat confirm buttons during delay; let arrows through
@@ -1359,6 +1364,16 @@ class Game {
       if (obc.delay <= 0) {
         if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this._applyOrbBucket(obc.buckets[obc.selected]);
+          // Apply the selected boss item
+          if (numOrbItems > 0) {
+            const chosenOrbItem = obc.itemChoices[obc.selected];
+            if (chosenOrbItem) {
+              this.player.items[chosenOrbItem] = true;
+              if (chosenOrbItem === 'deathsKey') this.player.deathsKeyUsed = false;
+              this.itemPickupOverlay = { itemId: chosenOrbItem, timer: 180 };
+              recordItemFound(chosenOrbItem);
+            }
+          }
           this.orbBucketChoice = null;
           this.advanceWave();
         }
@@ -1416,11 +1431,10 @@ class Game {
         pl.ultimateCharge  = 0;
         pl.ultimateReady   = false;
       }
-      // Give a random uncollected boss item (stored in pcs.rewardItem or applied directly)
+      // Generate up to 3 item choices for the reward screen
       const allItemKeys = Object.keys(BOSS_ITEMS);
       const uncollected = allItemKeys.filter(k => !this.player.items[k]);
-      const rItem = uncollected.length > 0 ? uncollected[Math.floor(Math.random() * uncollected.length)] : null;
-      this.bossRewardItem = rItem;
+      this.bossRewardItems = uncollected.slice().sort(() => Math.random() - 0.5).slice(0, 3);
       // Trigger the path choice / reward screen instead of skipping straight to next wave
       if (this.wave < TOTAL_WAVES) {
         const nextPool = this._getNextBossPool();
@@ -1431,8 +1445,10 @@ class Game {
           const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
           this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
           this.orbBucketChoice.delay = 60;
-          this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-          this.bossRewardItem = null;
+          this.orbBucketChoice.itemChoices = this.bossRewardItems.slice();
+          this.orbBucketChoice.itemSelected = 0;
+          this.orbBucketChoice.focus = 'orb';
+          this.bossRewardItems = [];
         } else {
           this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
         }
@@ -1532,8 +1548,9 @@ class Game {
     for (const bi of this.bossItems) bi.update(this);
 
     // ── Shuriken pickup icons ──
-    // Spawn one every 5 seconds (up to 3 on screen)
-    if (this.tick % 300 === 60 && this.shurikenPickups.filter(s => !s.done).length < 3) {
+    // Spawn one every 5 seconds (up to 3 on screen); Triple Shuriken halves the interval
+    const _shurikenInterval = (this.player.items && this.player.items.tripleShuriken) ? 150 : 300;
+    if (this.tick % _shurikenInterval === 60 && this.shurikenPickups.filter(s => !s.done).length < 3) {
       this.shurikenPickups.push({
         x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
         y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
@@ -1551,12 +1568,12 @@ class Game {
         sp.done = true;
         SFX.pickup();
         const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
-        const isKunai = pl.items.theKunai;
-        const color = isKunai ? '#f66' : (pl.ninjaType === 'fire') ? '#f93' : (pl.ninjaType === 'crystal') ? '#aff' : (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
+        const color = (pl.ninjaType === 'fire') ? '#f93' : (pl.ninjaType === 'crystal') ? '#aff' : (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
         const dmg = pl.type.attackDamage + pl.shurikenLevel;
         for (let i = 0; i < pl.maxShurikens; i++) {
+          const isLastKunai = pl.items.theKunai && i === pl.maxShurikens - 1;
           const sProj = fireProjectileAtNearestEnemy({
-            x: cx, y: cy, game: this, speed: 8 + i * 1.5, color: isKunai ? '#f66' : color,
+            x: cx, y: cy, game: this, speed: 8 + i * 1.5, color: isLastKunai ? '#f66' : color,
             damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
             piercing: true, preferBoss: true, ignoreLOS: true,
           });
@@ -1565,11 +1582,11 @@ class Game {
             if (pl.ninjaType === 'crystal') sProj.freezeDust = true;
             if (pl.ninjaType === 'shadow' || pl.ninjaType === 'storm') sProj.shadowParalyse = true;
             if (pl.items.homingShuriken) sProj.homing = true;
-            if (isKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = pl.maxShurikens; sProj.life = 30; }
+            if (isLastKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = pl.maxShurikens; sProj.life = 30; }
             if (pl.items.tripleShuriken) {
               for (const triOff of [0.25, -0.25]) {
                 const tProj = fireProjectileAtNearestEnemy({
-                  x: cx, y: cy, game: this, speed: 8, color: isKunai ? '#f66' : color,
+                  x: cx, y: cy, game: this, speed: 8, color: isLastKunai ? '#f66' : color,
                   damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
                   piercing: true, preferBoss: true, ignoreLOS: true,
                 });
@@ -1644,6 +1661,7 @@ class Game {
           this.bossOrbPickups.push({
             x: orbSpawnX, y: orbSpawnY,
             bobTimer: Math.random() * Math.PI * 2, life: 1800, done: false, w: 28, h: 28,
+            vx: 0, vy: 0,
           });
           // ── Boss Orb spawn burst ──
           this.effects.push(new SlamRing(orbSpawnX + 14, orbSpawnY + 14, '#f80', 120, 18));
@@ -1668,6 +1686,19 @@ class Game {
           orb.bobTimer += 0.05;
           orb.life--;
           if (orb.life <= 0) { orb.done = true; continue; }
+          // Attraction to player
+          const _obx = orb.x + orb.w / 2, _oby = orb.y + orb.h / 2;
+          const _pdx = pl.x + pl.w / 2 - _obx, _pdy = pl.y + pl.h / 2 - _oby;
+          const _odist = Math.sqrt(_pdx * _pdx + _pdy * _pdy);
+          const _magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
+          if (_odist < _magnetRange && _odist > 0) {
+            orb.vx += (_pdx / _odist) * 0.7;
+            orb.vy += (_pdy / _odist) * 0.35;
+            const _ospd = Math.sqrt(orb.vx * orb.vx + orb.vy * orb.vy);
+            if (_ospd > 6) { orb.vx = orb.vx * 6 / _ospd; orb.vy = orb.vy * 6 / _ospd; }
+            orb.x += orb.vx;
+            orb.y += orb.vy;
+          }
           if (rectOverlap(pl, orb)) {
             orb.done = true;
             this.bossOrbsCollected++;
@@ -1684,6 +1715,10 @@ class Game {
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
         if (this.wave < TOTAL_WAVES) {
+          // Generate up to 3 item choices for the reward screen
+          const _nxtAllKeys = Object.keys(BOSS_ITEMS);
+          const _nxtUncollected = _nxtAllKeys.filter(k => !this.player.items[k]);
+          this.bossRewardItems = _nxtUncollected.slice().sort(() => Math.random() - 0.5).slice(0, 3);
           // Determine next round's boss pool dynamically
           const nextPool = this._getNextBossPool();
           if (nextPool === null) {
@@ -1693,8 +1728,10 @@ class Game {
             const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
             this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
             this.orbBucketChoice.delay = 60;
-            this.orbBucketChoice.rewardItem = this.bossRewardItem || null;
-            this.bossRewardItem = null;
+            this.orbBucketChoice.itemChoices = this.bossRewardItems.slice();
+            this.orbBucketChoice.itemSelected = 0;
+            this.orbBucketChoice.focus = 'orb';
+            this.bossRewardItems = [];
           } else {
             // Show combined path+reward choice screen
             this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
@@ -4069,27 +4106,7 @@ class Game {
       ctx.fillStyle = 'rgba(0,0,0,0.82)';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-      // Boss item reward banner at the top (if any)
       let bannerH = 0;
-      if (pcs.rewardItem) {
-        const def = BOSS_ITEMS[pcs.rewardItem];
-        if (def) {
-          bannerH = 52;
-          const ibW = 380, ibH = 44;
-          const ibX = CANVAS_W / 2 - ibW / 2, ibY = 8;
-          ctx.fillStyle = 'rgba(0,0,0,0.7)';
-          ctx.fillRect(ibX, ibY, ibW, ibH);
-          ctx.strokeStyle = def.color; ctx.lineWidth = 2;
-          ctx.strokeRect(ibX, ibY, ibW, ibH);
-          ctx.shadowColor = def.color; ctx.shadowBlur = 10;
-          drawItemIcon(ctx, pcs.rewardItem, ibX + 22, ibY + ibH / 2, 24, def.color);
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = def.color; ctx.font = 'bold 13px monospace';
-          ctx.fillText(def.name, ibX + 44, ibY + 16);
-          ctx.fillStyle = '#ccc'; ctx.font = '10px monospace';
-          ctx.fillText(def.desc, ibX + 44, ibY + 32);
-        }
-      }
 
       // Title
       ctx.fillStyle = '#fff';
@@ -4100,7 +4117,7 @@ class Game {
       ctx.fillStyle = '#aaa';
       const subTxt = pcs.delay > 0
         ? '\u22ef ' + Math.ceil(pcs.delay / 60) + '\u22ef'
-        : '\u2190 A/D \u2192 to browse   \u25b6 Z / Enter to confirm';
+        : '\u2190 A/D \u2192 choose path   Z confirm';
       ctx.fillText(subTxt, CANVAS_W / 2 - ctx.measureText(subTxt).width / 2, bannerH + 46);
 
       // Cards
@@ -4195,7 +4212,7 @@ class Game {
               ctx.fillText('x' + count, cx + cardW - 28, ey + 2);
             }
             ey += 20;
-            if (ey > cy + cardH - 28) break; // safety clip
+            if (ey > cy + cardH - 100) break; // leave room for item section
           }
         }
 
@@ -4357,6 +4374,34 @@ class Game {
           ctx.shadowBlur = 0;
         }
         ctx.restore();
+        // ── Item reward embedded in card ──
+        const _cItem = (pcs.itemChoices && pcs.itemChoices[ci]) || null;
+        const _cItemDef = _cItem ? BOSS_ITEMS[_cItem] : null;
+        if (_cItemDef) {
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = isSel ? '#555' : '#2a2a2a';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(cx + 12, cy + cardH - 92); ctx.lineTo(cx + cardW - 12, cy + cardH - 92); ctx.stroke();
+          ctx.fillStyle = '#666'; ctx.font = '9px monospace';
+          ctx.fillText('ITEM REWARD', cx + 12, cy + cardH - 79);
+          if (isSel) { ctx.shadowColor = _cItemDef.color; ctx.shadowBlur = 8; }
+          drawItemIcon(ctx, _cItem, cx + 20, cy + cardH - 56, 18, _cItemDef.color);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = isSel ? _cItemDef.color : '#aaa'; ctx.font = 'bold 11px monospace';
+          ctx.fillText(_cItemDef.name, cx + 36, cy + cardH - 63);
+          ctx.fillStyle = '#777'; ctx.font = '9px monospace';
+          const _ciWords = _cItemDef.desc.split(' ');
+          let _ciLn = '', _ciY = cy + cardH - 49, _ciN = 0;
+          for (const _cw of _ciWords) {
+            const _ct = _ciLn ? _ciLn + ' ' + _cw : _cw;
+            if (ctx.measureText(_ct).width > cardW - 50) {
+              ctx.fillText(_ciLn, cx + 36, _ciY); _ciLn = _cw; _ciY += 11; _ciN++;
+              if (_ciN >= 2) break;
+            } else _ciLn = _ct;
+          }
+          if (_ciLn && _ciN < 2) ctx.fillText(_ciLn, cx + 36, _ciY);
+        }
       }
     }
 
@@ -4367,35 +4412,7 @@ class Game {
       // Darken
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-      // Boss item reward (shown at top)
-      let headerH = 80;
-      if (obc.rewardItem) {
-        const def = BOSS_ITEMS[obc.rewardItem];
-        if (def) {
-          headerH = 110;
-          // Item box
-          const ibW = 340, ibH = 50;
-          const ibX = CANVAS_W / 2 - ibW / 2, ibY = 45;
-          ctx.fillStyle = 'rgba(0,0,0,0.7)';
-          ctx.fillRect(ibX, ibY, ibW, ibH);
-          ctx.strokeStyle = def.color;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(ibX, ibY, ibW, ibH);
-          // Icon
-          ctx.shadowColor = def.color;
-          ctx.shadowBlur = 10;
-          drawItemIcon(ctx, obc.rewardItem, ibX + 24, ibY + ibH / 2, 28, def.color);
-          ctx.shadowBlur = 0;
-          // Name
-          ctx.fillStyle = def.color;
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText(def.name, ibX + 46, ibY + 20);
-          // Description
-          ctx.fillStyle = '#ccc';
-          ctx.font = '10px monospace';
-          ctx.fillText(def.desc, ibX + 46, ibY + 36);
-        }
-      }
+      let headerH = 60;
       // Title
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 20px monospace';
@@ -4406,11 +4423,11 @@ class Game {
       ctx.fillStyle = '#aaa';
       const sub = obc.delay > 0
         ? '...' + Math.ceil(obc.delay / 60)
-        : '\u2190 A/D \u2192 to browse, Z/Enter to pick';
+        : '\u2190 A/D \u2192 choose bonus   Z confirm';
       const subW = ctx.measureText(sub).width;
       ctx.fillText(sub, CANVAS_W / 2 - subW / 2, headerH + 40);
       // Draw 3 buckets
-      const boxW = 200, boxH = 200, boxGap = 30;
+      const boxW = 200, boxH = 268, boxGap = 30;
       const totalW = boxW * 3 + boxGap * 2;
       const startX = CANVAS_W / 2 - totalW / 2;
       const startY = headerH + 56;
@@ -4453,6 +4470,35 @@ class Game {
             ctx.fillText('x' + count, bx + boxW - 30, ey + 4);
           }
           ey += 24;
+          if (ey > by + boxH - 76) break; // leave room for item section
+        }
+        // ── Item reward embedded in bucket ──
+        const _bItem = (obc.itemChoices && obc.itemChoices[b]) || null;
+        const _bItemDef = _bItem ? BOSS_ITEMS[_bItem] : null;
+        if (_bItemDef) {
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = isSel ? '#555' : '#2a2a2a';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(bx + 8, by + boxH - 72); ctx.lineTo(bx + boxW - 8, by + boxH - 72); ctx.stroke();
+          ctx.fillStyle = '#666'; ctx.font = '9px monospace';
+          ctx.fillText('ITEM REWARD', bx + 10, by + boxH - 59);
+          if (isSel) { ctx.shadowColor = _bItemDef.color; ctx.shadowBlur = 8; }
+          drawItemIcon(ctx, _bItem, bx + 18, by + boxH - 38, 18, _bItemDef.color);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = isSel ? _bItemDef.color : '#aaa'; ctx.font = 'bold 11px monospace';
+          ctx.fillText(_bItemDef.name, bx + 34, by + boxH - 44);
+          ctx.fillStyle = '#777'; ctx.font = '9px monospace';
+          const _biWords = _bItemDef.desc.split(' ');
+          let _biLn = '', _biY = by + boxH - 30, _biN = 0;
+          for (const _bw of _biWords) {
+            const _bt = _biLn ? _biLn + ' ' + _bw : _bw;
+            if (ctx.measureText(_bt).width > boxW - 44) {
+              ctx.fillText(_biLn, bx + 34, _biY); _biLn = _bw; _biY += 11; _biN++;
+              if (_biN >= 1) break;
+            } else _biLn = _bt;
+          }
+          if (_biLn && _biN < 2) ctx.fillText(_biLn, bx + 34, _biY);
         }
       }
     }

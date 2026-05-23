@@ -616,43 +616,45 @@ class Orb {
         if (!pl.ultimateReady && !pl.ultimateActive) {
           pl.addUltimateCharge(5);
         }
+        const _m = (pl.items && pl.items.x2Orb) ? 2 : 1;
+        if (_m === 2) { pl.x2OrbCounter++; checkX2OrbBreak(pl, game, cx, cy); }
         switch (this.type) {
           case 'heal':
-            pl.hp = Math.min(pl.hp + 5, pl.maxHp);
+            pl.hp = Math.min(pl.hp + 5 * _m, pl.maxHp);
             game.effects.push(new Effect(cx, cy, '#f44', 6, 2, 10));
             break;
           case 'maxhp':
-            pl.maxHp += 1;
-            pl.hp = Math.min(pl.hp + 1, pl.maxHp);
+            pl.maxHp += 1 * _m;
+            pl.hp = Math.min(pl.hp + 1 * _m, pl.maxHp);
             game.effects.push(new Effect(cx, cy, '#4f4', 8, 3, 12));
             break;
           case 'damage':
-            pl.bonusDamage += 1;
+            pl.bonusDamage += 1 * _m;
             game.effects.push(new Effect(cx, cy, '#f80', 8, 3, 12));
             break;
           case 'elDmg':
-            pl.bonusElemental += 1;
+            pl.bonusElemental += 1 * _m;
             game.effects.push(new Effect(cx, cy, '#c4f', 8, 3, 12));
             break;
           case 'speed':
-            pl.bonusSpeed += 1;
+            pl.bonusSpeed += 1 * _m;
             game.effects.push(new Effect(cx, cy, '#0f0', 8, 3, 12));
             break;
           case 'reach':
-            pl.bonusReach += 1;
+            pl.bonusReach += 1 * _m;
             game.effects.push(new Effect(cx, cy, '#fa0', 8, 3, 12));
             break;
           case 'ultcharge':
-            if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50);
+            if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m);
             game.effects.push(new Effect(cx, cy, '#ff0', 8, 3, 12));
             break;
           case 'armor':
-            pl.bonusArmor += 1;
+            pl.bonusArmor += 1 * _m;
             game.effects.push(new Effect(cx, cy, '#88f', 8, 3, 12));
             break;
           case 'element':
-            pl.bonusMana += 1;
-            pl.maxMana += 1;
+            pl.bonusMana += 1 * _m;
+            pl.maxMana += 1 * _m;
             pl.mana = pl.maxMana;
             pl.specialCooldown = 0;
             game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
