@@ -187,6 +187,8 @@ class Player {
     this.deathsKeyUsed = false;
     this.autoSwingTimer = 0; // for The Code
     this.codeComboCount = 0; // 3-hit combo tracker for The Code
+    this.codeChainLeft = 0;  // pending chain attacks after picking up a katana orb
+    this.codeChainTimer = 0; // delay between chain swings
     this.codeCounterMax = 600; // ~10 seconds at 60fps
     this.codeCounterCharge = this.codeCounterMax; // start fully charged
     this.evasionRng = Math.random; // for Leather Boots
@@ -1042,12 +1044,7 @@ class Player {
       }
     }
 
-    // Ultimate activation input
-    if (this.ultimateReady && !this.ultimateActive) {
-      if (consumePress('KeyC') || consumePress('KeyN') || gpJust[3]) {
-        this.activateUltimate(game);
-      }
-    }
+    // Ultimate activation input removed — pick up an ultimate orb to activate
 
     // Skip normal movement if in earth golem, wind bow, or crystal castle
     if (this.earthGolem || this.windBow || this.crystalCastle) {
@@ -1927,46 +1924,22 @@ class Player {
       }
     }
 
-    if ((consumePress('KeyZ') || consumePress('KeyJ') || consumePress('MouseAttack') || touchJust.attack || gpJust[GP_ATTACK]) && !this.attacking && this.attackCooldown <= 0) {
-      if (this.statusParalyse > 0) {
-        this.statusStun = 30;
-        this.statusParalyse = Math.max(0, this.statusParalyse - 30);
-        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
-        this.hp -= paraDmg;
-        if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
-        SFX.play(200, 'square', 0.2, 0.15, 0);
-      } else {
-        const attackCost = Math.max(1, Math.floor(this.hp * 0.15));
-        this.hp = Math.max(1, this.hp - attackCost);
+    // Attack, special, ultimate now triggered by world orb pickups (see effects.js Orb.update)
+
+    // The Code: auto chain swings after picking up a katana orb
+    if (this.items.theCode && this.codeChainLeft > 0) {
+      if (this.codeChainTimer > 0) {
+        this.codeChainTimer--;
+      } else if (!this.attacking && this.attackCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
+        const _chainCost = Math.max(1, Math.floor(this.hp * 0.15));
+        this.hp = Math.max(1, this.hp - _chainCost);
+        if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: null, killerInfo: { type: 'focus', element: null, isBoss: false } }; }
         this.shadowAttackHit = false;
         this.attack(game);
-        if (this.hp <= 1) this.attackCooldown = 120; // low-FOCUS penalty
-        if (this.items.theCode) this.codeComboCount = 1;
+        this.codeChainLeft--;
+        this.codeChainTimer = 16;
+        if (this.hp <= 1) this.attackCooldown = 120;
       }
-    }
-
-    // The Code: hold attack for a 3-hit combo
-    if (this.items.theCode && !this.attacking && this.attackCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
-      const holdingAttack = keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK];
-      if (holdingAttack && this.codeComboCount > 0 && this.codeComboCount < 3) {
-        this.shadowAttackHit = false;
-        this.attack(game);
-        this.codeComboCount++;
-      }
-    }
-    // Reset combo when attack released or combo finished
-    if (this.codeComboCount >= 3 || !(keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK])) {
-      this.codeComboCount = 0;
-    }
-
-    // Special ability
-    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
-      const specialCost = Math.max(1, Math.floor(this.hp * 0.35));
-      this.hp = Math.max(1, this.hp - specialCost);
-      this.useSpecial(game);
-      if (this.hp <= 1) this.specialCooldown = 120; // low-FOCUS penalty
     }
 
     // Fire ninja: combo decay & fire armor

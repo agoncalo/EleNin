@@ -71,6 +71,11 @@ class Game {
     this.bossOrbsRequired = 2;     // orbs needed to summon boss (2-5, scales with wave)
     this.bossOrbPickups = [];      // world pickup objects
 
+    // Action orb timers
+    this.katanaOrbTimer = 60;    // frames until first katana orb
+    this.specialOrbTimer = 300;  // frames until first special orb
+    this.ultOrbSpawned = false;  // tracks if this ult charge cycle's orb is alive
+
     // Weather & hazards
     this.levelHazards = [];
     this.hazardTimer = 0;
@@ -1001,6 +1006,30 @@ class Game {
     }
   }
 
+  _spawnActionOrb(type) {
+    const cam = this.camera;
+    let ox, oy;
+    if (type === 'katana') {
+      ox = cam.x + 60 + Math.random() * (CANVAS_W - 120);
+      oy = cam.y + CANVAS_H * 0.55 + Math.random() * (CANVAS_H * 0.25);
+    } else if (type === 'special') {
+      ox = cam.x + 80 + Math.random() * (CANVAS_W - 160);
+      oy = cam.y + CANVAS_H * 0.35 + Math.random() * (CANVAS_H * 0.3);
+    } else { // ultimate: center-screen, memorable position
+      ox = cam.x + CANVAS_W / 2 - 6;
+      oy = cam.y + CANVAS_H * 0.3;
+    }
+    const orb = new Orb(ox, oy, type);
+    this.orbs.push(orb);
+    const _c = type === 'katana' ? '#9bf' : type === 'special' ? '#0ee' : '#ffd700';
+    this.effects.push(new SlamRing(ox, oy, _c, 60, 8));
+    this.effects.push(new Effect(ox, oy, _c, 12, 4, 12));
+    if (type === 'ultimate') {
+      this.effects.push(new SlamRing(ox, oy, '#fff', 40, 6));
+      triggerScreenShake(4, 8);
+    }
+  }
+
   // ── Path Choice Generation ──
   // Generates path choice options for the next round.
   // pool: array of WAVE_DEFS indices to offer.
@@ -1265,6 +1294,9 @@ class Game {
     this.bossOrbCooldown = 0;
     this.bossOrbsCollected = 0;
     this.bossOrbPickups = [];
+    this.katanaOrbTimer = 60;
+    this.specialOrbTimer = 300;
+    this.ultOrbSpawned = false;
     this.spawnedMiniboss = new Set();
     this.boss = null;
     this.bossActive = false;
@@ -1681,6 +1713,30 @@ class Game {
           }
         }
         this.bossOrbPickups = this.bossOrbPickups.filter(o => !o.done);
+      }
+      // ── Action Orb spawning (katana / special / ultimate) ──
+      if (this.player.deathTimer <= 0 && !this.pathChoiceScreen && !this.orbBucketChoice) {
+        const _pl = this.player;
+        // Katana orbs: up to 2 at once, 90-frame cooldown, requires enemies
+        if (this.katanaOrbTimer > 0) this.katanaOrbTimer--;
+        const _katCount = this.orbs.filter(o => o.type === 'katana' && !o.done).length;
+        if (this.katanaOrbTimer <= 0 && _katCount < 2 && (this.enemies.some(e => !e.dead) || this.bossActive)) {
+          this._spawnActionOrb('katana');
+          this.katanaOrbTimer = 90;
+        }
+        // Special orbs: 1 at a time, 480-frame cooldown (~8s), requires enemies
+        if (this.specialOrbTimer > 0) this.specialOrbTimer--;
+        const _specCount = this.orbs.filter(o => o.type === 'special' && !o.done).length;
+        if (this.specialOrbTimer <= 0 && _specCount < 1 && (this.enemies.some(e => !e.dead) || this.bossActive)) {
+          this._spawnActionOrb('special');
+          this.specialOrbTimer = 480;
+        }
+        // Ultimate orb: spawns once per ult charge cycle, stays until picked up
+        if (!this.orbs.some(o => o.type === 'ultimate' && !o.done)) this.ultOrbSpawned = false;
+        if (!this.ultOrbSpawned && _pl.ultimateReady && !_pl.ultimateActive) {
+          this._spawnActionOrb('ultimate');
+          this.ultOrbSpawned = true;
+        }
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
         if (this.wave < TOTAL_WAVES) {
@@ -3699,6 +3755,29 @@ class Game {
     ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : '#fff';
     ctx.fillText(focusLabel, centerX, barY + barH - 5);
     ctx.textAlign = 'left';
+
+    // ── Action orb availability indicators (right of FOCUS bar) ──
+    {
+      const _katOrbs = this.orbs.filter(o => o.type === 'katana' && !o.done).length;
+      const _hasSpec = this.orbs.some(o => o.type === 'special' && !o.done);
+      const _hasUlt  = this.orbs.some(o => o.type === 'ultimate' && !o.done);
+      const _aoX = barLeft + barTotalW + 10;
+      const _aoY = barY + barH - 8;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'left';
+      for (let _i = 0; _i < 2; _i++) {
+        ctx.globalAlpha = _i < _katOrbs ? 0.9 : 0.22;
+        ctx.fillStyle = '#9bf';
+        ctx.fillText('†', _aoX + _i * 13, _aoY);
+      }
+      ctx.globalAlpha = _hasSpec ? 0.9 : 0.22;
+      ctx.fillStyle = '#0ee';
+      ctx.fillText('◎', _aoX + 30, _aoY);
+      ctx.globalAlpha = _hasUlt ? 1 : (pl.ultimateReady ? 0.5 : 0.12);
+      ctx.fillStyle = _hasUlt ? '#ffd700' : '#888';
+      ctx.fillText('✸', _aoX + 46, _aoY);
+      ctx.globalAlpha = 1;
+    }
 
     // Ninja selection bar
     const ninjaBarX = CANVAS_W / 2 - 182;

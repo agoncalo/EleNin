@@ -456,15 +456,15 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 6, maxhp: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 6, maxhp: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9, katana: 10, special: 10, ultimate: 13 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
-    this.life = 480;
+    this.life = type === 'katana' ? 360 : type === 'special' ? 600 : type === 'ultimate' ? 9999 : 480;
     this.done = false;
     this.grounded = false;
     this.vx = 0;
-    this.rare = ['damage', 'elDmg', 'speed', 'reach', 'armor', 'element'].includes(type);
+    this.rare = ['damage', 'elDmg', 'speed', 'reach', 'armor', 'element', 'ultimate'].includes(type);
     this.tick = 0;
   }
   update(game) {
@@ -487,13 +487,14 @@ class Orb {
 
     // Skip attraction and pickup if player is already full of this resource
     const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
-                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive));
+                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive)) ||
+                 (this.type === 'ultimate' && pl.ultimateActive);
     if (full) return;
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
     let attracted = dist < magnetRange;
-    if (!attracted) {
+    if (!attracted && this.type !== 'katana' && this.type !== 'special' && this.type !== 'ultimate') {
       // Chain strikes auto-grab
       if (pl.chainStriking || pl.stormChaining) {
         if (dist < 200) {
@@ -586,12 +587,58 @@ class Orb {
           pl.specialCooldown = 0;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
           break;
+        case 'katana': {
+          if (pl.statusParalyse > 0) {
+            pl.statusStun = 30;
+            pl.statusParalyse = Math.max(0, pl.statusParalyse - 30);
+            const _paraDmg = Math.max(1, Math.round(pl.maxHp * 0.15));
+            pl.hp -= _paraDmg;
+            if (pl.hp <= 0) { pl.hp = 0; if (!pl._pendingDamage) pl._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
+            game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, 'STUNNED!', '#ff0'));
+            game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ff0', 5, 2, 8));
+            SFX.play(200, 'square', 0.2, 0.15, 0);
+          } else {
+            const _nt = findNearestTarget(pl.x + pl.w/2, pl.y + pl.h/2, game, pl.facing, false, true);
+            if (_nt) pl.facing = Math.sign((_nt.x + _nt.w/2) - (pl.x + pl.w/2)) || pl.facing;
+            pl.attackCooldown = 0; pl.attacking = false;
+            const _atk = Math.max(1, Math.floor(pl.hp * 0.15));
+            pl.hp = Math.max(1, pl.hp - _atk);
+            if (pl.hp <= 0) { pl.hp = 0; if (!pl._pendingDamage) pl._pendingDamage = { amount: 0, element: null, killerInfo: { type: 'focus', element: null, isBoss: false } }; }
+            pl.shadowAttackHit = false;
+            pl.attack(game);
+            if (pl.hp <= 1) pl.attackCooldown = 120;
+            if (pl.items && pl.items.theCode) { pl.codeChainLeft = 2; pl.codeChainTimer = 16; }
+          }
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#9bf', 10, 3, 14));
+          break;
+        }
+        case 'special': {
+          if (pl.statusCurse <= 0) {
+            if (pl.specialCooldown <= 0) {
+              const _sc = Math.max(1, Math.floor(pl.hp * 0.35));
+              pl.hp = Math.max(1, pl.hp - _sc);
+              if (pl.hp <= 0) { pl.hp = 0; if (!pl._pendingDamage) pl._pendingDamage = { amount: 0, element: null, killerInfo: { type: 'focus', element: null, isBoss: false } }; }
+              pl.useSpecial(game);
+              if (pl.hp <= 1) pl.specialCooldown = 120;
+            } else {
+              pl.specialCooldown = Math.max(0, pl.specialCooldown - 90);
+              game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, 'CD-', '#0ee'));
+            }
+          }
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#0ee', 10, 4, 14));
+          break;
+        }
+        case 'ultimate': {
+          if (pl.ultimateReady && !pl.ultimateActive) pl.activateUltimate(game);
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#ffd', 14, 5, 18));
+          break;
+        }
       }
       if (_bonusLabel[this.type]) game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
     }
 
     // Collector pickups: golems, trimerangs, bubbles grab orbs for the player
-    if (!this.done) {
+    if (!this.done && this.type !== 'katana' && this.type !== 'special' && this.type !== 'ultimate') {
       let collected = false;
       let cx = ox, cy = oy;
       // Trimerangs (wind)
@@ -668,7 +715,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f', katana: '#9bf', special: '#0ee', ultimate: '#ffd700' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
@@ -706,7 +753,7 @@ class Orb {
     ctx.fillStyle = '#fff';
     const fontSize = Math.max(8, r * 1.4) | 0;
     ctx.font = 'bold ' + fontSize + 'px monospace';
-    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shieldrecharge: '◇', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈' };
+    const icons = { heal: '♥', maxhp: '+', damage: '!', elDmg: '✷', shield: '◆', shieldrecharge: '◇', shuriken: '✦', speed: '»', reach: '↔', ultcharge: '★', armor: '■', element: '◈', katana: '†', special: '◎', ultimate: '✸' };
     ctx.fillText(icons[this.type], cx - fontSize * 0.35, cy + fontSize * 0.35);
   }
 }
