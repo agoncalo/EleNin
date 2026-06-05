@@ -1298,14 +1298,24 @@ class Enemy {
     // ── Boss Summon Orb charge: damage dealt fills the meter ──
     if (game && !game.bossActive) {
       const waveDef = WAVE_DEFS[game.currentWaveDefIdx] || WAVE_DEFS[0];
-      let chargeMult = 1;
-      if (game.wave > 1) {
-        // +50% if enemy element matches level element (only when level has an element)
-        if (game.levelElement && this.element === game.levelElement) chargeMult += 0.5;
-        // +50% if enemy type matches the wave boss type
-        if (waveDef && waveDef.boss && this.type === waveDef.boss) chargeMult += 0.5;
+      const _obj = game.currentObjective;
+      // Determine if this hit should charge the meter
+      let _shouldCharge = false;
+      if (!_obj || _obj.type === 'kills') {
+        _shouldCharge = true;
+      } else if (_obj.type === 'hunt') {
+        _shouldCharge = game._matchesHuntFilter(this, _obj.filter);
       }
-      game.bossOrbCharge = Math.min(game.bossOrbChargeMax, game.bossOrbCharge + amount * chargeMult);
+      // 'survive', 'zone', 'defend': charge via time in game.js, not from damage
+      // 'collect': charge from shuriken caches in game.js, not from damage
+      if (_shouldCharge) {
+        let chargeMult = 1;
+        if (game.wave > 1) {
+          if (game.levelElement && this.element === game.levelElement) chargeMult += 0.5;
+          if (waveDef && waveDef.boss && this.type === waveDef.boss) chargeMult += 0.5;
+        }
+        game.bossOrbCharge = Math.min(game.bossOrbChargeMax, game.bossOrbCharge + amount * chargeMult);
+      }
     }
 
     this.hp -= amount;

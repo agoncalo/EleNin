@@ -290,6 +290,7 @@ const ELEMENT_LEVEL_THEMES = {
 };
 const WAVE_DEFS = [
   { boss: 'walker', killsForBoss: 20,  // Round 1
+    objective: { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' },
     pool: [
       { type: 'walker', weight: 5 },
       { type: 'shooter', weight: 3 },
@@ -297,6 +298,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'shooter', killsForBoss: 26,  // Round 2 choice
+    objective: { type: 'hunt', filter: { enemyType: 'shooter' }, label: 'Hunt Gunners', desc: 'Only Shooter kills charge Boss Orbs. One is always present.', icon: '◎' },
     pool: [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
@@ -306,6 +308,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'jumper', killsForBoss: 30,   // Round 2 choice
+    objective: { type: 'survive', label: 'Survive', desc: 'Survival time charges Boss Orbs. Stay alive!', icon: '♥' },
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -315,6 +318,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'flyer', killsForBoss: 28,    // Round 2-3 choice
+    objective: { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to charge Boss Orbs.', icon: '◈' },
     pool: [
       { type: 'shooter', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -324,14 +328,17 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'deflector', killsForBoss: 48, // Round 4 choice
+    objective: { type: 'hunt', filter: { enemyType: 'deflector' }, label: 'Hunt Ronin', desc: 'Only Deflector kills charge Boss Orbs. One is always present.', icon: '◎' },
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 3 },
       { type: 'flyer', weight: 2 },
+      { type: 'deflector', weight: 3 },
       { type: 'shielded', weight: 1, big: true },
     ]
   },
   { boss: 'bouncer', killsForBoss: 38,   // Round 3 choice
+    objective: { type: 'collect', label: 'Collect Shurikens', desc: 'Shuriken caches spawn as Boss Orbs. Pick them up!', icon: '✦' },
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
@@ -344,6 +351,7 @@ const WAVE_DEFS = [
   },
 
   { boss: 'shielded', killsForBoss: 42,  // Round 3 choice
+    objective: { type: 'defend', label: 'Defend the Samurai', desc: 'Keep the samurai alive — they charge Boss Orbs.', icon: '⊕' },
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -355,6 +363,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'protector', killsForBoss: 50, // Round 4 choice
+    objective: { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to charge Boss Orbs.', icon: '◈' },
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -365,6 +374,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'attacker', killsForBoss: 52,  // Round 4 choice only
+    objective: { type: 'survive', label: 'Survive', desc: 'Survival time charges Boss Orbs. Stay alive!', icon: '♥' },
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -377,6 +387,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'flyshooter', killsForBoss: 56, // Round 5
+    objective: { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' },
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },

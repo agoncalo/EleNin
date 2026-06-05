@@ -71,6 +71,12 @@ class Game {
     this.bossOrbsRequired = 2;     // orbs needed to summon boss (2-5, scales with wave)
     this.bossOrbPickups = [];      // world pickup objects
 
+    // Wave Objective system
+    this.currentObjective = null;  // { type, filter?, label, desc, icon } from waveDef
+    this.objZone = null;           // { x, y, w, h } for zone objective
+    this.samurai = null;           // { x, y, w, h, hp, maxHp, dead, flashTimer } for defend
+    this.pendingObjective = null;  // objective randomly picked at path choice, consumed by _initObjective
+
     // Weather & hazards
     this.levelHazards = [];
     this.hazardTimer = 0;
@@ -104,6 +110,7 @@ class Game {
     this.transitionTimer = 0;
 
     this.buildLevel();
+    this._initObjective();
     this.showWaveMessage('Round 1/' + TOTAL_WAVES + ' — Fight!');
     // Start phrase (character-specific)
     const startPool = NINJA_START_PHRASES[this.player.ninjaType] || START_PHRASES;
@@ -899,6 +906,77 @@ class Game {
     P(775, -170, 25, 10, '#555');
   }
 
+  // ── Wave Objective Init ────────────────────────────────────
+  _matchesHuntFilter(enemy, filter) {
+    if (!filter) return false;
+    if (filter.enemyType && enemy.type !== filter.enemyType) return false;
+    if (filter.big && !enemy.big) return false;
+    if (filter.element && enemy.element !== filter.element) return false;
+    if (filter.miniboss && !(enemy.type === 'deflector' || enemy.type === 'protector' || enemy.type === 'attacker')) return false;
+    return true;
+  }
+
+  _spawnHuntTarget(filter) {
+    if (!filter) return;
+    const typeToSpawn = filter.enemyType || 'walker';
+    const isBig = !!filter.big;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const spawnDist = this.levelW < 1000 ? randInt(150, 300) : randInt(350, 550);
+    let x = this.player.x + side * spawnDist;
+    let y = -40;
+    if (this.levelType === 'tower') y = Math.min(this.player.y - 100, 200);
+    const xMin = this.levelType === 'tower' ? 120 : 40;
+    const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
+    x = Math.max(xMin, Math.min(xMax, x));
+    const e = new Enemy(x, y, typeToSpawn, isBig, this.wave);
+    if (filter.element) {
+      e.element = filter.element;
+      e.elementColors = ELEMENT_COLORS[filter.element];
+      e.color = e.elementColors.body;
+    }
+    e.isHuntTarget = true; // flag for rendering marker
+    this.enemies.push(e);
+    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#ff0', 6, 3, 10));
+  }
+
+  _initObjective() {
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    // Consume a randomly pre-assigned objective if one was queued, else fall back to waveDef
+    if (this.pendingObjective) {
+      this.currentObjective = this.pendingObjective;
+      this.pendingObjective = null;
+    } else {
+      this.currentObjective = (waveDef && waveDef.objective)
+        ? waveDef.objective
+        : { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' };
+    }
+    this.objZone = null;
+    this.samurai = null;
+    const obj = this.currentObjective;
+    if (obj.type === 'zone') {
+      const zW = 130, zH = 90;
+      if (this.levelType === 'tower') {
+        this.objZone = { x: 270, y: 360, w: zW, h: zH };
+      } else if (this.levelType === 'arena') {
+        this.objZone = { x: 520, y: 315, w: zW, h: zH };
+      } else if (this.levelType === 'narrow') {
+        this.objZone = { x: 580, y: 270, w: zW, h: zH };
+      } else {
+        this.objZone = { x: 1240, y: 355, w: zW, h: zH };
+      }
+    } else if (obj.type === 'defend') {
+      const samX = this.levelType === 'tower' ? 240 : (this.levelType === 'arena' ? 200 : 300);
+      const samY = this.levelType === 'tower' ? 425 : (this.levelType === 'arena' ? 340 : 330);
+      const baseHp = 12 + this.wave * 4;
+      this.samurai = { x: samX, y: samY, w: 18, h: 28, hp: baseHp, maxHp: baseHp, dead: false, flashTimer: 0, facing: 1 };
+    } else if (obj.type === 'hunt') {
+      // Mark any already-spawned matching enemies
+      for (const e of this.enemies) {
+        if (!e.dead && this._matchesHuntFilter(e, obj.filter)) e.isHuntTarget = true;
+      }
+    }
+  }
+
   spawnEnemy() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     let totalW = 0;
@@ -944,6 +1022,11 @@ class Game {
     }
     if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
       this.spawnedMiniboss.add(pick.type);
+    }
+    // Mark hunt target
+    const _huntObj = this.currentObjective;
+    if (_huntObj && _huntObj.type === 'hunt' && this._matchesHuntFilter(e, _huntObj.filter)) {
+      e.isHuntTarget = true;
     }
     this.enemies.push(e);
     this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, e.element ? e.elementColors.particle : '#fff', 6, 3, 10));
@@ -1056,6 +1139,32 @@ class Game {
     return null;
   }
 
+  // Randomly pick an objective for a wave def, deriving hunt filter from its enemy pool
+  _randomObjectiveFor(wd) {
+    const _pool = [
+      { type: 'kills',   label: 'Kill Enemies',         desc: 'Defeat enemies to charge Boss Orbs.',                       icon: '⚔' },
+      { type: 'hunt',    label: null,                   desc: null,                                                        icon: '◎' },
+      { type: 'survive', label: 'Survive',              desc: 'Survival time charges Boss Orbs. Stay alive!',              icon: '♥' },
+      { type: 'zone',    label: 'Hold the Zone',        desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
+      { type: 'collect', label: 'Collect Shurikens',    desc: 'Shuriken caches spawn as Boss Orbs. Pick them up!',        icon: '✦' },
+      { type: 'defend',  label: 'Defend the Samurai',   desc: 'Keep the samurai alive — they charge Boss Orbs.',          icon: '⊕' },
+    ];
+    const pick = _pool[Math.floor(Math.random() * _pool.length)];
+    if (pick.type === 'hunt') {
+      // Pick the highest-weight non-big, non-boss type from the pool as target
+      let best = null, bestW = 0;
+      for (const e of (wd.pool || [])) {
+        if (!e.big && e.weight > bestW) { bestW = e.weight; best = e; }
+      }
+      const targetType = best ? best.type : 'walker';
+      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers',
+                         shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
+                         flyer:'Flyers', flyshooter:'Overlords' }[targetType] || targetType;
+      return { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills charge Boss Orbs. One is always present.`, icon: '◎' };
+    }
+    return pick;
+  }
+
   _generatePathChoices(pool, normalCount) {
     normalCount = normalCount !== undefined ? normalCount : 1;
     const shuffled = pool.slice().sort(() => Math.random() - 0.5);
@@ -1076,7 +1185,11 @@ class Game {
       // Pre-generate the orb reward for this specific choice
       const mult = element ? (ELEMENT_BUDGET_MULT[element] || 1.0) : 1.0;
       const orbData = this._generateOrbBuckets(mult);
-      choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta });
+      // Randomly assign objective (first wave = index 0, last = index 9 keep kills; rest are random)
+      const objective = (waveIdx === 0 || waveIdx === 9)
+        ? (wd.objective || { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' })
+        : this._randomObjectiveFor(wd);
+      choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta, objective });
     }
     // Consume the boss item choices (shown at the top of the path screen)
     const itemChoices = (this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
@@ -1282,6 +1395,7 @@ class Game {
     }
     const oldLevelType = this.levelType;
     this.buildLevel();
+    this._initObjective();
     // Only reposition player if level type changed
     if (this.levelType !== oldLevelType) {
       this.player.x = this.levelType === 'tower' ? 380 : 100;
@@ -1331,6 +1445,7 @@ class Game {
           const chosen = pcs.choices[pcs.selected];
           this.currentWaveDefIdx = chosen.waveIdx;
           this.levelElement = chosen.element;
+          this.pendingObjective = chosen.objective || null; // carry random objective into next wave
           this.pathChoiceScreen = null;
           // Apply the selected boss item
           if (numItems > 0) {
@@ -1548,9 +1663,12 @@ class Game {
     for (const bi of this.bossItems) bi.update(this);
 
     // ── Shuriken pickup icons ──
-    // Spawn one every 5 seconds (up to 3 on screen); Triple Shuriken halves the interval
-    const _shurikenInterval = (this.player.items && this.player.items.tripleShuriken) ? 150 : 300;
-    if (this.tick % _shurikenInterval === 60 && this.shurikenPickups.filter(s => !s.done).length < 3) {
+    // In collect objective mode: spawn more caches (up to 6, every 120f); each pickup fills one boss orb
+    // In normal mode: spawn one every 5 seconds (up to 3 on screen); Triple Shuriken halves the interval
+    const _collectMode = this.currentObjective && this.currentObjective.type === 'collect';
+    const _shurikenInterval = _collectMode ? 120 : ((this.player.items && this.player.items.tripleShuriken) ? 150 : 300);
+    const _shurikenMax = _collectMode ? 6 : 3;
+    if (this.tick % _shurikenInterval === 60 && this.shurikenPickups.filter(s => !s.done).length < _shurikenMax) {
       this.shurikenPickups.push({
         x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
         y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
@@ -1568,6 +1686,12 @@ class Game {
         sp.done = true;
         SFX.pickup();
         const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
+        if (_collectMode && !this.bossActive && !this.boss && this.bossOrbsCollected < this.bossOrbsRequired) {
+          // Each shuriken cache directly fills a boss orb charge
+          this.bossOrbCharge = this.bossOrbChargeMax;
+          this.effects.push(new Effect(cx, cy, '#ccc', 10, 4, 15));
+          this.effects.push(new TextEffect(cx, cy - 22, '\u2726 CACHE!', '#ccc'));
+        } else {
         const color = (pl.ninjaType === 'fire') ? '#f93' : (pl.ninjaType === 'crystal') ? '#aff' : (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
         const dmg = pl.type.attackDamage + pl.shurikenLevel;
         for (let i = 0; i < pl.maxShurikens; i++) {
@@ -1607,6 +1731,7 @@ class Game {
         SFX.shuriken();
         this.effects.push(new Effect(cx, cy, '#ccc', 12, 5, 18));
         this.effects.push(new TextEffect(cx, cy - 22, '\u2726 SHURIKENS!', '#ccc'));
+        } // end else (not collect mode)
       }
     }
     this.shurikenPickups = this.shurikenPickups.filter(s => !s.done);
@@ -1648,9 +1773,61 @@ class Game {
         this.spawnTimer = 0;
         this.spawnEnemy();
       }
+      // Hunt objective: guarantee one target enemy alive at all times
+      const _wObj = this.currentObjective;
+      if (_wObj && _wObj.type === 'hunt' && !this.bossActive && !this.boss) {
+        const _huntAlive = this.enemies.some(e => !e.dead && this._matchesHuntFilter(e, _wObj.filter));
+        if (!_huntAlive) {
+          this._spawnHuntTarget(_wObj.filter);
+        }
+      }
+      // Samurai update (defend objective)
+      if (this.samurai && !this.samurai.dead) {
+        if (this.samurai.flashTimer > 0) this.samurai.flashTimer--;
+        // Enemies nearby damage the samurai
+        for (const e of this.enemies) {
+          if (e.dead) continue;
+          const sdx = Math.abs(e.x + e.w / 2 - (this.samurai.x + this.samurai.w / 2));
+          const sdy = Math.abs(e.y + e.h / 2 - (this.samurai.y + this.samurai.h / 2));
+          if (sdx < 28 && sdy < 36 && this.tick % 30 === 0) {
+            this.samurai.hp -= 1;
+            this.samurai.flashTimer = 12;
+            if (this.samurai.hp <= 0) {
+              this.samurai.hp = 0;
+              this.samurai.dead = true;
+              this.bossOrbCharge = 0; // charge lost when samurai dies
+              this.effects.push(new TextEffect(this.samurai.x + 9, this.samurai.y - 16, 'SAMURAI FALLEN!', '#f44'));
+              triggerScreenShake(6, 15);
+              SFX.enemyDie();
+            }
+            break;
+          }
+        }
+      }
       // ── Boss Summon Orb logic ──
       if (!this.bossActive && !this.boss) {
         if (this.bossOrbCooldown > 0) this.bossOrbCooldown--;
+        // Objective-based charge accumulation (overrides damage-based for non-kill types)
+        const _obj = this.currentObjective;
+        if (_obj) {
+          if (_obj.type === 'survive') {
+            // ~30 seconds per orb
+            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1800);
+          } else if (_obj.type === 'zone' && this.objZone) {
+            const _pl = this.player;
+            const _inZone = _pl.x + _pl.w > this.objZone.x && _pl.x < this.objZone.x + this.objZone.w &&
+                            _pl.y + _pl.h > this.objZone.y && _pl.y < this.objZone.y + this.objZone.h;
+            if (_inZone) {
+              // ~25 seconds of cumulative zone time per orb
+              this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1500);
+            }
+          } else if (_obj.type === 'defend' && this.samurai && !this.samurai.dead) {
+            // ~20 seconds of samurai alive per orb
+            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1200);
+          }
+          // 'kills' and 'hunt': charge comes from enemy.js takeDamage
+          // 'collect': charge comes from shuriken pickups below
+        }
         // Spawn an orb when charge threshold met and cooldown elapsed
         if (this.bossOrbCharge >= this.bossOrbChargeMax && this.bossOrbCooldown <= 0 &&
             this.bossOrbsCollected < this.bossOrbsRequired) {
@@ -2435,7 +2612,7 @@ class Game {
     }
 
     // ── System ──
-    const ssx = 170, ssy = 380;
+    const ssx = 170, ssy = 360;
     ctx.fillStyle = '#aaa';
     ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
@@ -2445,6 +2622,25 @@ class Game {
     ctx.font = '10px monospace';
     ctx.textAlign = 'left';
     ctx.fillText('Pause', ssx + 6, ssy);
+
+    // ── Reward Screen ──
+    const rsx = 120, rsy = 420;
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('REWARD SCREEN', rsx + 60, rsy - 18);
+    ctx.textAlign = 'left';
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#ffe033';
+    ctx.fillText('A / D', rsx, rsy);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('\u2014 choose path or bonus bucket', rsx + 42, rsy);
+    ctx.fillStyle = '#ffe033';
+    ctx.fillText('Z / Enter', rsx, rsy + 16);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('\u2014 confirm selection', rsx + 68, rsy + 16);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Each card shows orbs + an item — you get both!', rsx, rsy + 32);
 
     // ── HUD Bars Guide ──
     const bx = 440, by = 310;
@@ -2766,6 +2962,33 @@ class Game {
     // Level hazards (below platforms)
     this._renderHazards(ctx, cam);
 
+    // ── Objective world rendering ──
+    // Zone: glowing rectangle in world space (render before platforms so it appears in background)
+    if (this.objZone && !this.bossActive) {
+      const z = this.objZone;
+      const zsx = z.x - cam.x, zsy = z.y - cam.y;
+      const _pl = this.player;
+      const _inZone = _pl.x + _pl.w > z.x && _pl.x < z.x + z.w &&
+                      _pl.y + _pl.h > z.y && _pl.y < z.y + z.h;
+      const t = this.tick;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + Math.sin(t * 0.05) * 0.06;
+      ctx.fillStyle = _inZone ? '#44ff88' : '#88aaff';
+      ctx.fillRect(zsx, zsy, z.w, z.h);
+      ctx.globalAlpha = _inZone ? 0.9 : (0.5 + Math.sin(t * 0.08) * 0.3);
+      ctx.strokeStyle = _inZone ? '#44ff88' : '#88aaff';
+      ctx.lineWidth = _inZone ? 3 : 2;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(zsx, zsy, z.w, z.h);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = _inZone ? '#44ff88' : '#aac';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(_inZone ? '◈ HOLD' : '◈ ZONE', zsx + z.w / 2, zsy - 5);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
 
@@ -2782,6 +3005,32 @@ class Game {
     ctx.globalAlpha = 1;
 
     for (const b of this.stoneBlocks) b.render(ctx, cam);
+
+    // Samurai NPC (rendered after stoneBlocks, in front of platforms)
+    if (this.samurai) {
+      const sam = this.samurai;
+      const sx = sam.x - cam.x, sy = sam.y - cam.y;
+      ctx.save();
+      const flash = sam.flashTimer > 0 && Math.floor(sam.flashTimer / 3) % 2;
+      ctx.globalAlpha = sam.dead ? 0.35 : (flash ? 0.5 : 1);
+      ctx.fillStyle = sam.dead ? '#333' : '#8060a0'; ctx.fillRect(sx + 4, sy - 3, 10, 5); ctx.fillRect(sx + 8, sy - 7, 3, 5);
+      ctx.fillStyle = sam.dead ? '#555' : '#e8c880'; ctx.fillRect(sx + 5, sy, 8, 9);
+      ctx.fillStyle = sam.dead ? '#444' : '#c8a060'; ctx.fillRect(sx + 4, sy + 8, 10, 16);
+      ctx.fillStyle = sam.dead ? '#444' : '#a08040'; ctx.fillRect(sx + 14, sy + 8, 3, 12);
+      ctx.fillStyle = sam.dead ? '#555' : '#e0e8ff'; ctx.fillRect(sx + 15, sy + 3, 2, 8);
+      ctx.fillStyle = sam.dead ? '#333' : '#6040a0'; ctx.fillRect(sx + 4, sy + 24, 4, 6); ctx.fillRect(sx + 10, sy + 24, 4, 6);
+      ctx.restore();
+      if (!sam.dead) {
+        const bw = 36, bh = 5;
+        const bx = sx + sam.w / 2 - bw / 2, by2 = sy - 14;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx - 1, by2 - 1, bw + 2, bh + 2);
+        ctx.fillStyle = sam.hp > sam.maxHp * 0.5 ? '#4f4' : (sam.hp > sam.maxHp * 0.25 ? '#fa0' : '#f44');
+        ctx.fillRect(bx, by2, Math.round(bw * sam.hp / sam.maxHp), bh);
+        ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.strokeRect(bx, by2, bw, bh);
+        ctx.fillStyle = '#fff'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('SAM', bx + bw / 2, by2 - 2); ctx.textAlign = 'left';
+      }
+    }
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
@@ -2866,6 +3115,33 @@ class Game {
 
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
+
+    // Hunt objective: draw target marker over matching enemies
+    if (this.currentObjective && this.currentObjective.type === 'hunt' && !this.bossActive) {
+      const t = this.tick;
+      for (const e of this.enemies) {
+        if (e.dead || !e.isHuntTarget) continue;
+        const ex = e.x + e.w / 2 - cam.x;
+        const ey = e.y - cam.y;
+        ctx.save();
+        ctx.globalAlpha = 0.8 + Math.sin(t * 0.12) * 0.2;
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 8;
+        // Diamond target indicator above enemy
+        const ds = 8;
+        ctx.beginPath();
+        ctx.moveTo(ex, ey - 16 - ds);
+        ctx.lineTo(ex + ds, ey - 16);
+        ctx.lineTo(ex, ey - 16 + ds);
+        ctx.lineTo(ex - ds, ey - 16);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+    }
 
     this.player.render(ctx, cam);
 
@@ -3776,6 +4052,37 @@ class Game {
     ctx.fillStyle = '#ccc';
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
 
+    // ── Objective indicator (bottom-left of wave panel) ──
+    if (this.currentObjective && !this.gameWon && !this.bossActive) {
+      const _obj = this.currentObjective;
+      const _ox = CANVAS_W - 175, _oy = 74;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(_ox, _oy, 167, 22);
+      ctx.strokeStyle = 'rgba(255,220,0,0.3)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(_ox, _oy, 167, 22);
+      const _iconColor = _obj.type === 'survive' ? '#f44' : (_obj.type === 'zone' ? '#88f' : (_obj.type === 'hunt' ? '#ff0' : (_obj.type === 'defend' ? '#4f4' : (_obj.type === 'collect' ? '#ccc' : '#f80'))));
+      ctx.fillStyle = _iconColor;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(_obj.icon || '◆', _ox + 6, _oy + 15);
+      ctx.fillStyle = '#ddd';
+      ctx.font = '10px monospace';
+      ctx.fillText(_obj.label, _ox + 20, _oy + 15);
+      // Show extra live state
+      if (_obj.type === 'zone' && this.objZone) {
+        const _pl2 = this.player;
+        const _inZ = _pl2.x + _pl2.w > this.objZone.x && _pl2.x < this.objZone.x + this.objZone.w &&
+                     _pl2.y + _pl2.h > this.objZone.y && _pl2.y < this.objZone.y + this.objZone.h;
+        ctx.fillStyle = _inZ ? '#4f4' : '#f84';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(_inZ ? '◈ IN ZONE' : '◈ FIND ZONE', _ox + 85, _oy + 15);
+      } else if (_obj.type === 'defend' && this.samurai) {
+        ctx.fillStyle = this.samurai.dead ? '#f44' : '#4f4';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(this.samurai.dead ? '✕ FALLEN' : '♥ ALIVE', _ox + 90, _oy + 15);
+      }
+    }
+
     // Boss Summon Orb HUD (top center) — placeholder circles that fill when charge builds
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
       const cx = CANVAS_W / 2;
@@ -4179,24 +4486,36 @@ class Game {
           ctx.fillText(normalLabel, cx + cardW / 2 - ctx.measureText(normalLabel).width / 2, cy + 142);
         }
 
+        // ── Objective section ──
+        if (ch.objective) {
+          const _chObj = ch.objective;
+          const _objIconColor = _chObj.type === 'survive' ? '#f44' : (_chObj.type === 'zone' ? '#88f' : (_chObj.type === 'hunt' ? '#ff0' : (_chObj.type === 'defend' ? '#4f4' : (_chObj.type === 'collect' ? '#ccc' : '#f80'))));
+          ctx.fillStyle = _objIconColor;
+          ctx.font = 'bold 12px monospace';
+          ctx.fillText(_chObj.icon || '◆', cx + 14, cy + 164);
+          ctx.fillStyle = isSel ? '#ddd' : '#aaa';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText(_chObj.label, cx + 28, cy + 164);
+        }
+
         // Divider
         ctx.strokeStyle = isSel ? (elemColors ? elemColors.body : '#555') : '#333';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(cx + 12, cy + 168);
-        ctx.lineTo(cx + cardW - 12, cy + 168);
+        ctx.moveTo(cx + 12, cy + 170);
+        ctx.lineTo(cx + cardW - 12, cy + 170);
         ctx.stroke();
 
         // ── Rewards section ──
         ctx.fillStyle = '#aaa';
         ctx.font = '10px monospace';
-        ctx.fillText('REWARDS', cx + 12, cy + 181);
+        ctx.fillText('REWARDS', cx + 12, cy + 183);
 
         if (ch.reward && ch.meta) {
           const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','heal'];
           const entries = Object.entries(ch.reward)
             .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
-          let ey = cy + 195;
+          let ey = cy + 197;
           for (const [type, count] of entries) {
             const m = ch.meta[type];
             if (!m) continue;
