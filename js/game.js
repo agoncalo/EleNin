@@ -17,11 +17,14 @@ class Game {
     this.platforms = [];
     this.enemies = [];
     this.projectiles = [];
+    this.hitLines = [];
+    this.grenades = [];
     this.effects = [];
     this.stoneBlocks = [];
     this.bubbles = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.bubbleShieldPickups = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -54,6 +57,7 @@ class Game {
     this.itemPickupOverlay = null; // { itemId, timer }
     this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
     this.bossRewardItems = [];   // up to 3 uncollected items offered on reward screen
+    this.itemRewardScreen = null; // { itemId, bossType, roomId, selected, delay }
 
     // Choose-your-path system
     this.currentWaveDefIdx = 0;    // which WAVE_DEFS entry is active
@@ -62,6 +66,13 @@ class Game {
     // Dynamic boss progression pools (replaces static BOSS_PATH_POOLS)
     this.bossPool = null;          // early-group pool ([1,2,3] + replacements) for waves 1-3
     this.mandatoryPool = null;     // mandatory group pool ([5,6,7]) for waves 4-6
+
+    // Room map prototype
+    this.mapState = this._loadMapState();
+    this.mapScreen = null;         // { selected, recentUnlocks, completedRoomId, delay }
+    this.currentRoomId = this.mapState.currentRoomId || MAP_START_ROOM_ID;
+    this.roomCache = this.mapState.roomCache || {};
+    this._enterMapRoom(this.currentRoomId, { keepPlayer: true });
 
     // Boss Summon Orb system
     this.bossOrbCharge = 0;        // damage accumulated toward next orb
@@ -200,7 +211,11 @@ class Game {
     const theme = this.levelElement ? ELEMENT_LEVEL_THEMES[this.levelElement] : null;
 
     // Level type based on boss type
-    if (bossType === 'flyer') {
+    if (this.currentMapType === 'cubicle') {
+      this.levelType = 'cubicle';
+    } else if (this.currentMapType === 'openArea') {
+      this.levelType = 'openArea';
+    } else if (bossType === 'flyer') {
       this.levelType = 'tower';
     } else if (bossType === 'flyshooter') {
       this.levelType = 'open';
@@ -212,11 +227,48 @@ class Game {
       this.levelType = 'open';
     }
     switch (this.levelType) {
+      case 'cubicle': this.buildCubicle(theme); break;
+      case 'openArea': this.buildOpenArea(theme); break;
       case 'arena':  this.buildArena(theme);  break;
       case 'tower':  this.buildTower();        break;
       case 'narrow': this.buildNarrow(theme);  break;
       default:       this.buildOpen(theme);    break;
     }
+  }
+
+  buildCubicle(theme) {
+    this.levelW = 980;
+    this.levelH = 540;
+    const c1 = theme ? theme.groundColor : '#555';
+    const c2 = theme ? theme.platformColor : '#666';
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+
+    P(0, 470, this.levelW, 70, c1);
+    P(-32, 0, 32, 540, '#333');
+    P(this.levelW, 0, 32, 540, '#333');
+    P(0, -28, this.levelW, 28, '#2a2a2a');
+
+    // A few low cover blocks, but no vertical maze.
+    P(220, 410, 80, 16, c2);
+    P(680, 410, 80, 16, c2);
+    P(450, 350, 90, 16, c2);
+  }
+
+  buildOpenArea(theme) {
+    this.levelW = 2600;
+    this.levelH = 540;
+    const c1 = theme ? theme.groundColor : '#555';
+    const c2 = theme ? theme.platformColor : '#666';
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+
+    P(0, 480, this.levelW, 60, c1);
+    P(-32, 0, 32, 540, '#444');
+    P(this.levelW, 0, 32, 540, '#444');
+
+    // Sparse landmarks only, so combat stays mostly horizontal.
+    P(650, 430, 140, 14, c2);
+    P(1460, 430, 140, 14, c2);
+    P(2130, 430, 140, 14, c2);
   }
 
   buildOpen(theme) {
@@ -941,6 +993,19 @@ class Game {
 
   _initObjective() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
+    if (roomDef) {
+      this.currentObjective = {
+        type: 'kills',
+        label: 'Objective',
+        desc: 'Defeat enemies to fill the objective bar and draw out the boss.',
+        icon: ''
+      };
+      this.pendingObjective = null;
+      this.objZone = null;
+      this.samurai = null;
+      return;
+    }
     // Consume a randomly pre-assigned objective if one was queued, else fall back to waveDef
     if (this.pendingObjective) {
       this.currentObjective = this.pendingObjective;
@@ -979,11 +1044,17 @@ class Game {
 
   spawnEnemy() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    const roomTypes = this.currentRoomEnemyTypes && this.currentRoomEnemyTypes.length
+      ? this.currentRoomEnemyTypes.slice(0, 3)
+      : null;
+    const spawnPool = roomTypes
+      ? roomTypes.map((type, idx) => ({ type, weight: Math.max(1, 4 - idx) }))
+      : waveDef.pool;
     let totalW = 0;
-    for (const e of waveDef.pool) totalW += e.weight;
+    for (const e of spawnPool) totalW += e.weight;
     let r = Math.random() * totalW;
-    let pick = waveDef.pool[0];
-    for (const e of waveDef.pool) {
+    let pick = spawnPool[0];
+    for (const e of spawnPool) {
       r -= e.weight;
       if (r <= 0) { pick = e; break; }
     }
@@ -1009,7 +1080,7 @@ class Game {
     const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
     // Elemental variant chance — boosted when level has a theme element
     const baseElemChance = ELEMENTAL_SPAWN_CHANCE + (this.wave - 1) * 0.04;
-    const boostedChance = this.levelElement ? Math.min(0.7, baseElemChance + 0.4) : baseElemChance;
+    const boostedChance = this.levelElement ? Math.min(0.5, baseElemChance + 0.35) : Math.min(0.5, baseElemChance);
     if (Math.random() < boostedChance) {
       // When a level element is active, bias 75% toward that element
       if (this.levelElement && Math.random() < 0.75) {
@@ -1101,6 +1172,338 @@ class Game {
   //  Wave 5 → 6 : [rem 2 of mandatory]          — pick 1
   //  Wave 6 → 7 : [rem 1 of mandatory]          — forced single choice
   //  Wave 7 → 8 : null → OVERLORD final boss
+  // -- Room Map Prototype -------------------------------------------------
+  _freshMapState() {
+    const unlocked = {};
+    unlocked[MAP_START_ROOM_ID] = true;
+    return {
+      currentRoomId: MAP_START_ROOM_ID,
+      unlocked,
+      completed: {},
+      unlockSources: {},
+      itemRoomAssignments: {},
+      roomCache: {},
+    };
+  }
+
+  _loadMapState() {
+    try {
+      const raw = localStorage.getItem(MAP_STORAGE_KEY);
+      if (!raw) return this._freshMapState();
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.unlocked || !parsed.roomCache) return this._freshMapState();
+      if (!parsed.unlocked[MAP_START_ROOM_ID]) parsed.unlocked[MAP_START_ROOM_ID] = true;
+      return {
+        currentRoomId: parsed.currentRoomId || MAP_START_ROOM_ID,
+        unlocked: parsed.unlocked || { [MAP_START_ROOM_ID]: true },
+        completed: parsed.completed || {},
+        unlockSources: parsed.unlockSources || {},
+        itemRoomAssignments: parsed.itemRoomAssignments || {},
+        roomCache: parsed.roomCache || {},
+      };
+    } catch (err) {
+      return this._freshMapState();
+    }
+  }
+
+  _saveMapState() {
+    this.mapState.currentRoomId = this.currentRoomId;
+    this.mapState.roomCache = this.roomCache;
+    this.mapState.itemRoomAssignments = this.mapState.itemRoomAssignments || {};
+    try {
+      localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(this.mapState));
+    } catch (err) {
+      // Local storage can fail in private mode; runtime cache still works.
+    }
+  }
+
+  _getRoomConfig(roomId) {
+    const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
+    if (!this.roomCache[roomDef.id]) {
+      this.roomCache[roomDef.id] = {
+        id: roomDef.id,
+        waveIdx: roomDef.waveIdx,
+        element: roomDef.element || null,
+        mapType: roomDef.mapType || null,
+        enemyTypes: roomDef.enemyTypes ? roomDef.enemyTypes.slice() : null,
+        area: roomDef.area || null,
+        kind: roomDef.kind || 'stage',
+        createdAtTick: this.tick || 0,
+      };
+    }
+    return this.roomCache[roomDef.id];
+  }
+
+  _roomDifficulty(roomDef) {
+    if (!roomDef) return 1;
+    const areaRank = { forest: 1, mountain: 2, volcano: 2, castle: 3, castleTop: 4, skies: 5 };
+    const kindRank = { stage: 0, bridgeBoss: 1, miniBoss: 2, finalBoss: 4, trueFinal: 5 };
+    return (areaRank[roomDef.area] || 1) + (kindRank[roomDef.kind] || 0) + (roomDef.element ? 1 : 0);
+  }
+
+  _itemForBossClear(roomDef) {
+    if (!roomDef) return null;
+    this.mapState.itemRoomAssignments = this.mapState.itemRoomAssignments || {};
+    for (const [itemId, assignedRoomId] of Object.entries(this.mapState.itemRoomAssignments)) {
+      if (assignedRoomId === roomDef.id) {
+        return this.player.unlockedItems && this.player.unlockedItems[itemId] ? null : itemId;
+      }
+    }
+    const drops = (BOSS_ITEM_DROPS[roomDef.bossType] || []).slice();
+    if (!drops.length) return null;
+    const owned = this.player.unlockedItems || {};
+    const assigned = this.mapState.itemRoomAssignments || {};
+    const difficulty = this._roomDifficulty(roomDef);
+    const sorted = drops
+      .filter(id => !owned[id] && !assigned[id])
+      .sort((a, b) => {
+        const da = Math.abs(((BOSS_ITEMS[a] && BOSS_ITEMS[a].complexity) || 1) - difficulty);
+        const db = Math.abs(((BOSS_ITEMS[b] && BOSS_ITEMS[b].complexity) || 1) - difficulty);
+        return da - db || ((BOSS_ITEMS[a] && BOSS_ITEMS[a].complexity) || 1) - ((BOSS_ITEMS[b] && BOSS_ITEMS[b].complexity) || 1);
+      });
+    const itemId = sorted[0] || null;
+    if (itemId) {
+      this.mapState.itemRoomAssignments[itemId] = roomDef.id;
+      const cached = this._getRoomConfig(roomDef.id);
+      cached.itemId = itemId;
+      this._saveMapState();
+    }
+    return itemId;
+  }
+
+  _grantBossItem(itemId) {
+    if (!itemId || !BOSS_ITEMS[itemId]) return;
+    if (!this.player.unlockedItems) this.player.unlockedItems = {};
+    this.player.unlockedItems[itemId] = true;
+    if (this.player.items[itemId] === undefined) this.player.items[itemId] = true;
+    if (itemId === 'deathsKey') this.player.deathsKeyUsed = false;
+    recordItemFound(itemId);
+    this._recomputeItemAttributeBonuses();
+  }
+
+  _grantVigorBonus() {
+    const pl = this.player;
+    pl.bonusDamage += 1;
+    pl.maxHp += 1;
+    pl.hp = Math.min(pl.maxHp, pl.hp + 1);
+    pl.displayHp = Math.max(pl.displayHp || pl.hp, pl.hp);
+  }
+
+  _recomputeItemAttributeBonuses() {
+    const pl = this.player;
+    if (!pl.itemAttrBonuses) pl.itemAttrBonuses = { mind: 0, vigor: 0, dexterity: 0 };
+    if (!pl._itemAttrApplied) pl._itemAttrApplied = { mind: 0, vigor: 0, dexterity: 0 };
+    const prev = pl._itemAttrApplied;
+    pl.bonusElemental -= prev.mind || 0;
+    pl.maxMana = Math.max(1, pl.maxMana - (prev.mind || 0));
+    pl.mana = Math.min(pl.mana, pl.maxMana);
+    pl.bonusDamage -= prev.vigor || 0;
+    pl.maxHp = Math.max(1, pl.maxHp - (prev.vigor || 0));
+    pl.hp = Math.min(pl.hp, pl.maxHp);
+    pl.bonusSpeed -= prev.dexterity || 0;
+    pl.bonusReach -= prev.dexterity || 0;
+
+    const next = { mind: 0, vigor: 0, dexterity: 0 };
+    for (const itemId of Object.keys(pl.unlockedItems || {})) {
+      if (pl.items[itemId]) continue;
+      const attr = BOSS_ITEMS[itemId] && BOSS_ITEMS[itemId].attr;
+      if (next[attr] !== undefined) next[attr]++;
+    }
+    pl.itemAttrBonuses = next;
+    pl._itemAttrApplied = { mind: next.mind, vigor: next.vigor, dexterity: next.dexterity };
+    pl.bonusElemental += next.mind;
+    pl.maxMana += next.mind;
+    pl.mana = Math.min(pl.maxMana, pl.mana + next.mind);
+    pl.bonusDamage += next.vigor;
+    pl.maxHp += next.vigor;
+    pl.hp = Math.min(pl.maxHp, pl.hp + next.vigor);
+    pl.bonusSpeed += next.dexterity;
+    pl.bonusReach += next.dexterity;
+  }
+
+  _enterMapRoom(roomId, opts) {
+    opts = opts || {};
+    const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
+    const cached = this._getRoomConfig(roomDef.id);
+    this.currentRoomId = roomDef.id;
+    this.mapState.currentRoomId = roomDef.id;
+    this.currentWaveDefIdx = cached.waveIdx;
+    this.levelElement = cached.element;
+    this.currentMapType = cached.mapType || roomDef.mapType || null;
+    this.currentRoomEnemyTypes = cached.enemyTypes || roomDef.enemyTypes || null;
+    this.currentRoomArea = cached.area || roomDef.area || null;
+    this.currentRoomKind = cached.kind || roomDef.kind || 'stage';
+    this.pendingObjective = null;
+    this.wave = Math.max(1, Object.keys(this.mapState.completed || {}).length + 1);
+    this._saveMapState();
+    if (!opts.keepPlayer) this._prepareRoomStart();
+  }
+
+  _prepareRoomStart() {
+    this.waveKills = 0;
+    this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
+    this.bossOrbCharge = 0;
+    this.bossOrbCooldown = 0;
+    this.bossOrbsCollected = 0;
+    this.bossOrbPickups = [];
+    this.spawnedMiniboss = new Set();
+    this.boss = null;
+    this.bossActive = false;
+    this.projectiles = [];
+    this.hitLines = [];
+    this.grenades = [];
+    this.bubbleShieldPickups = [];
+    this.enemies = [];
+    this.orbs = [];
+    this.shurikenPickups = [];
+    this.fireTrails = [];
+    const oldLevelType = this.levelType;
+    this.buildLevel();
+    this._initObjective();
+    this.player.x = this.levelType === 'tower' ? 380 : 100;
+    this.player.y = this.levelType === 'tower' ? 400 : 300;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.camera.x = 0;
+    this.camera.y = 0;
+    this.spawnTimer = -120;
+    this.transitionTimer = oldLevelType === this.levelType ? 45 : 90;
+    this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
+    SFX.wave();
+  }
+
+  _unlockMapRoom(roomId, sourceRoomId, reason, recentUnlocks) {
+    const roomDef = MAP_ROOM_BY_ID[roomId];
+    if (!roomDef) return;
+    if (!this.mapState.unlockSources[roomId]) this.mapState.unlockSources[roomId] = [];
+    this.mapState.unlockSources[roomId].push({ from: sourceRoomId, reason });
+    if (!this.mapState.unlocked[roomId]) {
+      this.mapState.unlocked[roomId] = true;
+      recentUnlocks.push(roomId);
+      this._getRoomConfig(roomId);
+    }
+  }
+
+  _roomSecondaryComplete(roomDef) {
+    if (!roomDef || !roomDef.secondary) return false;
+    if (roomDef.secondary.type === 'kills') return this.waveKills >= roomDef.secondary.count;
+    return false;
+  }
+
+  _completeCurrentMapRoom() {
+    const roomDef = MAP_ROOM_BY_ID[this.currentRoomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
+    const recentUnlocks = [];
+    const previousClear = this.mapState.completed[roomDef.id] || null;
+    const rewardItem = this._itemForBossClear(roomDef);
+    const secondaryDone = this._roomSecondaryComplete(roomDef) || !!(previousClear && previousClear.secondaryDone);
+    this.mapState.completed[roomDef.id] = {
+      waveIdx: roomDef.waveIdx,
+      element: roomDef.element || null,
+      kills: Math.max(this.waveKills, previousClear ? previousClear.kills || 0 : 0),
+      secondaryDone,
+    };
+    this.player.defeatedBossTypes.add(roomDef.bossType);
+    if (rewardItem) {
+      this.itemRewardScreen = { itemId: rewardItem, bossType: roomDef.bossType, roomId: roomDef.id, selected: 0, delay: 30 };
+    }
+    for (const id of roomDef.navLinks || roomDef.unlockOnPrimary || []) {
+      this._unlockMapRoom(id, roomDef.id, 'primary', recentUnlocks);
+    }
+    if (secondaryDone) {
+      for (const id of roomDef.unlockOnSecondary || []) {
+        this._unlockMapRoom(id, roomDef.id, 'secondary', recentUnlocks);
+      }
+    }
+    this._saveMapState();
+    this.mapScreen = {
+      selected: this._defaultMapSelection(recentUnlocks),
+      recentUnlocks,
+      completedRoomId: roomDef.id,
+      delay: 45,
+    };
+    this.boss = null;
+    this.bossActive = false;
+    this.enemies = [];
+    this.projectiles = [];
+    this.hitLines = [];
+  }
+
+  _defaultMapSelection(recentUnlocks) {
+    if (recentUnlocks && recentUnlocks.length) {
+      const recentIdx = MAP_ROOM_DEFS.findIndex(r => r.id === recentUnlocks[0]);
+      if (recentIdx >= 0) return recentIdx;
+    }
+    const nextFresh = MAP_ROOM_DEFS.find(r => this.mapState.unlocked[r.id] && !this.mapState.completed[r.id]);
+    if (nextFresh) return MAP_ROOM_DEFS.findIndex(r => r.id === nextFresh.id);
+    const nextUnlocked = MAP_ROOM_DEFS.find(r => this.mapState.unlocked[r.id]);
+    if (nextUnlocked) return MAP_ROOM_DEFS.findIndex(r => r.id === nextUnlocked.id);
+    return MAP_ROOM_DEFS.findIndex(r => r.id === this.currentRoomId);
+  }
+
+  _mapNeighborIds(room) {
+    const ids = new Set(room && room.navLinks ? room.navLinks : []);
+    if (room) {
+      for (const other of MAP_ROOM_DEFS) {
+        if (other.id !== room.id && (other.navLinks || []).includes(room.id) && this.mapState.unlocked[other.id]) {
+          ids.add(other.id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  _mapDirectionalNeighbors(room) {
+    const dirs = [
+      { key: 'left', dx: -1, dy: 0 },
+      { key: 'right', dx: 1, dy: 0 },
+      { key: 'up', dx: 0, dy: -1 },
+      { key: 'down', dx: 0, dy: 1 },
+    ];
+    const result = {};
+    const ids = this._mapNeighborIds(room);
+    for (const dir of dirs) {
+      let best = null;
+      let bestScore = Infinity;
+      for (const id of ids) {
+        const other = MAP_ROOM_BY_ID[id];
+        if (!other || !this.mapState.unlocked[other.id]) continue;
+        const dc = other.col - room.col;
+        const dr = other.row - room.row;
+        if (dir.dx !== 0 && dc * dir.dx <= 0) continue;
+        if (dir.dy !== 0 && dr * dir.dy <= 0) continue;
+        const primary = dir.dx !== 0 ? Math.abs(dc) : Math.abs(dr);
+        const offAxis = dir.dx !== 0 ? Math.abs(dr) : Math.abs(dc);
+        const score = primary * 100 + offAxis * 35;
+        if (score < bestScore) {
+          bestScore = score;
+          best = other.id;
+        }
+      }
+      if (best) result[dir.key] = best;
+    }
+    return result;
+  }
+
+  _selectNextMapRoom(dx, dy) {
+    if (!this.mapScreen) return;
+    const current = MAP_ROOM_DEFS[this.mapScreen.selected];
+    if (!current) return;
+    const directional = this._mapDirectionalNeighbors(current);
+    const key = dx < 0 ? 'left' : dx > 0 ? 'right' : dy < 0 ? 'up' : 'down';
+    const targetId = directional[key];
+    const bestIdx = targetId ? MAP_ROOM_DEFS.findIndex(r => r.id === targetId) : -1;
+    if (bestIdx >= 0) this.mapScreen.selected = bestIdx;
+  }
+
+  _confirmMapRoom() {
+    const room = MAP_ROOM_DEFS[this.mapScreen.selected];
+    if (!room || !this.mapState.unlocked[room.id]) return;
+    this.mapScreen = null;
+    this._enterMapRoom(room.id);
+    const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
+    this.showWaveMessage(`${room.name}${elemTag}`);
+  }
+
   _getNextBossPool() {
     const wave = this.wave; // current wave just completed (1-indexed)
     if (wave === 1) {
@@ -1157,7 +1560,7 @@ class Game {
         if (!e.big && e.weight > bestW) { bestW = e.weight; best = e; }
       }
       const targetType = best ? best.type : 'walker';
-      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers',
+      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
                          shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                          flyer:'Flyers', flyshooter:'Overlords' }[targetType] || targetType;
       return { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills charge Boss Orbs. One is always present.`, icon: '◎' };
@@ -1382,6 +1785,9 @@ class Game {
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
+    this.hitLines = [];
+    this.grenades = [];
+    this.bubbleShieldPickups = [];
     this.enemies = [];
     // Boss kill phrase
     const isLastBoss = this.wave > TOTAL_WAVES;
@@ -1425,6 +1831,42 @@ class Game {
     }
     if (this.gameWon || this.gameOver) {
       if (this.killPhraseTimer > 0) this.killPhraseTimer--;
+      return;
+    }
+
+    if (this.itemRewardScreen) {
+      const rs = this.itemRewardScreen;
+      if (rs.delay > 0) {
+        rs.delay--;
+        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
+      }
+      if (consumePress('ArrowLeft') || consumePress('KeyA') || consumePress('ArrowRight') || consumePress('KeyD')) {
+        rs.selected = rs.selected === 0 ? 1 : 0;
+      }
+      if (rs.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
+        if (rs.selected === 0) {
+          this._grantBossItem(rs.itemId);
+        } else {
+          this._grantVigorBonus();
+        }
+        this.itemRewardScreen = null;
+      }
+      return;
+    }
+
+    if (this.mapScreen) {
+      const ms = this.mapScreen;
+      if (ms.delay > 0) {
+        ms.delay--;
+        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
+      }
+      if (consumePress('ArrowLeft') || consumePress('KeyA')) this._selectNextMapRoom(-1, 0);
+      if (consumePress('ArrowRight') || consumePress('KeyD')) this._selectNextMapRoom(1, 0);
+      if (consumePress('ArrowUp') || consumePress('KeyW')) this._selectNextMapRoom(0, -1);
+      if (consumePress('ArrowDown') || consumePress('KeyS')) this._selectNextMapRoom(0, 1);
+      if (ms.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
+        this._confirmMapRoom();
+      }
       return;
     }
 
@@ -1522,6 +1964,7 @@ class Game {
       this.cheated = true;
       recordCheatUsed();
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
+      if (false) {
       const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
       if (waveDef) {
         const pl = this.player;
@@ -1530,13 +1973,9 @@ class Game {
         const drops = kills + bossOrbs;
         // Actual drop table rates × orb stat values per drop
         pl.maxHp          += Math.round(drops * 0.10);  // maxhp: 10% × +1
-          pl.hp              = pl.maxHp;
-          pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
+        pl.hp              = pl.maxHp;
+        pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
         pl.bonusElemental += Math.round(drops * 0.03);  // elDmg: 3% × +1
-        pl.maxShield      += Math.round(drops * 0.18) * 2; // shield: 18% × +2
-        pl.shield          = pl.maxShield;
-        pl.maxShurikens   += Math.round(drops * 0.04);  // shuriken: 4% × +1
-        pl.shurikens       = pl.maxShurikens;
         pl.bonusSpeed     += Math.round(drops * 0.04);  // speed: 4% × +1
         pl.bonusReach     += Math.round(drops * 0.04);  // reach: 4% × +1
         pl.bonusArmor     += Math.round(drops * 0.03);  // armor: 3% × +1
@@ -1546,30 +1985,8 @@ class Game {
         pl.ultimateCharge  = 0;
         pl.ultimateReady   = false;
       }
-      // Generate up to 3 item choices for the reward screen
-      const allItemKeys = Object.keys(BOSS_ITEMS);
-      const uncollected = allItemKeys.filter(k => !this.player.items[k]);
-      this.bossRewardItems = uncollected.slice().sort(() => Math.random() - 0.5).slice(0, 3);
-      // Trigger the path choice / reward screen instead of skipping straight to next wave
-      if (this.wave < TOTAL_WAVES) {
-        const nextPool = this._getNextBossPool();
-        if (nextPool === null) {
-          // Final boss (round 8): OVERLORD, no choice
-          this.currentWaveDefIdx = 9;
-          this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
-          const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
-          this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
-          this.orbBucketChoice.delay = 60;
-          this.orbBucketChoice.itemChoices = this.bossRewardItems.slice();
-          this.orbBucketChoice.itemSelected = 0;
-          this.orbBucketChoice.focus = 'orb';
-          this.bossRewardItems = [];
-        } else {
-          this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
-        }
-      } else {
-        this.advanceWave();
       }
+      this._completeCurrentMapRoom();
     }
     // Cheat: 0 to toggle god mode
     if (consumePress('Digit0') || consumePress('Numpad0')) {
@@ -1583,6 +2000,7 @@ class Game {
       this.cheated = true;
       recordCheatUsed();
       const pl = this.player;
+      if (false) {
       // Total orb sources: completed waves (enemies + boss orbs) + current wave enemies
       let totalDrops = 0;
       for (let i = 0; i < this.wave - 1 && i < WAVE_DEFS.length; i++) {
@@ -1597,11 +2015,6 @@ class Game {
       pl.displayHp      = pl.maxHp;
       pl.bonusDamage    = Math.round(totalDrops * 0.06);
       pl.bonusElemental = Math.round(totalDrops * 0.03);
-      pl.maxShield      = Math.round(totalDrops * 0.18) * 2;
-      pl.shield         = pl.maxShield;
-      pl.displayShield  = pl.maxShield;
-      pl.maxShurikens   = 3 + Math.round(totalDrops * 0.10);  // base 3
-      pl.shurikens      = pl.maxShurikens;
       pl.bonusSpeed     = Math.round(totalDrops * 0.04);
       pl.bonusReach     = Math.round(totalDrops * 0.04);
       pl.bonusArmor     = Math.round(totalDrops * 0.03);
@@ -1610,6 +2023,7 @@ class Game {
       pl.mana           = pl.maxMana;
       pl.ultimateCharge = 0;
       pl.ultimateReady  = false;
+      }
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
@@ -1642,6 +2056,8 @@ class Game {
     for (const e of this.enemies) e.update(this);
     if (this.boss && !this.boss.dead) this.boss.update(this);
     for (const p of this.projectiles) p.update(this);
+    for (const h of this.hitLines) h.update(this);
+    for (const g of this.grenades) g.update(this);
     if (this.trimerangs) {
       for (const t of this.trimerangs) t.update(this);
       this.trimerangs = this.trimerangs.filter(t => !t.done);
@@ -1735,6 +2151,35 @@ class Game {
       }
     }
     this.shurikenPickups = this.shurikenPickups.filter(s => !s.done);
+
+    // ── Bubble shield pickup spawns ──
+    // Spawns one every ~20 seconds (1200f), max 1 on screen at a time
+    if (this.tick % 1200 === 600 && this.bubbleShieldPickups.filter(b => !b.done).length < 1) {
+      this.bubbleShieldPickups.push({
+        x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
+        y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
+        bobTimer: Math.random() * Math.PI * 2,
+        life: 900, done: false, w: 20, h: 20,
+      });
+    }
+    for (const bp of this.bubbleShieldPickups) {
+      if (bp.done) continue;
+      bp.bobTimer += 0.05;
+      bp.life--;
+      if (bp.life <= 0) { bp.done = true; continue; }
+      const pl = this.player;
+      if (rectOverlap(pl, bp)) {
+        if (pl.bubbleShieldTimer > 0) continue; // already shielded
+        bp.done = true;
+        SFX.pickup();
+        pl.bubbleShieldTimer = pl.bubbleShieldMax;
+        const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
+        this.effects.push(new Effect(cx, cy, '#4af', 18, 5, 18));
+        this.effects.push(new Effect(cx, cy, '#fff', 8, 3, 12));
+        this.effects.push(new TextEffect(cx, cy - 22, '\u2B22 SHIELD!', '#4af'));
+      }
+    }
+    this.bubbleShieldPickups = this.bubbleShieldPickups.filter(b => !b.done);
 
     // Fire trail update
     if (this.player.ninjaType === 'fire' && this.player.grounded && Math.abs(this.player.vx) > 1) {
@@ -1832,7 +2277,17 @@ class Game {
         if (this.bossOrbCharge >= this.bossOrbChargeMax && this.bossOrbCooldown <= 0 &&
             this.bossOrbsCollected < this.bossOrbsRequired) {
           this.bossOrbCharge = 0;
-          this.bossOrbCooldown = 1800; // 30s until next orb can spawn
+          this.bossOrbCooldown = 45;
+          this.bossOrbsCollected++;
+          SFX.wave();
+          const pl = this.player;
+          const rem = this.bossOrbsRequired - this.bossOrbsCollected;
+          const txt = rem > 0
+            ? 'OBJECTIVE ' + this.bossOrbsCollected + '/' + this.bossOrbsRequired
+            : 'BOSS SUMMONED!';
+          this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 20, txt, '#f80'));
+          if (this.bossOrbsCollected >= this.bossOrbsRequired) this.spawnBoss();
+          if (false) {
           const orbSpawnX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
           const orbSpawnY = this.camera.y + 80 + Math.random() * (CANVAS_H - 200);
           this.bossOrbPickups.push({
@@ -1855,6 +2310,7 @@ class Game {
           SFX.wave();
           const pl = this.player;
           this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 30, '\u2606 BOSS ORB!', '#f80'));
+          }
         }
         // Update and collect pickups
         const pl = this.player;
@@ -1891,32 +2347,7 @@ class Game {
         this.bossOrbPickups = this.bossOrbPickups.filter(o => !o.done);
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
-        if (this.wave < TOTAL_WAVES) {
-          // Generate up to 3 item choices for the reward screen
-          const _nxtAllKeys = Object.keys(BOSS_ITEMS);
-          const _nxtUncollected = _nxtAllKeys.filter(k => !this.player.items[k]);
-          this.bossRewardItems = _nxtUncollected.slice().sort(() => Math.random() - 0.5).slice(0, 3);
-          // Determine next round's boss pool dynamically
-          const nextPool = this._getNextBossPool();
-          if (nextPool === null) {
-            // Final boss (round 8): OVERLORD, no choice
-            this.currentWaveDefIdx = 9;
-            this.levelElement = Math.random() < 0.7 ? ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)] : null;
-            const budgetMult = this.levelElement ? (ELEMENT_BUDGET_MULT[this.levelElement] || 1.0) : 1.0;
-            this.orbBucketChoice = this._generateOrbBuckets(budgetMult);
-            this.orbBucketChoice.delay = 60;
-            this.orbBucketChoice.itemChoices = this.bossRewardItems.slice();
-            this.orbBucketChoice.itemSelected = 0;
-            this.orbBucketChoice.focus = 'orb';
-            this.bossRewardItems = [];
-          } else {
-            // Show combined path+reward choice screen
-            this.pathChoiceScreen = this._generatePathChoices(nextPool, 1);
-          }
-        } else {
-          this.gameWon = true;
-          this.advanceWave();
-        }
+        this._completeCurrentMapRoom();
       }
     }
 
@@ -1947,8 +2378,10 @@ class Game {
     // Cleanup
     this.enemies = this.enemies.filter(e => !e.dead);
     this.projectiles = this.projectiles.filter(p => !p.done);
+    this.hitLines = this.hitLines.filter(h => !h.done);
+    this.grenades = this.grenades.filter(g => !g.done);
     this.effects = this.effects.filter(e => !e.done);
-    if (this.effects.length > 300) this.effects.splice(0, this.effects.length - 300);
+    if (this.effects.length > 120) this.effects.splice(0, this.effects.length - 120);
     this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
     this.bubbles = this.bubbles.filter(b => !b.done);
     this.orbs = this.orbs.filter(o => !o.done);
@@ -2954,7 +3387,7 @@ class Game {
     }
 
     // Spawn house
-    this.renderSpawnHouse(ctx, cam);
+    //this.renderSpawnHouse(ctx, cam);
 
     // Fog clouds in background (before platforms)
     this._renderWeather(ctx, cam, true);
@@ -3064,7 +3497,45 @@ class Game {
       ctx.stroke();
       ctx.restore();
     }
-    // Boss Summon Orb pickups
+    // Bubble shield pickup icons
+    for (const bp of this.bubbleShieldPickups) {
+      if (bp.done) continue;
+      const flash = bp.life < 120 && Math.floor(bp.life / 8) % 2;
+      if (flash) continue;
+      const alpha = bp.life < 60 ? bp.life / 60 : 1;
+      const bpx = bp.x - cam.x;
+      const bpy = bp.y + Math.sin(bp.bobTimer) * 6 - cam.y;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(bpx + 10, bpy + 10);
+      // Shield shape
+      ctx.shadowColor = '#4af';
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = 'rgba(60,180,255,0.35)';
+      ctx.strokeStyle = '#aef';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);       // top-left
+      ctx.lineTo(8, -10);       // top-right
+      ctx.lineTo(10, -6);       // right shoulder
+      ctx.lineTo(10, 1);        // right side
+      ctx.lineTo(0, 10);        // bottom point
+      ctx.lineTo(-10, 1);       // left side
+      ctx.lineTo(-10, -6);      // left shoulder
+      ctx.lineTo(-8, -10);      // top-left
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Inner cross emblem
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.shadowBlur = 4;
+      ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4, -1); ctx.lineTo(4, -1); ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
     for (const bo of this.bossOrbPickups) {
       if (bo.done) continue;
       const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
@@ -3099,7 +3570,9 @@ class Game {
       ctx.restore();
     }
     if (this.crystalCastle) this.crystalCastle.render(ctx, cam);
+    for (const h of this.hitLines) h.render(ctx, cam);
     for (const p of this.projectiles) p.render(ctx, cam);
+    for (const g of this.grenades) g.render(ctx, cam);
     if (this.trimerangs) for (const t of this.trimerangs) t.render(ctx, cam);
     if (this.diamondShards) for (const d of this.diamondShards) d.render(ctx, cam);
     for (const f of this.flamePools) f.render(ctx, cam);
@@ -3905,16 +4378,21 @@ class Game {
 
     // ── Buff icons ──
     const buffItems = [];
+    const attrColors = {
+      mind: (ITEM_ATTRIBUTES.mind && ITEM_ATTRIBUTES.mind.color) || '#b45cff',
+      vigor: (ITEM_ATTRIBUTES.vigor && ITEM_ATTRIBUTES.vigor.color) || '#ff6a3d',
+      dexterity: (ITEM_ATTRIBUTES.dexterity && ITEM_ATTRIBUTES.dexterity.color) || '#39d98a',
+    };
     const baseAtk = pl.type.attackDamage;
     const totalAtk = baseAtk + pl.bonusDamage;
-    buffItems.push({ icon: '\u2694', value: totalAtk, color: '#f80', hasBonus: pl.bonusDamage > 0, bonusVal: pl.bonusDamage });
+    buffItems.push({ icon: '\u2694', value: totalAtk, color: attrColors.vigor, hasBonus: pl.bonusDamage > 0, bonusVal: pl.bonusDamage });
     const totalEle = baseAtk + pl.bonusElemental;
-    buffItems.push({ icon: '\u2737', value: totalEle, color: '#c4f', hasBonus: pl.bonusElemental > 0, bonusVal: pl.bonusElemental });
-    buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: '#0f0' });
-    buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: '#fa0' });
-    buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: '#88f' });
-    buffItems.push({ icon: '\u2665', value: this.lives, color: '#f44' });
-    buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: '#ccc' });
+    buffItems.push({ icon: '\u2737', value: totalEle, color: attrColors.mind, hasBonus: pl.bonusElemental > 0, bonusVal: pl.bonusElemental });
+    buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: attrColors.dexterity });
+    buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: attrColors.dexterity });
+    buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: attrColors.vigor });
+    buffItems.push({ icon: '\u2665', value: this.lives, color: attrColors.vigor });
+    buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: attrColors.dexterity });
     if (buffItems.length > 0) {
       ctx.font = 'bold 14px monospace';
       let totalBW = 0;
@@ -3936,12 +4414,12 @@ class Game {
         ctx.fillStyle = b.color;
         ctx.fillText(b.icon, bx, buffY);
         const iconW = ctx.measureText(b.icon).width;
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = b.color;
         ctx.fillText(String(b.value), bx + iconW + 3, buffY);
         if (b.hasBonus) {
           const valW = ctx.measureText(String(b.value)).width;
           ctx.font = '10px monospace';
-          ctx.fillStyle = '#5f5';
+          ctx.fillStyle = b.color;
           ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, buffY);
           ctx.font = 'bold 14px monospace';
         }
@@ -4009,9 +4487,36 @@ class Game {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillText(focusLabel, centerX + 1, barY + barH - 4);
-    ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : '#fff';
+    ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : attrColors.vigor;
     ctx.fillText(focusLabel, centerX, barY + barH - 5);
     ctx.textAlign = 'left';
+
+    // Bubble shield timer strip (directly below the FOCUS bar)
+    if (pl.bubbleShieldTimer > 0) {
+      const shieldRatio = pl.bubbleShieldTimer / pl.bubbleShieldMax;
+      const shY = barY + barH + 4;
+      const shH = 5;
+      const pulse = 0.55 + 0.2 * Math.sin(this.tick * 0.2);
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(barLeft, shY, barTotalW, shH);
+      ctx.shadowColor = '#4af';
+      ctx.shadowBlur = shieldRatio < 0.25 ? 12 + Math.sin(this.tick * 0.4) * 6 : 8;
+      ctx.fillStyle = `rgba(80,180,255,${pulse})`;
+      ctx.fillRect(barLeft, shY, barTotalW * shieldRatio, shH);
+      ctx.strokeStyle = 'rgba(160,230,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barLeft, shY, barTotalW, shH);
+      ctx.shadowBlur = 0;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillText('SHIELD', centerX + 1, shY + shH + 9);
+      ctx.fillStyle = '#aef';
+      ctx.fillText('SHIELD', centerX, shY + shH + 8);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
 
     // Ninja selection bar
     const ninjaBarX = CANVAS_W / 2 - 182;
@@ -4053,7 +4558,7 @@ class Game {
     ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
 
     // ── Objective indicator (bottom-left of wave panel) ──
-    if (this.currentObjective && !this.gameWon && !this.bossActive) {
+    if (false && this.currentObjective && !this.gameWon && !this.bossActive) {
       const _obj = this.currentObjective;
       const _ox = CANVAS_W - 175, _oy = 74;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -4085,6 +4590,41 @@ class Game {
 
     // Boss Summon Orb HUD (top center) — placeholder circles that fill when charge builds
     if (!this.gameWon && !(this.boss && !this.boss.dead)) {
+      const objCx = CANVAS_W / 2;
+      const objBarW = 420, objBarH = 24;
+      const objBarX = objCx - objBarW / 2, objBarY = 40;
+      const objectivePct = Math.min(1, (this.bossOrbsCollected + Math.min(1, this.bossOrbCharge / this.bossOrbChargeMax)) / this.bossOrbsRequired);
+      const objectiveAccent = this.levelElement && ELEMENT_COLORS[this.levelElement] ? ELEMENT_COLORS[this.levelElement].accent : '#f80';
+      const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
+      const objLabel = this.bossActive
+        ? 'BOSS ACTIVE'
+        : `OBJECTIVE: Defeat enemies (${this.bossOrbsCollected}/${this.bossOrbsRequired})`;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.68)';
+      ctx.fillRect(objBarX, objBarY, objBarW, objBarH);
+      ctx.fillStyle = objectiveAccent;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(objBarX, objBarY, objBarW * objectivePct, objBarH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = objectiveAccent;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(objBarX, objBarY, objBarW, objBarH);
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillText(objLabel, objCx + 1, objBarY + 16);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(objLabel, objCx, objBarY + 15);
+      if (roomDef) {
+        ctx.font = '9px monospace';
+        ctx.fillStyle = '#bbb';
+        ctx.fillText(roomDef.name, objCx, objBarY + 35);
+      }
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+
+    if (false && !this.gameWon && !(this.boss && !this.boss.dead)) {
       const cx = CANVAS_W / 2;
       if (this.bossActive) {
         ctx.save();
@@ -4404,6 +4944,14 @@ class Game {
         if (line) ctx.fillText(line, boxX + 52, lineY);
         ctx.globalAlpha = 1;
       }
+    }
+
+    if (this.itemRewardScreen) {
+      this.renderItemRewardScreen(ctx);
+    }
+
+    if (this.mapScreen && !this.itemRewardScreen) {
+      this.renderMapScreen(ctx);
     }
 
     // Path choice overlay — combined boss selection + reward preview
@@ -4863,6 +5411,424 @@ class Game {
     // Restore camera after shake offset
     cam.x -= screenShakeX;
     cam.y -= screenShakeY;
+  }
+
+  renderItemRewardScreen(ctx) {
+    const rs = this.itemRewardScreen;
+    const itemId = rs && rs.itemId;
+    const def = itemId ? BOSS_ITEMS[itemId] : null;
+    if (!def) return;
+    const attr = ITEM_ATTRIBUTES[def.attr] || ITEM_ATTRIBUTES.mind;
+    ctx.fillStyle = 'rgba(0,0,0,0.86)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    const boxW = 520, boxH = 240;
+    const boxX = CANVAS_W / 2 - boxW / 2;
+    const boxY = CANVAS_H / 2 - boxH / 2;
+    ctx.fillStyle = 'rgba(12,12,18,0.96)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = attr.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+    ctx.shadowColor = attr.color;
+    ctx.shadowBlur = 16;
+    drawItemIcon(ctx, itemId, boxX + 78, boxY + 94, 70, def.color);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px monospace';
+    ctx.fillText('BOSS REWARD', boxX + 140, boxY + 52);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillStyle = def.color;
+    ctx.fillText(def.name, boxX + 140, boxY + 88);
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = attr.color;
+    ctx.fillText(attr.label.toUpperCase() + '  Lv.' + (def.complexity || 1), boxX + 140, boxY + 112);
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#ccc';
+    const words = def.desc.split(' ');
+    let line = '', yy = boxY + 142;
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > boxW - 170) {
+        ctx.fillText(line, boxX + 140, yy);
+        line = w; yy += 16;
+      } else line = test;
+    }
+    if (line) ctx.fillText(line, boxX + 140, yy);
+    const optY = boxY + boxH - 62;
+    const optW = 210, optH = 34;
+    const vigor = ITEM_ATTRIBUTES.vigor;
+    for (let i = 0; i < 2; i++) {
+      const ox = boxX + 48 + i * (optW + 26);
+      const selected = rs.selected === i;
+      const col = i === 0 ? def.color : vigor.color;
+      ctx.fillStyle = selected ? 'rgba(255,224,51,0.16)' : 'rgba(0,0,0,0.35)';
+      ctx.fillRect(ox, optY, optW, optH);
+      ctx.strokeStyle = selected ? '#ffe033' : col;
+      ctx.lineWidth = selected ? 3 : 1.5;
+      ctx.strokeRect(ox, optY, optW, optH);
+      ctx.fillStyle = col;
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(i === 0 ? 'TAKE ITEM' : '+1 VIGOR', ox + 16, optY + 22);
+    }
+    ctx.fillStyle = '#888';
+    ctx.font = '11px monospace';
+    ctx.fillText(rs.delay > 0 ? '...' : 'A/D choose   Z confirm', boxX + 184, boxY + boxH - 12);
+  }
+
+  renderMapScreen(ctx) {
+    const ms = this.mapScreen;
+    ctx.fillStyle = 'rgba(0,0,0,0.84)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px monospace';
+    const title = 'MISSION MAP';
+    ctx.fillText(title, CANVAS_W / 2 - ctx.measureText(title).width / 2, 42);
+
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#aaa';
+    const hint = ms.delay > 0 ? '...' + Math.ceil(ms.delay / 60) : 'WASD / arrows select room   Z confirm';
+    ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
+
+    const mapX = 70, mapY = 88, mapW = 610, mapH = 390;
+    const cellW = 74;
+    const cellH = 54;
+    const selectedForCamera = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId] || MAP_ROOM_DEFS[0];
+    const mapCenterX = mapX + mapW / 2;
+    const mapCenterY = mapY + mapH / 2;
+    const roomX = room => mapCenterX + (room.col - selectedForCamera.col) * cellW;
+    const roomY = room => mapCenterY + (room.row - selectedForCamera.row) * cellH;
+    ctx.fillStyle = 'rgba(10,14,18,0.92)';
+    ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#334';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mapX, mapY, mapW, mapH);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    const offsetX = ((selectedForCamera.col % 1) * cellW);
+    const offsetY = ((selectedForCamera.row % 1) * cellH);
+    for (let gx = mapCenterX - mapW; gx <= mapCenterX + mapW; gx += cellW) {
+      ctx.beginPath();
+      ctx.moveTo(gx - offsetX, mapY);
+      ctx.lineTo(gx - offsetX, mapY + mapH);
+      ctx.stroke();
+    }
+    for (let gy = mapCenterY - mapH; gy <= mapCenterY + mapH; gy += cellH) {
+      ctx.beginPath();
+      ctx.moveTo(mapX, gy - offsetY);
+      ctx.lineTo(mapX + mapW, gy - offsetY);
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mapX, mapY, mapW, mapH);
+    ctx.clip();
+    for (const [areaId, area] of Object.entries(MAP_AREAS)) {
+      const areaRooms = MAP_ROOM_DEFS.filter(r => r.area === areaId);
+      if (!areaRooms.length) continue;
+      const minCol = Math.min(...areaRooms.map(r => r.col));
+      const maxCol = Math.max(...areaRooms.map(r => r.col));
+      const minRow = Math.min(...areaRooms.map(r => r.row));
+      const maxRow = Math.max(...areaRooms.map(r => r.row));
+      const ax = mapCenterX + (minCol - selectedForCamera.col) * cellW - cellW * 0.55;
+      const ay = mapCenterY + (minRow - selectedForCamera.row) * cellH - cellH * 0.55;
+      const aw = (maxCol - minCol + 1) * cellW + cellW * 0.1;
+      const ah = (maxRow - minRow + 1) * cellH + cellH * 0.1;
+      ctx.globalAlpha = 0.10;
+      ctx.fillStyle = area.color;
+      ctx.fillRect(ax, ay, aw, ah);
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = area.color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ax, ay, aw, ah);
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = area.color;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(area.label, ax + 8, ay + 16);
+    }
+    ctx.restore();
+
+    const selectedForLinks = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId];
+
+    const drawLink = (fromId, toId) => {
+      const a = MAP_ROOM_BY_ID[fromId], b = MAP_ROOM_BY_ID[toId];
+      if (!a || !b) return;
+      const fromUnlocked = !!this.mapState.unlocked[fromId];
+      const toUnlocked = !!this.mapState.unlocked[toId];
+      if (!fromUnlocked || !toUnlocked) return;
+      const ax = roomX(a);
+      const ay = roomY(a);
+      const bx = roomX(b);
+      const by = roomY(b);
+      const mx = (ax + bx) * 0.5;
+      const my = (ay + by) * 0.5;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const bendSign = fromId < toId ? 1 : -1;
+      const bend = Math.min(26, len * 0.14) * bendSign;
+      const cx = mx + (-dy / len) * bend;
+      const cy = my + (dx / len) * bend;
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = '#ffe033';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(cx, cy, bx, by);
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.arc(bx, by, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mapX, mapY, mapW, mapH);
+    ctx.clip();
+
+    if (selectedForLinks && this.mapState.unlocked[selectedForLinks.id]) {
+      const directional = this._mapDirectionalNeighbors(selectedForLinks);
+      for (const id of Object.values(directional)) drawLink(selectedForLinks.id, id);
+    }
+
+    const drawRoomIcon = (room, x, y, size, color, alpha) => {
+      if (!room.kind || room.kind === 'stage') return;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(1.5, size * 0.08);
+      if (room.kind === 'miniBoss') {
+        const r = size * 0.26;
+        ctx.beginPath();
+        ctx.moveTo(x - r, y + r);
+        ctx.lineTo(x + r, y - r);
+        ctx.moveTo(x - r, y - r);
+        ctx.lineTo(x + r, y + r);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, size * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (room.kind === 'bridgeBoss') {
+        const w = size * 0.5;
+        const h = size * 0.38;
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2, y + h / 2);
+        ctx.lineTo(x - w / 2, y);
+        ctx.quadraticCurveTo(x, y - h, x + w / 2, y);
+        ctx.lineTo(x + w / 2, y + h / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - w * 0.22, y + h / 2);
+        ctx.lineTo(x - w * 0.22, y + h * 0.02);
+        ctx.moveTo(x + w * 0.22, y + h / 2);
+        ctx.lineTo(x + w * 0.22, y + h * 0.02);
+        ctx.stroke();
+      } else if (room.kind === 'finalBoss' || room.kind === 'trueFinal') {
+        const s = size * (room.kind === 'trueFinal' ? 0.34 : 0.28);
+        ctx.beginPath();
+        ctx.moveTo(x - s, y + s * 0.45);
+        ctx.lineTo(x - s * 0.75, y - s * 0.35);
+        ctx.lineTo(x - s * 0.25, y + s * 0.05);
+        ctx.lineTo(x, y - s * 0.55);
+        ctx.lineTo(x + s * 0.25, y + s * 0.05);
+        ctx.lineTo(x + s * 0.75, y - s * 0.35);
+        ctx.lineTo(x + s, y + s * 0.45);
+        ctx.closePath();
+        ctx.stroke();
+        if (room.kind === 'trueFinal') {
+          ctx.beginPath();
+          for (let i = 0; i < 8; i++) {
+            const a = -Math.PI / 2 + i * Math.PI / 4;
+            const rr = i % 2 === 0 ? s * 1.15 : s * 0.58;
+            const px = x + Math.cos(a) * rr;
+            const py = y + Math.sin(a) * rr;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    };
+
+    for (let i = 0; i < MAP_ROOM_DEFS.length; i++) {
+      const room = MAP_ROOM_DEFS[i];
+      const unlocked = !!this.mapState.unlocked[room.id];
+      const completed = !!this.mapState.completed[room.id];
+      const current = room.id === this.currentRoomId;
+      const recent = ms.recentUnlocks && ms.recentUnlocks.includes(room.id);
+      const selected = i === ms.selected;
+      const x = roomX(room);
+      const y = roomY(room);
+      const elem = room.element ? ELEMENT_COLORS[room.element] : null;
+      const kindColor = room.kind === 'trueFinal' ? '#00ff66'
+        : room.kind === 'finalBoss' ? '#ffd700'
+        : room.kind === 'miniBoss' ? '#c58cff'
+        : room.kind === 'bridgeBoss' ? '#7bd'
+        : null;
+      const baseFill = completed ? '#26442f' : (elem ? elem.body : '#665c38');
+      const fill = !unlocked ? '#1c1c22' : room.kind === 'finalBoss' ? '#7a6320'
+        : room.kind === 'trueFinal' ? '#15552d'
+        : room.kind === 'bridgeBoss' ? '#294d5b'
+        : room.kind === 'miniBoss' ? '#4a3866'
+        : baseFill;
+      const stroke = selected ? '#ffe033' : recent ? '#fff' : current ? '#4f4' : kindColor || (unlocked ? '#aaa' : '#333');
+
+      if (unlocked) {
+        ctx.fillStyle = selected ? 'rgba(255,224,51,0.12)' : current ? 'rgba(80,255,80,0.08)' : 'rgba(255,255,255,0.04)';
+        ctx.fillRect(x - cellW / 2 + 3, y - cellH / 2 + 3, cellW - 6, cellH - 6);
+      }
+
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = selected ? 4 : recent || current ? 3 : 1.5;
+      const tileW = selected ? 56 : 48;
+      const tileH = selected ? 38 : 34;
+      const drawDiamond = room.kind === 'miniBoss';
+      const drawTriangle = room.kind === 'bridgeBoss';
+      if (kindColor && unlocked) {
+        ctx.save();
+        ctx.globalAlpha = room.kind === 'trueFinal' ? 0.38 : room.kind === 'finalBoss' ? 0.26 : 0.18;
+        ctx.fillStyle = kindColor;
+        ctx.beginPath();
+        ctx.arc(x, y, room.kind === 'trueFinal' ? tileW * 0.78 : tileW * 0.62, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      if (drawDiamond) {
+        ctx.beginPath();
+        ctx.moveTo(x, y - tileH / 2);
+        ctx.lineTo(x + tileW / 2, y);
+        ctx.lineTo(x, y + tileH / 2);
+        ctx.lineTo(x - tileW / 2, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (drawTriangle) {
+        ctx.beginPath();
+        ctx.moveTo(x, y - tileH / 2);
+        ctx.lineTo(x + tileW / 2, y + tileH / 2);
+        ctx.lineTo(x - tileW / 2, y + tileH / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.fillRect(x - tileW / 2, y - tileH / 2, tileW, tileH);
+        ctx.strokeRect(x - tileW / 2, y - tileH / 2, tileW, tileH);
+      }
+      if ((room.kind === 'finalBoss' || room.kind === 'trueFinal') && unlocked) {
+        ctx.save();
+        ctx.strokeStyle = kindColor;
+        ctx.lineWidth = room.kind === 'trueFinal' ? 4 : 3;
+        ctx.beginPath();
+        ctx.arc(x, y, tileW * (room.kind === 'trueFinal' ? 0.66 : 0.56), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      drawRoomIcon(room, x, y, Math.min(tileW, tileH), kindColor || '#fff', unlocked ? 0.95 : 0.32);
+
+      if (completed) {
+        ctx.fillStyle = '#9f9';
+        ctx.font = 'bold 13px monospace';
+        ctx.fillText('OK', x - 8, y + 5);
+      } else if (!unlocked) {
+        ctx.fillStyle = '#555';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText('?', x - 4, y + 4);
+      } else if (recent) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText('!', x - 4, y + 4);
+      }
+
+      if (unlocked) {
+        ctx.fillStyle = selected ? '#fff' : '#bbb';
+        ctx.font = selected ? 'bold 10px monospace' : '9px monospace';
+        const label = room.name.length > 14 ? room.name.slice(0, 14) : room.name;
+        ctx.fillText(label, x - ctx.measureText(label).width / 2, y + 34);
+      }
+    }
+    ctx.restore();
+
+    const panelX = 700, panelY = 88, panelW = 200, panelH = 390;
+    ctx.fillStyle = 'rgba(12,12,16,0.95)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = '#334';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    const selectedRoom = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId];
+    const selectedUnlocked = !!this.mapState.unlocked[selectedRoom.id];
+    const selectedCompleted = !!this.mapState.completed[selectedRoom.id];
+    const panelText = (text, x, y, maxW) => {
+      let out = String(text);
+      while (out.length > 3 && ctx.measureText(out).width > maxW) {
+        out = out.slice(0, -4) + '...';
+      }
+      ctx.fillText(out, x, y);
+    };
+    const kindLabel = {
+      stage: 'Stage',
+      miniBoss: 'Elite boss',
+      bridgeBoss: 'Bridge boss',
+      finalBoss: 'Final boss',
+      trueFinal: 'True final boss'
+    };
+    ctx.fillStyle = selectedUnlocked ? '#fff' : '#666';
+    ctx.font = 'bold 15px monospace';
+    panelText(selectedUnlocked ? selectedRoom.name : 'Unknown Room', panelX + 14, panelY + 28, panelW - 28);
+    ctx.font = '11px monospace';
+    ctx.fillStyle = selectedUnlocked ? '#aaa' : '#555';
+    panelText(selectedUnlocked ? selectedRoom.subtitle : 'Locked', panelX + 14, panelY + 48, panelW - 28);
+
+    if (selectedUnlocked) {
+      const wd = WAVE_DEFS[selectedRoom.waveIdx] || WAVE_DEFS[0];
+      const bossName = BOSS_NAMES[wd.boss] || wd.boss.toUpperCase();
+      const area = MAP_AREAS[selectedRoom.area] || null;
+      const mix = (selectedRoom.enemyTypes || []).map(t => ENEMY_STATS[t] ? ENEMY_STATS[t].name : t).join(', ');
+      ctx.fillStyle = selectedRoom.element && ELEMENT_COLORS[selectedRoom.element] ? ELEMENT_COLORS[selectedRoom.element].accent : '#ffe033';
+      ctx.font = 'bold 12px monospace';
+      panelText('Boss: ' + bossName, panelX + 14, panelY + 84, panelW - 28);
+      ctx.fillStyle = '#bbb';
+      ctx.font = '11px monospace';
+      panelText('Area: ' + (area ? area.label : selectedRoom.area), panelX + 14, panelY + 106, panelW - 28);
+      panelText('Type: ' + (kindLabel[selectedRoom.kind] || 'Stage'), panelX + 14, panelY + 126, panelW - 28);
+      panelText('Element: ' + (selectedRoom.element || 'normal'), panelX + 14, panelY + 146, panelW - 28);
+      panelText('Layout: ' + (selectedRoom.mapType || 'classic'), panelX + 14, panelY + 166, panelW - 28);
+      panelText('Enemies: ' + mix, panelX + 14, panelY + 186, panelW - 28);
+      panelText('Status: ' + (selectedCompleted ? 'completed' : 'available'), panelX + 14, panelY + 206, panelW - 28);
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('Recently unlocked', panelX + 14, panelY + 242);
+    ctx.font = '11px monospace';
+    if (ms.recentUnlocks && ms.recentUnlocks.length) {
+      let yy = panelY + 264;
+      for (const id of ms.recentUnlocks) {
+        const room = MAP_ROOM_BY_ID[id];
+        if (!room) continue;
+        ctx.fillStyle = '#ffe033';
+        panelText('+ ' + room.name, panelX + 14, yy, panelW - 28);
+        yy += 18;
+      }
+    } else {
+      ctx.fillStyle = '#777';
+      ctx.fillText('No new rooms', panelX + 14, panelY + 264);
+    }
+
+    const doneCount = Object.keys(this.mapState.completed || {}).length;
+    const unlockedCount = Object.keys(this.mapState.unlocked || {}).length;
+    ctx.fillStyle = '#888';
+    ctx.font = '10px monospace';
+    ctx.fillText(`Cache: ${unlockedCount}/${MAP_ROOM_DEFS.length} rooms`, panelX + 14, panelY + panelH - 36);
+    ctx.fillText(`Completed: ${doneCount}`, panelX + 14, panelY + panelH - 18);
   }
 
   renderItemBar(pl) {

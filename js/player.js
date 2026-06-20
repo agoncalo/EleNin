@@ -168,6 +168,13 @@ class Player {
     // Death respawn delay
     this.deathTimer = 0;
 
+    // Focus (HP) regen
+    this.focusRegenTimer = 0;
+
+    // Bubble shield orb — temporary damage block
+    this.bubbleShieldTimer = 0;
+    this.bubbleShieldMax = 300; // 5 seconds
+
     // Pending damage (highest prevails per frame)
     this._pendingDamage = null; // { amount, element, killerInfo }
 
@@ -184,6 +191,9 @@ class Player {
 
     // Boss items inventory (per-run)
     this.items = {};
+    this.unlockedItems = {};
+    this.itemAttrBonuses = { mind: 0, vigor: 0, dexterity: 0 };
+    this._itemAttrApplied = { mind: 0, vigor: 0, dexterity: 0 };
     this.deathsKeyUsed = false;
     this.autoSwingTimer = 0; // for The Code
     this.codeComboCount = 0; // 3-hit combo tracker for The Code
@@ -534,6 +544,20 @@ class Player {
   update(game) {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
+
+    // Focus (HP) slow regen — 1 HP every 300 frames, only when not at max
+    if (this.hp > 0 && this.hp < this.maxHp) {
+      this.focusRegenTimer++;
+      if (this.focusRegenTimer >= 300) {
+        this.focusRegenTimer = 0;
+        this.hp = Math.min(this.hp + 1, this.maxHp);
+      }
+    } else {
+      this.focusRegenTimer = 0;
+    }
+
+    // Bubble shield countdown
+    if (this.bubbleShieldTimer > 0) this.bubbleShieldTimer--;
 
     // Smooth display bars
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
@@ -2998,6 +3022,15 @@ class Player {
       for (const t of game.trimerangs) t.done = true;
     }
     if (this.fireArmor || this.chainStriking || this.stormChaining) return;
+    // Bubble shield orb — blocks all external damage while active
+    if (this.bubbleShieldTimer > 0) {
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 10, 4, 14));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 4, 2, 8));
+      triggerHitstop(4);
+      triggerScreenShake(2, 6);
+      SFX.playerHurt();
+      return;
+    }
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
       this.shield -= absorbed;
@@ -3572,6 +3605,54 @@ class Player {
     if (this.bubbleBuffTimer > 0) {
       ctx.fillStyle = 'rgba(80,160,255,0.25)';
       ctx.fillRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+    }
+
+    // Bubble shield visual — large translucent bubble shell around the player
+    if (this.bubbleShieldTimer > 0) {
+      const tick = game ? game.tick : 0;
+      const t = this.bubbleShieldTimer / this.bubbleShieldMax;
+      const flicker = t < 0.25 && Math.floor(tick / 3) % 2 === 0;
+      const bcx = sx + this.w / 2;
+      const bcy = sy + this.h / 2;
+      const pulse = 1 + 0.045 * Math.sin(tick * 0.15);
+      const rx = (this.w / 2 + 16) * pulse;
+      const ry = (this.h / 2 + 14) * pulse;
+      const baseAlpha = flicker ? 0.15 : t;
+      ctx.save();
+      // Soft fill
+      ctx.globalAlpha = baseAlpha * 0.18;
+      ctx.fillStyle = '#4af';
+      ctx.shadowColor = '#4af';
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.ellipse(bcx, bcy, rx + 6, ry + 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Main shell
+      ctx.globalAlpha = baseAlpha * 0.55;
+      ctx.strokeStyle = '#aef';
+      ctx.lineWidth = 2.5;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.ellipse(bcx, bcy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Inner lighter ring
+      ctx.globalAlpha = baseAlpha * 0.2;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.ellipse(bcx, bcy, rx * 0.78, ry * 0.78, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Glint top-left
+      ctx.globalAlpha = baseAlpha * 0.65;
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.ellipse(bcx - rx * 0.3, bcy - ry * 0.32, rx * 0.18, ry * 0.09, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.restore();
     }
 
     // Status effect overlays

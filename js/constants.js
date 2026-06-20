@@ -10,7 +10,7 @@ const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'st
 
 // ── Elemental Affinities ─────────────────────────────────────
 // Elements that enemies can have (shadow is NOT an affinity)
-const ENEMY_ELEMENTS = ['fire', 'ghost', 'water', 'crystal', 'wind', 'lightning', 'spiky'];
+const ENEMY_ELEMENTS = ['fire', 'ghost', 'water', 'crystal', 'wind', 'lightning', 'steel', 'spiky'];
 
 // Colors for each element
 const ELEMENT_COLORS = {
@@ -20,6 +20,7 @@ const ELEMENT_COLORS = {
   crystal:   { body: '#5cc', accent: '#dff', glow: '#6ee', particle: '#aef' },
   wind:      { body: '#6b6', accent: '#bfb', glow: '#5a5', particle: '#9e9' },
   lightning: { body: '#aa4', accent: '#ff8', glow: '#dd6', particle: '#ff4' },
+  steel:     { body: '#7f8790', accent: '#d8e0e8', glow: '#aab4c0', particle: '#d8e0e8' },
   spiky:     { body: '#a44', accent: '#f86', glow: '#c33', particle: '#f64' },
 };
 
@@ -185,12 +186,13 @@ const NINJA_TYPES = {
 };
 
 // ── Enemy tier system ────────────────────────────────────────
-const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
+const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
   walker:     { color: '#a55', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
   shooter:    { color: '#aa5', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
   jumper:     { color: '#a8a', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
   bouncer:    { color: '#a5a', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  charger:    { color: '#b75', hp: 7,  dmg: 5,  bossBase: 195, name: 'Charger' },
   shielded:   { color: '#5a8', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
   deflector:  { color: '#88a', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
   protector:  { color: '#4a6', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
@@ -240,6 +242,7 @@ const ELEMENT_BUDGET_MULT = {
   crystal:   1.35,
   wind:      1.20,
   lightning: 1.50,  // hard: strong DOT paralysis
+  steel:     1.40,  // hard: armor absorbs damage and knockback
   spiky:     1.60,  // hard: reflects sword damage
 };
 
@@ -281,6 +284,12 @@ const ELEMENT_LEVEL_THEMES = {
     platformColor: '#2a2a44', platformColorAlt: '#1e1e33', groundColor: '#1e1e33',
     weather: 'storm', hazard: 'thunder',
   },
+  steel: {
+    skyTop: '#101418', skyBot: '#080a0c',
+    mountainColor: '#161c22',
+    platformColor: '#4a5058', platformColorAlt: '#333942', groundColor: '#3c4248',
+    weather: null, hazard: null,
+  },
   spiky: {
     skyTop: '#160a0a', skyBot: '#0e0606',
     mountainColor: '#1e0c0c',
@@ -294,6 +303,7 @@ const WAVE_DEFS = [
     pool: [
       { type: 'walker', weight: 5 },
       { type: 'shooter', weight: 3 },
+      { type: 'charger', weight: 2 },
       { type: 'walker', weight: 2, big: true },
     ]
   },
@@ -303,6 +313,7 @@ const WAVE_DEFS = [
       { type: 'walker', weight: 3 },
       { type: 'shooter', weight: 4 },
       { type: 'jumper', weight: 3 },
+      { type: 'charger', weight: 2 },
       { type: 'walker', weight: 1, big: true },
       { type: 'shooter', weight: 1, big: true },
     ]
@@ -313,6 +324,7 @@ const WAVE_DEFS = [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
       { type: 'jumper', weight: 4 },
+      { type: 'charger', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'jumper', weight: 1, big: true },
     ]
@@ -342,6 +354,7 @@ const WAVE_DEFS = [
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 4 },
+      { type: 'charger', weight: 2 },
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 4 },
       { type: 'bouncer', weight: 1, big: true },
@@ -355,6 +368,7 @@ const WAVE_DEFS = [
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
+      { type: 'charger', weight: 2 },
       { type: 'shielded', weight: 4 },
       { type: 'flyer', weight: 2 },
       { type: 'shielded', weight: 1, big: true },
@@ -409,6 +423,256 @@ const BOSS_NAMES = {
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
+const MAP_STORAGE_KEY = 'elenin-map-cache-v8';
+const MAP_START_ROOM_ID = 'forest-walker-normal';
+const MAP_AREAS = {
+  forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
+  mountain:  { label: 'MOUNTAIN',   color: '#9bdff2', centerCol: -7, centerRow: -1 },
+  volcano:   { label: 'VOLCANO',    color: '#e22',    centerCol: 7,  centerRow: -1 },
+  castle:    { label: 'CASTLE',     color: '#888',    centerCol: 0,  centerRow: -5 },
+  castleTop: { label: 'CASTLE TOP', color: '#aaa',    centerCol: 0,  centerRow: -8 },
+  skies:     { label: 'SKIES',      color: '#0797d8', centerCol: 0,  centerRow: -12 },
+};
+const MAP_ROOM_DEFS = (() => {
+  const bossOrder = ['walker','shooter','jumper','bouncer','shielded','flyer','deflector','protector','attacker','flyshooter'];
+  const elementOrder = [null, 'wind', 'water', 'crystal', 'steel', 'spiky', 'fire', 'ghost', 'lightning'];
+  const easyBosses = new Set(['walker','shooter','jumper','bouncer','shielded','flyer']);
+  const specialBosses = new Set(['deflector','protector','attacker']);
+  const rooms = [];
+  const byArea = {};
+  const waveIdxFor = boss => Math.max(0, WAVE_DEFS.findIndex(w => w.boss === boss));
+  const elemId = element => element || 'normal';
+  const title = value => value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Normal';
+  const spiralOffset = idx => {
+    if (idx === 0) return [0, 0];
+    let x = 0, y = 0, step = 1, n = 0;
+    while (true) {
+      for (let i = 0; i < step; i++) { x++; if (++n === idx) return [x, y]; }
+      for (let i = 0; i < step; i++) { y++; if (++n === idx) return [x, y]; }
+      step++;
+      for (let i = 0; i < step; i++) { x--; if (++n === idx) return [x, y]; }
+      for (let i = 0; i < step; i++) { y--; if (++n === idx) return [x, y]; }
+      step++;
+    }
+  };
+  const areaOffset = (area, idx) => {
+    if (area === 'forest') {
+      const forestOffsets = [
+        [0,0], [-1,0], [1,0], [0,-1], [0,1],
+        [-2,-1], [2,-1], [-2,1], [2,1],
+        [-1,-2], [1,-2], [-1,2], [1,2],
+        [-3,0], [3,0], [0,-3], [0,3],
+        [-3,-1], [3,-1], [-3,1], [3,1],
+        [-2,-2], [2,-2], [-2,2], [2,2],
+        [-4,0], [4,0], [0,-4], [-1,3], [1,3],
+      ];
+      return forestOffsets[idx] || spiralOffset(idx);
+    }
+    if (area === 'mountain') {
+      const col = Math.floor(idx / 6);
+      const row = idx % 6;
+      return [-col, row - 2 - Math.floor(col / 2)];
+    }
+    if (area === 'volcano') {
+      const col = Math.floor(idx / 5);
+      const row = idx % 5;
+      return [col, row - 2 - Math.floor(col / 2)];
+    }
+    if (area === 'castle') {
+      const castleOffsets = [[-1,1], [1,1], [0,0], [0,-1], [-2,0], [2,0]];
+      return castleOffsets[idx] || spiralOffset(idx);
+    }
+    if (area === 'castleTop') {
+      const col = idx % 4;
+      const row = Math.floor(idx / 4);
+      return [col - 2, -row];
+    }
+    if (area === 'skies') {
+      const skyOffsets = [
+        [0,0], [-1,1], [1,1], [-2,0], [2,0], [-1,-1], [1,-1],
+        [0,-2], [-3,1], [3,1], [-2,2], [2,2], [0,2],
+        [-3,-1], [3,-1], [-1,-3], [1,-3], [0,-4],
+        [-4,0], [4,0], [-2,-2], [2,-2], [0,-5],
+      ];
+      return skyOffsets[idx] || spiralOffset(idx);
+    }
+    return spiralOffset(idx);
+  };
+  const areaFor = (boss, element) => {
+    if (element === 'lightning') return 'skies';
+    if (element === 'ghost') return easyBosses.has(boss) ? 'castleTop' : 'skies';
+    if (element === 'fire' || element === 'spiky') return 'volcano';
+    if (element === 'crystal' || element === 'steel') return 'mountain';
+    if (boss === 'flyshooter' && element === null) return 'castle';
+    if (element === null && specialBosses.has(boss)) return 'castle';
+    return 'forest';
+  };
+  const layoutFor = (area, boss, element, idx) => {
+    if (boss === 'flyer' || boss === 'flyshooter') return 'openArea';
+    if (area === 'castle' || area === 'castleTop') return 'cubicle';
+    if (area === 'forest' && element === null && boss === 'walker') return null;
+    return idx % 2 === 0 ? 'openArea' : 'cubicle';
+  };
+  const enemyMix = (area, boss, element, idx) => {
+    const rangedByArea = {
+      forest: ['shooter'],
+      mountain: ['shooter'],
+      volcano: ['shooter'],
+      castle: ['shooter'],
+      castleTop: ['shooter', 'flyshooter'],
+      skies: ['flyshooter', 'shooter'],
+    };
+    const commonByArea = {
+      forest: ['walker', 'jumper', 'charger', 'bouncer', 'flyer'],
+      mountain: ['charger', 'jumper', 'bouncer', 'flyer', 'walker'],
+      volcano: ['charger', 'bouncer', 'jumper', 'flyer', 'walker'],
+      castle: ['charger', 'bouncer', 'jumper', 'flyer', 'walker'],
+      castleTop: ['flyer', 'charger', 'bouncer', 'jumper', 'walker'],
+      skies: ['flyer', 'charger', 'bouncer', 'jumper', 'walker'],
+    };
+    const specialByArea = {
+      forest: ['shielded'],
+      mountain: ['shielded', 'deflector'],
+      volcano: ['shielded', 'attacker'],
+      castle: ['deflector', 'protector', 'attacker', 'shielded'],
+      castleTop: ['deflector', 'shielded', 'attacker'],
+      skies: ['attacker', 'deflector', 'protector'],
+    };
+    const rangedTypes = new Set(['shooter', 'flyshooter']);
+    const specialTypes = new Set(['shielded', 'deflector', 'protector', 'attacker']);
+    const pick = list => list[idx % list.length];
+    const mix = [];
+    const add = type => {
+      if (!type || mix.includes(type)) return;
+      if (rangedTypes.has(type) && mix.some(t => rangedTypes.has(t))) return;
+      if (specialTypes.has(type) && mix.some(t => specialTypes.has(t))) return;
+      mix.push(type);
+    };
+
+    add(pick(rangedByArea[area] || rangedByArea.forest));
+
+    if (specialTypes.has(boss)) add(boss);
+    const shouldUseSpecial = !mix.some(t => specialTypes.has(t)) && ((idx + (element ? 1 : 0)) % 3 === 0);
+    if (shouldUseSpecial) add(pick(specialByArea[area] || specialByArea.forest));
+
+    const commonPool = commonByArea[area] || commonByArea.forest;
+    if (!(boss === 'walker' && area !== 'forest') && !rangedTypes.has(boss) && !specialTypes.has(boss)) add(boss);
+    for (let i = 0; mix.length < 3 && i < commonPool.length; i++) {
+      add(commonPool[(idx + i) % commonPool.length]);
+    }
+    return mix.slice(0, 3);
+  };
+  const kindFor = (boss, element, area) => {
+    if (boss === 'flyshooter' && element === 'ghost') return 'trueFinal';
+    if (boss === 'flyshooter' && element === null) return 'finalBoss';
+    if (specialBosses.has(boss)) return 'miniBoss';
+    if (area === 'castleTop' || area === 'skies') return 'bridgeBoss';
+    return 'stage';
+  };
+  const addRoom = (boss, element) => {
+    const area = areaFor(boss, element);
+    if (!byArea[area]) byArea[area] = [];
+    const idx = byArea[area].length;
+    const spec = MAP_AREAS[area];
+    const offset = areaOffset(area, idx);
+    const id = `${area}-${boss}-${elemId(element)}`;
+    const room = {
+      id,
+      name: `${title(element)} ${BOSS_NAMES[boss] || boss.toUpperCase()}`,
+      subtitle: spec.label,
+      area,
+      col: spec.centerCol + offset[0],
+      row: spec.centerRow + offset[1],
+      mapType: layoutFor(area, boss, element, idx),
+      waveIdx: waveIdxFor(boss),
+      bossType: boss,
+      element,
+      enemyTypes: enemyMix(area, boss, element, idx),
+      kind: kindFor(boss, element, area),
+      navLinks: [],
+      unlockOnPrimary: [],
+      unlockOnSecondary: [],
+    };
+    if (id === MAP_START_ROOM_ID) {
+      room.name = 'Forest Outpost';
+      room.subtitle = 'Basic mission';
+      room.enemyTypes = ['walker','shooter'];
+      room.mapType = null;
+    }
+    byArea[area].push(room);
+    rooms.push(room);
+  };
+  for (const element of elementOrder) {
+    for (const boss of bossOrder) addRoom(boss, element);
+  }
+  const byId = Object.fromEntries(rooms.map(r => [r.id, r]));
+  const navBridgeIds = {
+    'forest-bouncer-normal': ['mountain-walker-crystal', 'volcano-walker-fire'],
+    'forest-shielded-water': ['mountain-shooter-crystal', 'volcano-shooter-fire'],
+    'mountain-shielded-crystal': ['castle-deflector-normal'],
+    'mountain-protector-steel': ['castle-protector-normal', 'castleTop-walker-ghost'],
+    'volcano-shielded-fire': ['castle-attacker-normal'],
+    'volcano-attacker-fire': ['castle-protector-normal', 'castleTop-bouncer-ghost'],
+    'castle-deflector-normal': ['castle-protector-normal', 'castle-attacker-normal'],
+    'castle-protector-normal': ['castle-flyshooter-normal', 'skies-walker-lightning'],
+    'castle-attacker-normal': ['castle-flyshooter-normal', 'skies-shooter-lightning'],
+    'castle-flyshooter-normal': ['skies-walker-lightning', 'skies-flyer-lightning'],
+    'castleTop-walker-ghost': ['skies-walker-ghost', 'skies-walker-lightning'],
+    'castleTop-flyer-ghost': ['skies-flyer-ghost', 'skies-flyer-lightning'],
+    'skies-walker-lightning': ['castle-protector-normal'],
+    'skies-shooter-lightning': ['castle-attacker-normal'],
+    'skies-attacker-lightning': ['skies-flyshooter-ghost'],
+    'skies-flyshooter-lightning': ['skies-flyshooter-ghost'],
+  };
+  const nearestInDirection = (room, candidates, dx, dy) => {
+    let best = null;
+    let bestScore = Infinity;
+    for (const other of candidates) {
+      if (other.id === room.id) continue;
+      const dc = other.col - room.col;
+      const dr = other.row - room.row;
+      if (dx !== 0 && dc * dx <= 0) continue;
+      if (dy !== 0 && dr * dy <= 0) continue;
+      const primary = dx !== 0 ? Math.abs(dc) : Math.abs(dr);
+      const offAxis = dx !== 0 ? Math.abs(dr) : Math.abs(dc);
+      const score = primary * 100 + offAxis * 45;
+      if (score < bestScore) {
+        bestScore = score;
+        best = other;
+      }
+    }
+    return best;
+  };
+  const dirKeyFor = (from, to) => {
+    const dc = to.col - from.col;
+    const dr = to.row - from.row;
+    if (Math.abs(dc) >= Math.abs(dr)) return dc < 0 ? 'left' : 'right';
+    return dr < 0 ? 'up' : 'down';
+  };
+  for (const room of rooms) {
+    const bridgeRooms = (navBridgeIds[room.id] || []).map(id => byId[id]).filter(Boolean);
+    const areaRooms = rooms.filter(other => other.area === room.area);
+    const directional = {};
+    for (const dir of [
+      ['left', -1, 0],
+      ['right', 1, 0],
+      ['up', 0, -1],
+      ['down', 0, 1],
+    ]) {
+      const target = nearestInDirection(room, areaRooms, dir[1], dir[2]);
+      if (target) directional[dir[0]] = target.id;
+    }
+    for (const bridge of bridgeRooms) {
+      directional[dirKeyFor(room, bridge)] = bridge.id;
+    }
+    room.navLinks = Object.values(directional).filter((id, idx, arr) => arr.indexOf(id) === idx).slice(0, 4);
+    room.unlockOnPrimary = room.navLinks.slice();
+  }
+  return rooms;
+})();
+
+const MAP_ROOM_BY_ID = Object.fromEntries(MAP_ROOM_DEFS.map(room => [room.id, room]));
+
 // Gamepad button map (Standard Gamepad):
 const GP_ATTACK = 0;   // A / Cross
 const GP_SPECIAL = 2;  // X / Square
@@ -456,6 +720,39 @@ const BOSS_ITEM_DROPS = {
   attacker:   ['vampireTeeth'],
   flyshooter: ['theKunai'],
 };
+
+const ITEM_ATTRIBUTES = {
+  mind:      { label: 'Mind',      color: '#b45cff', stats: 'magic damage / focus' },
+  vigor:     { label: 'Vigor',     color: '#ff6a3d', stats: 'attack damage / strength' },
+  dexterity: { label: 'Dexterity', color: '#39d98a', stats: 'reach / speed' },
+};
+
+const BOSS_ITEM_META = {
+  pickaxe:        { attr: 'vigor', complexity: 1 },
+  leatherBoots:   { attr: 'dexterity', complexity: 1 },
+  protectiveCharm:{ attr: 'mind', complexity: 1 },
+  charmFire:      { attr: 'mind', complexity: 1 },
+  charmWater:     { attr: 'mind', complexity: 1 },
+  tripleShuriken: { attr: 'dexterity', complexity: 2 },
+  homingShuriken: { attr: 'mind', complexity: 2 },
+  spikedArmor:    { attr: 'vigor', complexity: 2 },
+  charmGhost:     { attr: 'mind', complexity: 2 },
+  charmCrystal:   { attr: 'mind', complexity: 2 },
+  charmWind:      { attr: 'mind', complexity: 2 },
+  redMagnet:      { attr: 'dexterity', complexity: 3 },
+  vampireTeeth:   { attr: 'vigor', complexity: 3 },
+  deathsKey:      { attr: 'mind', complexity: 3 },
+  charmLightning: { attr: 'mind', complexity: 3 },
+  charmSpiky:     { attr: 'vigor', complexity: 3 },
+  iaito:          { attr: 'dexterity', complexity: 4 },
+  x2Orb:          { attr: 'mind', complexity: 4 },
+  friendsLetter:  { attr: 'mind', complexity: 4 },
+  theCode:        { attr: 'dexterity', complexity: 5 },
+  theKunai:       { attr: 'vigor', complexity: 5 },
+};
+for (const [itemId, meta] of Object.entries(BOSS_ITEM_META)) {
+  if (BOSS_ITEMS[itemId]) Object.assign(BOSS_ITEMS[itemId], meta);
+}
 
 // Items localStorage key
 const VAULT_KEY = 'elenin_vault';

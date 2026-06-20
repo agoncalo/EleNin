@@ -15,8 +15,8 @@ class Enemy {
     // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
-    const _hitsN = {walker:12,shooter:12,jumper:10,bouncer:10,shielded:10,deflector:7,protector:12,attacker:6,flyer:8,flyshooter:8};
-    const _hitsB = {walker:6,shooter:6,jumper:5,bouncer:5,shielded:5,deflector:4,protector:6,attacker:3,flyer:4,flyshooter:4};
+    const _hitsN = {walker:12,shooter:12,jumper:10,bouncer:10,charger:9,shielded:10,deflector:7,protector:12,attacker:6,flyer:8,flyshooter:8};
+    const _hitsB = {walker:6,shooter:6,jumper:5,bouncer:5,charger:4,shielded:5,deflector:4,protector:6,attacker:3,flyer:4,flyshooter:4};
     const _hits = big ? (_hitsB[type] || 5) : (_hitsN[type] || 10);
     this.contactDmg = Math.max(1, Math.round(_ehp / _hits + _arm));
     this.color = base.color;
@@ -68,6 +68,13 @@ class Enemy {
       this.w = big ? 52 : 40;
       this.h = big ? 52 : 40;
     }
+    // Charger: low horizontal rectangle that commits to one lane.
+    if (type === 'charger') {
+      this.w = big ? 78 : 58;
+      this.h = big ? 48 : 38;
+      this.chargeLaneDir = this.facing;
+      this.chargeJumpTimer = randInt(20, 70);
+    }
     // Protector aura — always huge miniboss size
     this.auraRadius = (type === 'protector') ? (big ? 260 : 200) : 0;
     this.deflectFlash = 0;
@@ -96,14 +103,129 @@ class Enemy {
     this.element = null;
     this.elementColors = null;
     this.baseColor = this.color; // preserve original type color
+    this.elementArmor = 0;
+    this.elementArmorMax = 0;
+    this.elementBroken = false;
+    this.lightningTeleportCooldown = randInt(120, 240);
+    this.windPhaseTimer = 0;
+    this.windPhaseCooldown = randInt(140, 260);
+    this.spikySpikeTimer = 0;
+    this.spikySpikeCooldown = randInt(110, 210);
     this.juggleState = false;
     // Stagger system
     this.staggerBar = 0;
     this.disableTimer = 0;
   }
 
+  _syncElementState() {
+    if (this.element && !this.elementColors && ELEMENT_COLORS[this.element]) {
+      this.elementColors = ELEMENT_COLORS[this.element];
+      this.color = this.elementColors.body;
+    }
+    if ((this.element === 'spiky' || this.element === 'steel') && this.elementArmorMax <= 0) {
+      this.elementArmorMax = this.big ? 14 : 8;
+      this.elementArmor = this.elementArmorMax;
+      this.elementBroken = false;
+    }
+  }
+
+  _needsDistance() {
+    return this.type === 'shooter' || this.type === 'bouncer' || this.type === 'flyshooter';
+  }
+
+  _tryLightningTeleport(game) {
+    if (this.element !== 'lightning' || !game || !game.player || this.spawnTimer > 0) return;
+    this.lightningTeleportCooldown--;
+    if (this.lightningTeleportCooldown > 0) return;
+    this.lightningTeleportCooldown = randInt(210, 340);
+
+    const pl = game.player;
+    const pcx = pl.x + pl.w / 2;
+    const pcy = pl.y + pl.h / 2;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dist = Math.hypot(pcx - cx, pcy - cy);
+    const wantsDistance = this._needsDistance();
+    if (wantsDistance && dist > 190) return;
+    if (!wantsDistance && dist < 260) return;
+
+    const side = pcx < cx ? 1 : -1;
+    const desiredDist = wantsDistance ? randInt(240, 360) : randInt(70, 120);
+    let nx = pcx + side * desiredDist - this.w / 2;
+    nx = Math.max(40, Math.min(game.levelW - this.w - 40, nx));
+    const oldX = this.x, oldY = this.y;
+    this.x = nx;
+    if (this.flying) {
+      this.y = Math.max(60, Math.min(260, pcy - this.h / 2 + randInt(-70, 70)));
+    } else {
+      this.y = Math.min(this.y, 430 - this.h);
+      this.vy = 0;
+    }
+    this.facing = pcx > this.x + this.w / 2 ? 1 : -1;
+    game.effects.push(new TeleportTrace(oldX + this.w / 2, oldY + this.h / 2, this.x + this.w / 2, this.y + this.h / 2, '#ff8'));
+    game.effects.push(new Effect(oldX + this.w / 2, oldY + this.h / 2, '#ff8', 12, 4, 12));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 10, 3, 10));
+    game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, wantsDistance ? 'BLINK OUT' : 'BLINK IN', '#ff8'));
+  }
+
+  _updateWindPhase(game) {
+    if (this.element !== 'wind') {
+      this.windPhaseTimer = 0;
+      return;
+    }
+    if (this.windPhaseTimer > 0) {
+      this.windPhaseTimer--;
+      if (Math.random() < 0.25 && game) {
+        game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + Math.random() * this.h, '#bfb', 1, 0.5, 8));
+      }
+      return;
+    }
+    this.windPhaseCooldown--;
+    if (this.windPhaseCooldown <= 0) {
+      this.windPhaseTimer = this.big ? 75 : 55;
+      this.windPhaseCooldown = randInt(180, 300);
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PHASE', '#bfb'));
+    }
+  }
+
+  _updateSpikySpikes(game) {
+    if (this.element !== 'spiky') {
+      this.spikySpikeTimer = 0;
+      return;
+    }
+    if (this.spikySpikeTimer > 0) {
+      this.spikySpikeTimer--;
+      if (Math.random() < 0.18 && game) {
+        game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + Math.random() * this.h, '#f64', 1, 0.7, 8));
+      }
+      return;
+    }
+    this.spikySpikeCooldown--;
+    if (this.spikySpikeCooldown <= 0) {
+      this.spikySpikeTimer = this.big ? 95 : 70;
+      this.spikySpikeCooldown = randInt(150, 260);
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SPIKES', '#f86'));
+    }
+  }
+
+  _windPhaseWarning() {
+    return this.element === 'wind' && this.windPhaseTimer <= 0 && this.windPhaseCooldown <= 60;
+  }
+
+  _spikySpikeWarning() {
+    return this.element === 'spiky' && this.spikySpikeTimer <= 0 && this.spikySpikeCooldown <= 60;
+  }
+
+  _spikySpikesActive() {
+    return this.element === 'spiky' && this.spikySpikeTimer > 0;
+  }
+
   update(game) {
     if (this.dead) return;
+    this._syncElementState();
+    this._updateWindPhase(game);
+    this._updateSpikySpikes(game);
+    this._tryLightningTeleport(game);
     if (this.disableTimer > 0) this.disableTimer--;
     if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
@@ -401,9 +523,8 @@ class Enemy {
           const dx = px - cx, dy = py - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < 400 && d > 0) {
-            const p = new Projectile(cx, cy, (dx / d) * 4, (dy / d) * 4, this.element ? this.elementColors.accent : '#ff4', this.contactDmg, 'enemy');
-            if (this.element) p.element = this.element;
-            game.projectiles.push(p);
+            const col = this.element ? this.elementColors.accent : '#ff4';
+            game.hitLines.push(new HitLine(cx, cy, (dx / d) * 4, (dy / d) * 4, col, this.contactDmg, 'enemy', { element: this.element }));
           }
         }
         break;
@@ -450,25 +571,39 @@ class Enemy {
           this.shootTimer = 0;
           const d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
           if (d < 500 && d > 0) {
-            // High-angle mortar aimed at player with spread
+            // High-angle mortar — now a grenade that explodes
             const dx = px - cx;
             const dy = py - cy;
             const spread = (Math.random() - 0.5) * 1.2;
             const lobSpd = (5.5 + Math.random() * 1.5) * 0.65;
             const aimAngle = Math.atan2(dy, Math.abs(dx));
-            // Bias upward: use an angle between aimed and -70°
             const highAngle = Math.min(aimAngle, -Math.PI * 0.25) - Math.PI * 0.1;
             const dir = dx > 0 ? 1 : -1;
             const shots = this.big ? 2 : 1;
             for (let si = 0; si < shots; si++) {
               const sSpread = (spread + si * dir * 0.8) * 0.65;
-              const p = new Projectile(cx + dir * 6, cy - 4, dir * Math.cos(highAngle) * lobSpd + sSpread, Math.sin(highAngle) * (lobSpd + si * 0.5 * 0.65), this.element ? this.elementColors.accent : '#f6f', this.contactDmg, 'enemy');
-              p.bouncy = true;
-              p.gravScale = 0.42;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const gvx = dir * Math.cos(highAngle) * lobSpd + sSpread;
+              const gvy = Math.sin(highAngle) * (lobSpd + si * 0.5 * 0.65);
+              const col = this.element ? this.elementColors.accent : '#f6f';
+              game.grenades.push(new Grenade(cx + dir * 6, cy - 4, gvx, gvy, col, this.contactDmg, 'enemy', {
+                element: this.element, gravScale: 0.42, fuseTimer: 85 + randInt(0, 20), bouncesLeft: 3
+              }));
             }
           }
+        }
+        break;
+      }
+      case 'charger': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
+        this.vx = this.facing * speed * 1.85 * windResist;
+        this.chargeJumpTimer--;
+        const cDist = Math.abs(px - cx);
+        const cFacingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
+        if (!playerStealthed && cFacingPlayer && cDist < 260 && Math.abs(py - cy) < 100 && this.chargeJumpTimer <= 0 && this.vy >= 0 && this.vy < 1) {
+          this.vy = -8.5;
+          this.vx = this.facing * speed * 2.8;
+          this.chargeJumpTimer = randInt(65, 110);
+          game.effects.push(new TextEffect(cx, this.y - 8, 'CHARGE', '#fb6'));
         }
         break;
       }
@@ -989,9 +1124,8 @@ class Enemy {
           const adx = px - cx, ady = py - cy;
           const ad = Math.sqrt(adx * adx + ady * ady);
           if (ad < 500 && ad > 0) {
-            const p = new Projectile(cx, cy, (adx / ad) * 4, (ady / ad) * 4, this.element ? this.elementColors.accent : '#fa4', this.contactDmg, 'enemy');
-            if (this.element) p.element = this.element;
-            game.projectiles.push(p);
+            const col = this.element ? this.elementColors.accent : '#fa4';
+            game.hitLines.push(new HitLine(cx, cy, (adx / ad) * 4, (ady / ad) * 4, col, this.contactDmg, 'enemy', { element: this.element }));
           }
         }
         break;
@@ -1117,10 +1251,10 @@ class Enemy {
     // Contact damage
     if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
       const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
-      const isCharging = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
+      const isCharging = ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') || this.type === 'charger';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
-      const spikyMul = this.element === 'spiky' ? 1.5 : 1;
+      const spikyMul = this._spikySpikesActive() ? 1.5 : 1;
       if (game.player.invincibleTimer <= 0) {
         game.player.vx = kbDir * kbStr;
         game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
@@ -1140,10 +1274,20 @@ class Enemy {
   takeDamage(amount, game, fromX, attackElement, sourceType) {
     if (this.dead) return false;
     if (this.friendly) return false;
+    this._syncElementState();
+    if (this.element === 'wind' && this.windPhaseTimer > 0) {
+      this.flashTimer = 3;
+      if (game) {
+        game.effects.push(new TextEffect(this.x + this.w / 2 - 14, this.y - 10, 'PHASED', '#bfb'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 8, 2, 10));
+      }
+      return false;
+    }
     // Ghost: immune to blade & shuriken (only abilities/elemental can hurt)
     // Exception: sword hits on a shielded/protector can still chip the physical shield
     const hasActiveShield = (this.type === 'shielded' || this.type === 'protector') && this.shieldHp > 0;
     const rawAmount = amount;
+    let suppressKnockback = false;
     if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken') && !hasActiveShield) {
       this.flashTimer = 4;
       if (this.resistTimer <= 0) {
@@ -1154,7 +1298,7 @@ class Enemy {
       return false;
     }
     // Spiky: reflect sword damage back to player
-    if (this.element === 'spiky' && sourceType === 'sword' && game && game.player) {
+    if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
       game.player.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
@@ -1295,6 +1439,37 @@ class Enemy {
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'JUGGLE', '#ff8'));
     }
 
+    if ((this.element === 'spiky' || this.element === 'steel') && this.elementArmor > 0) {
+      const armorBefore = this.elementArmor;
+      const blocked = Math.min(amount, armorBefore);
+      this.elementArmor -= blocked;
+      amount -= blocked;
+      suppressKnockback = true;
+      const armorColor = this.element === 'steel' ? '#d8e0e8' : '#f86';
+      if (game) {
+        game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 18, 'ARMOR ' + this.elementArmor, armorColor));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, armorColor, 8, 2, 10));
+      }
+      if (this.elementArmor <= 0) {
+        const brokenElement = this.element;
+        this.elementArmor = 0;
+        this.elementArmorMax = 0;
+        this.elementBroken = true;
+        this.element = null;
+        this.elementColors = null;
+        this.color = this.baseColor;
+        if (game) {
+          game.effects.push(new TextEffect(this.x + this.w / 2 - 24, this.y - 30, 'ARMOR BREAK', armorColor));
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 12, 4, 14));
+        }
+        if (brokenElement === 'spiky') this.resistTimer = Math.max(this.resistTimer, 8);
+      }
+      if (amount <= 0) {
+        this.flashTimer = 4;
+        return true;
+      }
+    }
+
     // ── Boss Summon Orb charge: damage dealt fills the meter ──
     if (game && !game.bossActive) {
       const waveDef = WAVE_DEFS[game.currentWaveDefIdx] || WAVE_DEFS[0];
@@ -1323,11 +1498,13 @@ class Enemy {
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     // Weight system: heavier enemies resist knockback more
-    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
+    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
     const isBoss = this instanceof Boss;
     let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
-    if (sourceType === 'sword' || sourceType === 'boulder') {
+    if (suppressKnockback) {
+      this.knockbackTimer = Math.max(this.knockbackTimer, 4);
+    } else if (sourceType === 'sword' || sourceType === 'boulder') {
       // Sword/boulder hits: heavy knockback scaled inversely by weight
       const swordKB = 14 / weight;
       this.vx = dir * swordKB;
@@ -1339,7 +1516,7 @@ class Enemy {
         this.flyerDashTimer = 0;
       }
     } else {
-      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
+      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
       let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
       this.vx = dir * kb;
       this.knockbackTimer = Math.max(this.knockbackTimer, 6);
@@ -1537,10 +1714,11 @@ class Enemy {
     const r = Math.random();
     const ox = this.x + this.w / 2 - 5;
     if (this.big || this instanceof Boss) {
+      game.orbs.push(new Orb(ox, this.y, 'ultcharge'));
       // Upgrade orb — always (tiered upgrade pool)
       const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','ultcharge'];
       const upType = upgradePool[Math.floor(Math.random() * upgradePool.length)];
-      game.orbs.push(new Orb(ox, this.y, upType));
+      if (false) game.orbs.push(new Orb(ox, this.y, upType));
     } else {
       if (r < 0.65) {                                        // T1: heal 65%
         game.orbs.push(new Orb(ox, this.y, 'heal'));
@@ -1578,6 +1756,7 @@ class Enemy {
   }
 
   render(ctx, cam, game) {
+    this._syncElementState();
     // Charge dash trails
     if (this.chargeTrails && this.chargeTrails.length) {
       const trailColor = this.type === 'protector' ? '#4f8' : (this.type === 'flyer' || this.type === 'flyshooter') ? '#8c8' : this.type === 'attacker' ? '#f88' : '#5ff';
@@ -1674,9 +1853,13 @@ class Enemy {
       ctx.fill();
     } else {
       // Ghost: transparent body
+      const windPhasing = this.element === 'wind' && this.windPhaseTimer > 0;
       if (this.element === 'ghost') {
         ctx.save();
         ctx.globalAlpha = 0.35 + 0.1 * Math.sin((game ? game.tick : 0) * 0.08);
+      } else if (windPhasing) {
+        ctx.save();
+        ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
       }
       ctx.fillStyle = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
       ctx.fillRect(sx, sy, this.w, this.h);
@@ -1685,7 +1868,7 @@ class Enemy {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
       ctx.restore();
-      if (this.element === 'ghost') ctx.restore();
+      if (this.element === 'ghost' || windPhasing) ctx.restore();
     }
 
     // Soak drip particles
@@ -1693,11 +1876,74 @@ class Enemy {
       game.effects.push(new Effect(this.x + Math.random() * this.w, this.y + this.h, '#48f', 3, 1, 8));
     }
 
+    if (this.elementArmorMax > 0 && this.elementArmor > 0) {
+      const armorColor = this.element === 'steel' ? '#d8e0e8' : '#f86';
+      const pct = this.elementArmor / this.elementArmorMax;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(sx, sy - 10, this.w, 4);
+      ctx.fillStyle = armorColor;
+      ctx.fillRect(sx, sy - 10, this.w * pct, 4);
+      ctx.strokeStyle = armorColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx, sy - 10, this.w, 4);
+      ctx.restore();
+    }
+
+    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
+      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
+      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+      const pulse = 0.35 + 0.35 * Math.sin((game ? game.tick : 0) * 0.35);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = warnColor;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = warnColor;
+      ctx.shadowBlur = 14 + pulse * 12;
+      ctx.strokeRect(sx - 5, sy - 5, this.w + 10, this.h + 10);
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = warnColor;
+      ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 16);
+      ctx.restore();
+    }
+
+    if (this.element === 'wind' && this.windPhaseTimer > 0) {
+      ctx.save();
+      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
+      ctx.globalAlpha = 0.25 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
+      ctx.strokeStyle = '#bfb';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.setLineDash([]);
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = '#bfb';
+      ctx.fillText('PHASE', sx + this.w / 2 - 14, sy - 14);
+      ctx.fillRect(sx, sy - 6, this.w * phase, 2);
+      ctx.restore();
+    }
+
+    if (this._spikySpikesActive()) {
+      ctx.save();
+      const phase = this.spikySpikeTimer / (this.big ? 95 : 70);
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = '#f86';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#f64';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = '#f86';
+      ctx.fillText('SPIKES', sx + this.w / 2 - 17, sy - 14);
+      ctx.fillRect(sx, sy - 6, this.w * phase, 2);
+      ctx.restore();
+    }
+
     // Elemental aura
     if (this.element && this.elementColors) {
       const tick = game ? game.tick : 0;
 
-      if (this.element === 'spiky') {
+      if (this._spikySpikesActive()) {
         // Spiky: thorns protruding from body
         ctx.save();
         ctx.fillStyle = this.elementColors.accent;
@@ -2315,6 +2561,10 @@ class Boss extends Enemy {
 
   update(game) {
     if (this.dead) return;
+    this._syncElementState();
+    this._updateWindPhase(game);
+    this._updateSpikySpikes(game);
+    this._tryLightningTeleport(game);
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.contactTick > 0) this.contactTick--;
     if (this.flashTimer > 0) this.flashTimer--;
@@ -2649,7 +2899,7 @@ class Boss extends Enemy {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
               if (this.bossType === 'bouncer') {
-                // Bouncer boss (flying): high-arc mortar with big bouncy projectiles
+                // Bouncer boss (flying): grenades
                 const bDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
                 const shots = this.phase === 2 ? 3 : 2;
                 for (let si = 0; si < shots; si++) {
@@ -2659,36 +2909,31 @@ class Boss extends Enemy {
                   const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
                   const bvx = dir * Math.cos(highAngle) * lobSpd + spread * 0.65;
                   const bvy = Math.sin(highAngle) * lobSpd;
-                  const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
-                  p.bouncy = true;
-                  p.gravScale = 0.42;
-                  p.w = 8; p.h = 8;
-                  p.bouncesLeft = this.phase === 2 ? 5 : 3;
-                  p.life = 200;
-                  if (this.element) p.element = this.element;
-                  game.projectiles.push(p);
+                  const col = this.element ? this.elementColors.accent : '#f6f';
+                  game.grenades.push(new Grenade(cx + dir * 8, cy - 6, bvx, bvy, col, bDmg, 'boss', {
+                    element: this.element, gravScale: 0.42, fuseTimer: 90 + randInt(0, 20),
+                    bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 75
+                  }));
                 }
               } else if (this.bossType === 'shooter') {
-                // Shooter boss: bullet spread
+                // Shooter boss (flying): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
                 const count = this.phase === 2 ? 5 : 3;
                 const arc = this.phase === 2 ? 0.5 : 0.35;
-                for (let si = 0; si < count; si++) {
-                  const angle = (si - (count - 1) / 2) * (arc / (count - 1));
-                  const cos = Math.cos(angle), sin = Math.sin(angle);
-                  const bvx = (dx / d) * 5, bvy = (dy / d) * 5;
-                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f44', sDmg, 'boss');
-                  if (this.element) p.element = this.element;
-                  game.projectiles.push(p);
-                }
+                const col = this.element ? this.elementColors.accent : '#f44';
+                game.hitLines.push(new HitLine(cx, cy, (dx / d) * 5, (dy / d) * 5, col, sDmg, 'boss', {
+                  element: this.element, count, arc, maxTimer: 35
+                }));
               } else {
-                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss');
-                if (this.element) p.element = this.element;
-                game.projectiles.push(p);
+                // flyshooter boss (flying): three-line hitline
+                const col = this.element ? this.elementColors.accent : '#f44';
+                game.hitLines.push(new HitLine(cx, cy, (dx / d) * 5, (dy / d) * 5, col, Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss', {
+                  element: this.element, count: 3, arc: 0.42, maxTimer: 35
+                }));
               }
             }
           }
-          if (this.stateTimer > 60) {
+          if (this.stateTimer > 80) {
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
           break;
@@ -2946,7 +3191,7 @@ class Boss extends Enemy {
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d > 0) {
               if (this.bossType === 'bouncer') {
-                // Bouncer boss (ground): high-arc mortar with big bouncy projectiles
+                // Bouncer boss (ground): grenades
                 const bDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
                 const shots = this.phase === 2 ? 3 : 2;
                 for (let si = 0; si < shots; si++) {
@@ -2956,36 +3201,31 @@ class Boss extends Enemy {
                   const highAngle = -Math.PI * 0.38 - Math.random() * 0.1;
                   const bvx = dir * Math.cos(highAngle) * lobSpd + spread * 0.65;
                   const bvy = Math.sin(highAngle) * lobSpd;
-                  const p = new Projectile(cx + dir * 8, cy - 6, bvx, bvy, this.element ? this.elementColors.accent : '#f6f', bDmg, 'boss');
-                  p.bouncy = true;
-                  p.gravScale = 0.42;
-                  p.w = 8; p.h = 8;
-                  p.bouncesLeft = this.phase === 2 ? 5 : 3;
-                  p.life = 200;
-                  if (this.element) p.element = this.element;
-                  game.projectiles.push(p);
+                  const col = this.element ? this.elementColors.accent : '#f6f';
+                  game.grenades.push(new Grenade(cx + dir * 8, cy - 6, bvx, bvy, col, bDmg, 'boss', {
+                    element: this.element, gravScale: 0.42, fuseTimer: 90 + randInt(0, 20),
+                    bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 80
+                  }));
                 }
               } else if (this.bossType === 'shooter') {
-                // Shooter boss: bullet spread
+                // Shooter boss (ground): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
                 const count = this.phase === 2 ? 5 : 3;
                 const arc = this.phase === 2 ? 0.5 : 0.35;
-                for (let si = 0; si < count; si++) {
-                  const angle = (si - (count - 1) / 2) * (arc / (count - 1));
-                  const cos = Math.cos(angle), sin = Math.sin(angle);
-                  const bvx = (dx / d) * 5, bvy = (dy / d) * 5;
-                  const p = new Projectile(cx, cy, bvx * cos - bvy * sin, bvx * sin + bvy * cos, this.element ? this.elementColors.accent : '#f44', sDmg, 'boss');
-                  if (this.element) p.element = this.element;
-                  game.projectiles.push(p);
-                }
+                const col = this.element ? this.elementColors.accent : '#f44';
+                game.hitLines.push(new HitLine(cx, cy, (dx / d) * 5, (dy / d) * 5, col, sDmg, 'boss', {
+                  element: this.element, count, arc, maxTimer: 35
+                }));
               } else {
-                const p = new Projectile(cx, cy, (dx / d) * 5, (dy / d) * 5, this.element ? this.elementColors.accent : '#f44', Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss');
-                if (this.element) p.element = this.element;
-                game.projectiles.push(p);
+                // flyshooter boss (ground): three-line hitline
+                const col = this.element ? this.elementColors.accent : '#f44';
+                game.hitLines.push(new HitLine(cx, cy, (dx / d) * 5, (dy / d) * 5, col, Math.max(1, Math.round(this._bossEhp / 4 + this._bossArm)), 'boss', {
+                  element: this.element, count: 3, arc: 0.42, maxTimer: 35
+                }));
               }
             }
           }
-          if (this.stateTimer > 65) {
+          if (this.stateTimer > 85) {
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
           break;
@@ -3123,6 +3363,13 @@ class Boss extends Enemy {
   takeDamage(amount, game, fromX, attackElement, sourceType) {
     if (this.dead) return false;
     if (this.friendly) return false;
+    this._syncElementState();
+    if (this.element === 'wind' && this.windPhaseTimer > 0) {
+      this.flashTimer = 3;
+      game.effects.push(new TextEffect(this.x + this.w / 2 - 14, this.y - 10, 'PHASED', '#bfb'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 10, 2, 10));
+      return false;
+    }
     // Ghost: immune to blade & shuriken
     if (this.element === 'ghost' && (sourceType === 'sword' || sourceType === 'shuriken')) {
       this.flashTimer = 4;
@@ -3131,7 +3378,7 @@ class Boss extends Enemy {
       return false;
     }
     // Spiky: reflect sword damage back to player
-    if (this.element === 'spiky' && sourceType === 'sword' && game && game.player) {
+    if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
       game.player.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
@@ -3241,6 +3488,7 @@ class Boss extends Enemy {
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 20, 5, 25));
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
+    /*
     // Auto-grant boss item (shown in bucket choice menu)
     const allItemIds = Object.keys(BOSS_ITEMS);
     const pl = game.player;
@@ -3254,6 +3502,8 @@ class Boss extends Enemy {
     } else {
       game.bossRewardItem = null;
     }
+    */
+    game.bossRewardItem = null;
   }
 
   render(ctx, cam, game) {
@@ -3301,10 +3551,16 @@ class Boss extends Enemy {
 
     const bodyColor = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : (this.phase === 2 ? '#d11' : this.color));
 
+    const windPhasing = this.element === 'wind' && this.windPhaseTimer > 0;
+
     // Ghost boss: transparent body
     if (this.element === 'ghost') {
       ctx.save();
       ctx.globalAlpha = 0.35 + 0.1 * Math.sin((game ? game.tick : 0) * 0.08);
+    }
+    if (windPhasing) {
+      ctx.save();
+      ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
     }
 
     // --- Type-specific body rendering ---
@@ -3733,6 +3989,7 @@ class Boss extends Enemy {
 
     // Restore ghost transparency
     if (this.element === 'ghost') ctx.restore();
+    if (windPhasing) ctx.restore();
 
     // Soak drip particles
     if (this.soakTimer > 0 && Math.random() < 0.15) {
@@ -3768,6 +4025,49 @@ class Boss extends Enemy {
         ctx.closePath();
         ctx.fill();
       }
+    }
+
+    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
+      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
+      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+      const pulse = 0.35 + 0.25 * Math.sin((game ? game.tick : 0) * 0.35);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = warnColor;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(sx - 8, sy - 8, this.w + 16, this.h + 16);
+      ctx.restore();
+      ctx.fillStyle = warnColor;
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 42);
+    }
+
+    if (this.element === 'wind' && this.windPhaseTimer > 0) {
+      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
+      ctx.save();
+      ctx.globalAlpha = 0.3 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
+      ctx.strokeStyle = '#bfb';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx - 5, sy - 5, this.w + 10, this.h + 10);
+      ctx.restore();
+      ctx.fillStyle = '#143';
+      ctx.fillRect(sx, sy - 32, this.w, 4);
+      ctx.fillStyle = '#bfb';
+      ctx.fillRect(sx, sy - 32, this.w * Math.max(0, phase), 4);
+    }
+
+    if (this._spikySpikesActive()) {
+      const phase = this.spikySpikeTimer / (this.big ? 95 : 70);
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = '#f86';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx - 7, sy - 7, this.w + 14, this.h + 14);
+      ctx.restore();
+      ctx.fillStyle = '#411';
+      ctx.fillRect(sx, sy - 32, this.w, 4);
+      ctx.fillStyle = '#f86';
+      ctx.fillRect(sx, sy - 32, this.w * Math.max(0, phase), 4);
     }
 
     if (this.phase === 2) {

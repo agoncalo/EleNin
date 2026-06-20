@@ -816,3 +816,338 @@ class Projectile {
     ctx.globalAlpha = 1;
   }
 }
+
+// ── HitLine — telegraph laser; the scanline IS the hurtbox ───
+class HitLine {
+  constructor(x, y, vx, vy, color, damage, owner, opts) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.color = color;
+    this.damage = damage;
+    this.owner = owner;
+    opts = opts || {};
+    this.element = opts.element || null;
+    this.maxTimer = opts.maxTimer || 50;
+    this.timer = 0;
+    this.done = false;
+    // Spread support: multiple rays fanned around base direction
+    this.count = opts.count || 1;
+    this.arc = opts.arc || 0.35;
+    // Flash frames after firing before going away
+    this.flashDur = 12;
+    this.fired = false;
+  }
+  update(game) {
+    if (this.fired) {
+      this.timer++;
+      if (this.timer >= this.flashDur) this.done = true;
+      return;
+    }
+    this.timer++;
+    if (this.timer >= this.maxTimer) {
+      this._fire(game);
+    }
+  }
+  // Returns the unit direction angle(s) for each ray
+  _angles() {
+    const base = Math.atan2(this.vy, this.vx);
+    const out = [];
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
+      const off = n > 1 ? (i - (n - 1) / 2) * (this.arc / Math.max(n - 1, 1)) : 0;
+      out.push(base + off);
+    }
+    return out;
+  }
+  _fire(game) {
+    this.fired = true;
+    this.hitPlayer = false;
+    this.timer = 0; // reuse timer for flash countdown
+    const angles = this._angles();
+    const pl = game.player;
+    if (pl.invincibleTimer <= 0) {
+      const pcx = pl.x + pl.w / 2;
+      const pcy = pl.y + pl.h / 2;
+      const threshold = Math.max(pl.w, pl.h) / 2 + 5;
+      for (const a of angles) {
+        const dirX = Math.cos(a), dirY = Math.sin(a);
+        const tDot = (pcx - this.x) * dirX + (pcy - this.y) * dirY;
+        if (tDot >= 0) {
+          const closestX = this.x + dirX * tDot;
+          const closestY = this.y + dirY * tDot;
+          const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
+          if (dist < threshold) {
+            pl.takeDamage(this.damage, game, this.element || null,
+              { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
+            this.hitPlayer = true;
+            // Extra impact on top of normal takeDamage feedback
+            triggerHitstop(10);
+            triggerScreenShake(7, 14);
+            game.effects.push(new ScreenFlash(this.color, 0.38, 16));
+            // Burst of particles at player position
+            game.effects.push(new Effect(pcx, pcy, this.color, 14, 5, 16));
+            game.effects.push(new Effect(pcx, pcy, '#fff', 6, 3, 10));
+            break; // only hit once even with spread
+          }
+        }
+      }
+    }
+    // Miss feedback: origin burst + light shake so the player reads the timing
+    if (!this.hitPlayer) {
+      triggerHitstop(3);
+      triggerScreenShake(3, 8);
+      game.effects.push(new Effect(this.x, this.y, this.color, 8, 4, 12));
+      game.effects.push(new Effect(this.x, this.y, '#fff', 3, 2, 8));
+    }
+  }
+  render(ctx, cam) {
+    const angles = this._angles();
+    const sx = this.x - cam.x, sy = this.y - cam.y;
+    const lineLen = 700;
+
+    if (this.fired) {
+      // Brief solid flash on fire — thicker and longer if it hit
+      const fade = 1 - this.timer / this.flashDur;
+      ctx.save();
+      if (this.hitPlayer) {
+        // Two-pass: wide white core + colored halo
+        ctx.globalAlpha = fade * 0.7;
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 10;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 40;
+        for (const a of angles) {
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(a) * lineLen, sy + Math.sin(a) * lineLen);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = fade * 0.95;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 4;
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.globalAlpha = fade * 0.9;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 4;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 24;
+      }
+      for (const a of angles) {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(a) * lineLen, sy + Math.sin(a) * lineLen);
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return;
+    }
+
+    const t = this.timer / this.maxTimer; // 0..1
+    // Build-up: dashed → solid, thin → thick, faint → bright
+    const alpha = t < 0.6 ? (t / 0.6) * 0.55 : 0.55 + (t - 0.6) / 0.4 * 0.45;
+    const lw = t < 0.7 ? 1 + t * 2 : 3 + (t - 0.7) / 0.3 * 2;
+    const dashLen = Math.max(2, 12 - t * 10);
+    const gapLen = Math.max(1, 8 - t * 7);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = lw;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 6 + t * 14;
+    ctx.setLineDash([dashLen, gapLen]);
+    for (const a of angles) {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + Math.cos(a) * lineLen, sy + Math.sin(a) * lineLen);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Origin flash in final frames
+    if (t > 0.75) {
+      const fAlpha = (t - 0.75) / 0.25;
+      ctx.globalAlpha = fAlpha * 0.85;
+      ctx.fillStyle = this.color;
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5 + fAlpha * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── Grenade — lobbed explosive thrown by bouncers ─────────────
+class Grenade {
+  constructor(x, y, vx, vy, color, damage, owner, opts) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.w = 10; this.h = 10;
+    this.color = color;
+    this.damage = damage;
+    this.owner = owner;
+    opts = opts || {};
+    this.element = opts.element || null;
+    this.gravScale = opts.gravScale !== undefined ? opts.gravScale : 0.55;
+    this.fuseTimer = opts.fuseTimer !== undefined ? opts.fuseTimer : 90;
+    this.maxFuse = this.fuseTimer;
+    this.explodeRadius = opts.explodeRadius || 65;
+    this.bouncesLeft = opts.bouncesLeft !== undefined ? opts.bouncesLeft : 3;
+    this.done = false;
+    this.angle = 0;
+    this.spin = (Math.random() < 0.5 ? 1 : -1) * (0.06 + Math.random() * 0.08);
+    this.resting = false; // fuse only ticks when resting
+  }
+  update(game) {
+    // Fuse only counts down once the grenade has come to rest
+    if (this.resting) {
+      this.fuseTimer--;
+      if (this.fuseTimer <= 0) {
+        this._explode(game);
+        return;
+      }
+    }
+
+    this.vy += GRAVITY * this.gravScale;
+    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    this.x += this.vx;
+    this.y += this.vy;
+    if (!this.resting) this.angle += this.spin;
+
+    // Platform bounce / land
+    for (const p of game.platforms) {
+      if (rectOverlap(this, p)) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          if (this.bouncesLeft > 0) {
+            this.vy *= -0.5;
+            this.vx *= 0.8;
+            this.bouncesLeft--;
+            game.effects.push(new Effect(
+              this.x + this.w / 2, this.y + this.h,
+              this.color, 4, 1.5, 6
+            ));
+          } else {
+            // No bounces left — come to rest and start fuse
+            this.vy = 0;
+            this.vx = 0;
+            this.resting = true;
+          }
+        }
+      }
+    }
+
+    // Slide to a stop on ground
+    if (this.resting) {
+      this.vx *= 0.85;
+      if (Math.abs(this.vx) < 0.1) this.vx = 0;
+    }
+
+    // Cull if far off-screen
+    if (this.x < game.camera.x - 300 || this.x > game.camera.x + CANVAS_W + 300 ||
+        this.y > game.camera.y + CANVAS_H + 300) {
+      this.done = true;
+    }
+  }
+  _explode(game) {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const r = this.explodeRadius;
+
+    if (this.owner === 'enemy' || this.owner === 'boss') {
+      // Damage player
+      const pl = game.player;
+      const pdx = pl.x + pl.w / 2 - cx;
+      const pdy = pl.y + pl.h / 2 - cy;
+      if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
+        if (pl.invincibleTimer <= 0) {
+          pl.takeDamage(this.damage, game, this.element || null,
+            { type: 'bouncer', element: this.element, isBoss: (this.owner === 'boss') });
+        }
+      }
+    } else {
+      // Damage enemies
+      const dmgEnemy = (e) => {
+        const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+        if (Math.sqrt((ex - cx) ** 2 + (ey - cy) ** 2) <= r) e.takeDamage(this.damage, game, cx);
+      };
+      for (const e of game.enemies) if (!e.dead) dmgEnemy(e);
+      if (game.boss && !game.boss.dead) dmgEnemy(game.boss);
+    }
+
+    // Explosion VFX
+    game.effects.push(new Effect(cx, cy, this.color, 30, 9, 22));
+    game.effects.push(new Effect(cx, cy, '#fff', 18, 6, 14));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      game.effects.push(new Effect(
+        cx + Math.cos(a) * r * 0.45,
+        cy + Math.sin(a) * r * 0.45,
+        this.color, 12, 3, 12
+      ));
+    }
+    if (typeof triggerHitstop === 'function') triggerHitstop(5);
+    this.done = true;
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x, sy = this.y - cam.y;
+    const cx2 = sx + this.w / 2, cy2 = sy + this.h / 2;
+    const fuse = this.fuseTimer;
+    // Flickering only applies once fuse is actually counting down
+    const flickering = this.resting && fuse < 22 && (Math.floor(fuse / 3) % 2 === 0);
+
+    ctx.save();
+    ctx.translate(cx2, cy2);
+    ctx.rotate(this.angle);
+
+    // Body
+    ctx.globalAlpha = flickering ? 0.45 : 0.92;
+    ctx.fillStyle = this.color;
+    ctx.shadowColor = flickering ? '#ff0' : this.color;
+    ctx.shadowBlur = flickering ? 18 : 5;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.w / 2 + 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dark equator band
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-(this.w / 2 + 1), 0);
+    ctx.lineTo(this.w / 2 + 1, 0);
+    ctx.stroke();
+
+    // Pin/cap
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = '#bbb';
+    ctx.fillRect(-2, -(this.h / 2 + 3), 4, 4);
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // Fuse arc (shows only once resting, when < half fuse left)
+    if (this.resting && fuse < this.maxFuse * 0.55) {
+      const t = 1 - fuse / (this.maxFuse * 0.55);
+      ctx.save();
+      ctx.globalAlpha = 0.55 * t;
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff0';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(cx2, cy2, this.w / 2 + 6, -Math.PI / 2, -Math.PI / 2 + t * Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+}

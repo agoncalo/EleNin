@@ -123,6 +123,47 @@ class SubstitutionLog {
 }
 
 // ── Smoke Grenade (shadow ninja) ─────────────────────────────
+class TeleportTrace {
+  constructor(x1, y1, x2, y2, color) {
+    this.x1 = x1; this.y1 = y1;
+    this.x2 = x2; this.y2 = y2;
+    this.color = color || '#ff8';
+    this.life = 24;
+    this.maxLife = 24;
+    this.done = false;
+  }
+  update() {
+    this.life--;
+    if (this.life <= 0) this.done = true;
+  }
+  render(ctx, cam) {
+    const t = this.life / this.maxLife;
+    const x1 = this.x1 - cam.x, y1 = this.y1 - cam.y;
+    const x2 = this.x2 - cam.x, y2 = this.y2 - cam.y;
+    ctx.save();
+    ctx.globalAlpha = t;
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 2 + (1 - t) * 3;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 18;
+    ctx.setLineDash([8, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x1, y1, 3 + (1 - t) * 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(x2, y2, 5 + (1 - t) * 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 class SmokeGrenade {
   constructor(x, y, platforms) {
     this.x = x; this.y = y;
@@ -271,6 +312,32 @@ class Effect {
       ctx.fillRect(p.x - cam.x, p.y - cam.y, p.size, p.size);
     }
     ctx.globalAlpha = 1;
+  }
+}
+
+// ── ScreenFlash — full-screen color overlay (screen-space) ──
+class ScreenFlash {
+  constructor(color, maxAlpha, duration) {
+    this.color = color;
+    this.maxAlpha = maxAlpha || 0.55;
+    this.life = duration || 14;
+    this.maxLife = this.life;
+    this.done = false;
+  }
+  update() {
+    this.life--;
+    if (this.life <= 0) this.done = true;
+  }
+  render(ctx /*, cam unused — screen space */) {
+    const t = this.life / this.maxLife;
+    // Sharp spike at start, quick fade
+    const alpha = t < 0.3 ? this.maxAlpha : this.maxAlpha * ((t - 0.3) / 0.7);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }
 
@@ -456,7 +523,7 @@ class Orb {
     this.x = x; this.y = y;
     this.type = type;
     // Size by rarity: T1=common, T2=uncommon, T3=mid, T4=rare
-    const tierRadius = { heal: 6, maxhp: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9 };
+    const tierRadius = { heal: 6, maxhp: 7, ultcharge: 7, damage: 8, elDmg: 8, speed: 8, reach: 8, armor: 9, element: 9, bubbleshield: 8 };
     this.radius = tierRadius[type] || 5;
     this.w = this.radius * 2; this.h = this.radius * 2;
     this.vy = -3;
@@ -472,8 +539,8 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
-    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL' };
-    const _bonusColor = { heal: '#f44', maxhp: '#4f4', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f' };
+    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL', bubbleshield: 'SHIELD' };
+    const _bonusColor = { heal: '#f44', maxhp: '#4f4', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f', bubbleshield: '#4af' };
 
     // Attraction to player if nearby
     const pl = game.player;
@@ -487,7 +554,8 @@ class Orb {
 
     // Skip attraction and pickup if player is already full of this resource
     const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
-                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive));
+                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive)) ||
+                 (this.type === 'bubbleshield' && pl.bubbleShieldTimer > 0);
     if (full) return;
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
@@ -513,6 +581,7 @@ class Orb {
             case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50 * _m); game.effects.push(new Effect(ox, oy, '#ff0', 8, 3, 12)); break;
             case 'armor': pl.bonusArmor += 1 * _m; game.effects.push(new Effect(ox, oy, '#88f', 8, 3, 12)); break;
             case 'element': pl.bonusMana += 1 * _m; pl.maxMana += 1 * _m; pl.mana = pl.maxMana; pl.specialCooldown = 0; game.effects.push(new Effect(ox, oy, '#f0f', 8, 3, 12)); break;
+            case 'bubbleshield': pl.bubbleShieldTimer = pl.bubbleShieldMax; game.effects.push(new Effect(ox, oy, '#4af', 18, 5, 18)); break;
           }
           if (_bonusLabel[this.type]) game.effects.push(new TextEffect(ox, oy - 15, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
           return;
@@ -585,6 +654,11 @@ class Orb {
           pl.mana = pl.maxMana;
           pl.specialCooldown = 0;
           game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#f0f', 8, 3, 12));
+          break;
+        case 'bubbleshield':
+          pl.bubbleShieldTimer = pl.bubbleShieldMax;
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#4af', 18, 5, 18));
+          game.effects.push(new Effect(pl.x + pl.w/2, pl.y + pl.h/2, '#fff', 8, 3, 12));
           break;
       }
       if (_bonusLabel[this.type]) game.effects.push(new TextEffect(pl.x + pl.w/2, pl.y - 10, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
@@ -659,6 +733,11 @@ class Orb {
             pl.specialCooldown = 0;
             game.effects.push(new Effect(cx, cy, '#f0f', 8, 3, 12));
             break;
+          case 'bubbleshield':
+            pl.bubbleShieldTimer = pl.bubbleShieldMax;
+            game.effects.push(new Effect(cx, cy, '#4af', 18, 5, 18));
+            game.effects.push(new Effect(cx, cy, '#fff', 8, 3, 12));
+            break;
         }
         if (_bonusLabel[this.type]) game.effects.push(new TextEffect(cx, cy - 15, '+' + _bonusLabel[this.type], _bonusColor[this.type]));
       }
@@ -670,7 +749,7 @@ class Orb {
     const sy = this.y - cam.y;
     const flash = this.life < 90 && Math.floor(this.life / 6) % 2;
     if (flash) return;
-    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f' };
+    const colors = { heal: '#f44', maxhp: '#4f4', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', ultcharge: '#ff0', armor: '#88f', element: '#f0f', bubbleshield: '#4af' };
     const r = this.radius;
     const cx = sx + r;
     const cy = sy + r;
