@@ -13,8 +13,10 @@ class AllyNinja {
     this.friendly = true;
     this.isAllyNinja = true;
     this.grounded = false;
+    this.onWall = 0;
     this.jumpsLeft = 2;
     this.maxJumps = 2;
+    this.wallJumpCooldown = 0;
     this.attackCooldown = 35 + slot * 8;
     this.specialCooldown = 110 + slot * 25;
     this.attackTimer = 0;
@@ -150,10 +152,21 @@ class AllyNinja {
   }
 
   _tryJump(game, target) {
-    if (this.jumpsLeft <= 0) return;
+    const canWallJump = this.onWall !== 0 && !this.grounded && this.wallJumpCooldown <= 0;
+    if (this.jumpsLeft <= 0 && !canWallJump) return;
     const needsHeight = target && (target.y + target.h / 2) < this.y - 26;
     const blockedAhead = this._blockedAhead(game);
     if (!needsHeight && !blockedAhead) return;
+    if (canWallJump) {
+      this.vy = this.type.jumpPower * 0.9;
+      this.vx = -this.onWall * 6;
+      this.facing = -this.onWall;
+      this.jumpsLeft = Math.max(this.jumpsLeft - 1, 1);
+      this.onWall = 0;
+      this.wallJumpCooldown = 18;
+      game.effects.push(new Effect(this._centerX(), this._centerY(), '#fff', 4, 2, 7));
+      return;
+    }
     this.vy = this.type.jumpPower * (this.grounded ? 1 : 0.84);
     this.grounded = false;
     this.jumpsLeft--;
@@ -184,6 +197,7 @@ class AllyNinja {
 
     const wasGrounded = this.grounded;
     this.grounded = false;
+    this.onWall = 0;
     for (const p of game.platforms) {
       if (!rectOverlap(this, p)) continue;
       if (p.thin) {
@@ -203,9 +217,11 @@ class AllyNinja {
       } else if (this.vx > 0 && this.x + this.w - this.vx <= p.x + 4) {
         this.x = p.x - this.w;
         this.vx = 0;
+        if (p.h > p.w) this.onWall = 1;
       } else if (this.vx < 0 && this.x - this.vx >= p.x + p.w - 4) {
         this.x = p.x + p.w;
         this.vx = 0;
+        if (p.h > p.w) this.onWall = -1;
       }
     }
 
@@ -219,14 +235,36 @@ class AllyNinja {
       } else if (this.vx > 0) {
         this.x = b.x - this.w;
         this.vx = 0;
+        this.onWall = 1;
       } else if (this.vx < 0) {
         this.x = b.x + b.w;
         this.vx = 0;
+        this.onWall = -1;
       }
     }
 
-    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); }
-    if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); }
+    if (this.onWall !== 0 && !this.grounded && this.vy > 0) {
+      this.vy = Math.min(this.vy, 2);
+      this.jumpsLeft = this.maxJumps;
+      if (game.tick % 8 === 0) {
+        game.effects.push(new Effect(
+          this.x + (this.onWall > 0 ? this.w : 0),
+          this.y + this.h / 2,
+          '#aaa', 2, 1, 6
+        ));
+      }
+    }
+
+    if (this.x < 0) {
+      this.x = 0;
+      this.vx = Math.abs(this.vx);
+      if (!this.grounded) this.onWall = -1;
+    }
+    if (this.x + this.w > game.levelW) {
+      this.x = game.levelW - this.w;
+      this.vx = -Math.abs(this.vx);
+      if (!this.grounded) this.onWall = 1;
+    }
     if (this.y > 820) {
       this.takeDamage(4, game, 'pit', { type: 'pit' });
       this.x = Math.max(40, Math.min(game.levelW - 80, game.player.x + 60 + this.slot * 36));
@@ -246,6 +284,7 @@ class AllyNinja {
     if (this.attackCooldown > 0) this.attackCooldown--;
     if (this.specialCooldown > 0) this.specialCooldown--;
     if (this.knockbackTimer > 0) this.knockbackTimer--;
+    if (this.wallJumpCooldown > 0) this.wallJumpCooldown--;
     this.displayHp = lerp(this.displayHp, this.hp, 0.16);
 
     const target = this._nearestTarget(game, 640);
@@ -260,7 +299,7 @@ class AllyNinja {
       } else {
         this.vx *= 0.78;
       }
-      if ((this.grounded || this.jumpsLeft > 0) && (Math.abs(dx) < 190 || this._blockedAhead(game))) {
+      if ((this.grounded || this.jumpsLeft > 0 || this.onWall !== 0) && (Math.abs(dx) < 190 || this._blockedAhead(game))) {
         this._tryJump(game, target);
       }
       if (this.attackCooldown <= 0 && Math.abs(dx) < 62 && Math.abs(dy) < 48) {
@@ -275,6 +314,9 @@ class AllyNinja {
       if (Math.abs(dx) > 80) {
         this.facing = dx > 0 ? 1 : -1;
         this.vx = this.facing * (this.type.speed * 0.55);
+        if ((this.grounded || this.jumpsLeft > 0 || this.onWall !== 0) && this._blockedAhead(game)) {
+          this._tryJump(game, null);
+        }
       } else {
         this.vx *= 0.82;
       }
