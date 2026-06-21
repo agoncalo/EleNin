@@ -15,6 +15,7 @@ class Game {
     this.camera = { x: 0, y: 0 };
     this.player = new Player(100, 300);
     this.platforms = [];
+    this.ropes = [];
     this.enemies = [];
     this.projectiles = [];
     this.hitLines = [];
@@ -33,7 +34,7 @@ class Game {
     this.flamePools = [];
     this.crystalCastle = null;
     this.deaths = 0;
-    this.lives = 3;
+    this.lives = 1;
     this.gameOver = false;
     this.cheated = false;
     this.levelType = 'open';
@@ -43,6 +44,7 @@ class Game {
     // Wave / spawn system
     this.wave = 1;
     this.waveKills = 0;
+    this.objectiveKills = 0;
     this.totalKills = 0;
     this.spawnedMiniboss = new Set();
     this.maxEnemies = 32;
@@ -72,6 +74,7 @@ class Game {
     this.mapScreen = null;         // { selected, recentUnlocks, completedRoomId, delay }
     this.currentRoomId = this.mapState.currentRoomId || MAP_START_ROOM_ID;
     this.roomCache = this.mapState.roomCache || {};
+    this._ensureItemRoomAssignments();
     this._enterMapRoom(this.currentRoomId, { keepPlayer: true });
 
     // Boss Summon Orb system
@@ -122,7 +125,7 @@ class Game {
 
     this.buildLevel();
     this._initObjective();
-    this.showWaveMessage('Round 1/' + TOTAL_WAVES + ' — Fight!');
+    this.showWaveMessage(this._objectiveStartMessage());
     // Start phrase (character-specific)
     const startPool = NINJA_START_PHRASES[this.player.ninjaType] || START_PHRASES;
     this.phraseText = pickPhrase(startPool);
@@ -133,8 +136,57 @@ class Game {
   }
 
   showWaveMessage(text) {
+    if (typeof text === 'string' && /^Round\b/.test(text) && text.includes('Fight')) {
+      text = this._objectiveStartMessage();
+    }
     this.waveMessage = text;
     this.waveMessageTimer = 180;
+  }
+
+  _objectiveStartMessage() {
+    const label = ((this.currentObjective && this.currentObjective.label) || 'Defeat Enemies').trim();
+    const progress = this._objectiveProgressText();
+    return (/^objective$/i.test(label) ? 'OBJECTIVE' : 'OBJECTIVE: ' + label) + progress;
+  }
+
+  _objectiveProgressText() {
+    if (!this.bossOrbsRequired || this.bossActive || (this.boss && !this.boss.dead)) return '';
+    const p = this._objectiveProgressInfo();
+    if (!p) return '';
+    return ' (' + p.current + '/' + p.target + (p.suffix || '') + ')';
+  }
+
+  _objectiveProgressRatio() {
+    const p = this._objectiveProgressInfo();
+    return p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
+  }
+
+  _objectiveProgressInfo() {
+    const obj = this.currentObjective || { type: 'kills' };
+    const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    if (obj.type === 'kills') {
+      const target = Math.max(1, waveDef.killsForBoss || 20);
+      return { current: Math.min(target, this.waveKills || 0), target, rawCurrent: this.waveKills || 0, rawTarget: target };
+    }
+    if (obj.type === 'hunt') {
+      const target = Math.max(1, Math.ceil((waveDef.killsForBoss || 24) * 0.45));
+      return { current: Math.min(target, this.objectiveKills || 0), target, rawCurrent: this.objectiveKills || 0, rawTarget: target };
+    }
+    if (obj.type === 'collect') {
+      const target = Math.max(1, this.bossOrbsRequired || 1);
+      return { current: Math.min(target, this.bossOrbsCollected || 0), target, rawCurrent: this.bossOrbsCollected || 0, rawTarget: target };
+    }
+    const secondsPerOrb = obj.type === 'survive' ? 30 : obj.type === 'zone' ? 25 : obj.type === 'defend' ? 20 : 30;
+    const targetFrames = Math.max(1, (this.bossOrbsRequired || 1) * secondsPerOrb * 60);
+    const currentFrames = (this.bossOrbsCollected || 0) * secondsPerOrb * 60
+      + Math.min(1, (this.bossOrbCharge || 0) / Math.max(1, this.bossOrbChargeMax || 1)) * secondsPerOrb * 60;
+    return {
+      current: Math.min(Math.ceil(targetFrames / 60), Math.floor(currentFrames / 60)),
+      target: Math.ceil(targetFrames / 60),
+      suffix: 's',
+      rawCurrent: currentFrames,
+      rawTarget: targetFrames
+    };
   }
 
   renderSpawnHouse(ctx, cam) {
@@ -204,35 +256,156 @@ class Game {
   buildLevel() {
     this.platforms = [];
     this.spikes = [];
+    this.ropes = [];
     this.levelHazards = [];
     this.weatherParticles = [];
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const bossType = waveDef ? waveDef.boss : 'walker';
     const theme = this.levelElement ? ELEMENT_LEVEL_THEMES[this.levelElement] : null;
 
-    // Level type based on boss type
-    if (this.currentMapType === 'cubicle') {
-      this.levelType = 'cubicle';
-    } else if (this.currentMapType === 'openArea') {
-      this.levelType = 'openArea';
-    } else if (bossType === 'flyer') {
-      this.levelType = 'tower';
-    } else if (bossType === 'flyshooter') {
-      this.levelType = 'open';
-    } else if (bossType === 'deflector' || bossType === 'attacker') {
-      this.levelType = 'arena';
-    } else if (bossType === 'shielded' || bossType === 'protector') {
-      this.levelType = 'narrow';
-    } else {
-      this.levelType = 'open';
-    }
+    this.levelType = this.currentMapType || 'normal';
     switch (this.levelType) {
-      case 'cubicle': this.buildCubicle(theme); break;
-      case 'openArea': this.buildOpenArea(theme); break;
-      case 'arena':  this.buildArena(theme);  break;
-      case 'tower':  this.buildTower();        break;
-      case 'narrow': this.buildNarrow(theme);  break;
-      default:       this.buildOpen(theme);    break;
+      case 'plain': this.buildPlainMap(theme); break;
+      case 'wall':  this.buildWallMap(theme);  break;
+      case 'lane':  this.buildLaneMap(theme);  break;
+      case 'normal':
+      default:      this.buildNormalMap(theme); break;
+    }
+  }
+
+  _layoutRng(salt) {
+    const text = (this.currentRoomId || MAP_START_ROOM_ID) + ':' + (this.currentMapType || this.levelType || 'normal') + ':' + salt;
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return () => {
+      h += 0x6D2B79F5;
+      let t = h;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  _hashText(text) {
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  _roomElementTypes(roomDef) {
+    if (!roomDef || !roomDef.element) return [];
+    const byArea = {
+      forest: ['wind', 'water'],
+      mountain: ['crystal', 'steel', 'water', 'wind'],
+      volcano: ['fire', 'spiky', 'steel', 'ghost'],
+      castle: ['steel', 'ghost', 'spiky', 'crystal'],
+      castleTop: ['ghost', 'steel', 'crystal', 'wind'],
+      skies: ['lightning', 'ghost', 'wind', 'crystal'],
+    };
+    const pool = (byArea[roomDef.area] || ENEMY_ELEMENTS).filter(el => el !== roomDef.element);
+    const elements = [roomDef.element];
+    if (pool.length && (this._hashText(roomDef.id + ':second-element') % 3) !== 0) {
+      elements.push(pool[this._hashText(roomDef.id + ':element-pick') % pool.length]);
+    }
+    return elements.slice(0, 2);
+  }
+
+  _procHelpers(theme, width, groundY) {
+    this.levelW = width;
+    this.levelH = 540;
+    const c1 = theme ? theme.groundColor : '#555';
+    const c2 = theme ? theme.platformColor : '#666';
+    const c3 = theme ? theme.platformColorAlt : '#777';
+    const P = (x, y, w, h, c) => this.platforms.push(new Platform(Math.round(x), Math.round(y), Math.round(w), Math.round(h), c));
+    const TP = (x, y, w) => {
+      const p = new Platform(Math.round(x), Math.round(y), Math.round(w), 6, c3 || '#997');
+      p.thin = true;
+      this.platforms.push(p);
+    };
+    const R = (x, y, h) => this.ropes.push(new Rope(Math.round(x), Math.round(y), Math.round(h)));
+    P(0, groundY, width, 540 - groundY, c1);
+    P(-32, 0, 32, 540, '#444');
+    P(width, 0, 32, 540, '#444');
+    return { P, TP, R, c1, c2, c3, groundY };
+  }
+
+  buildNormalMap(theme) {
+    const rng = this._layoutRng('normal');
+    const width = 2400 + Math.floor(rng() * 700);
+    const { P, TP, c1, c2, c3, groundY } = this._procHelpers(theme, width, 480);
+    const lanes = [385, 335, 285, 235, 185];
+    const thinCount = 12 + Math.floor(rng() * 7);
+    for (let i = 0; i < thinCount; i++) {
+      const x = 120 + i * ((width - 300) / thinCount) + (rng() * 90 - 45);
+      const y = lanes[Math.floor(rng() * lanes.length)];
+      const w = 80 + Math.floor(rng() * 70);
+      TP(Math.max(70, Math.min(width - 180, x)), y, w);
+    }
+    const wallCount = 4 + Math.floor(rng() * 4);
+    for (let i = 0; i < wallCount; i++) {
+      const x = 260 + i * ((width - 520) / Math.max(1, wallCount - 1)) + (rng() * 140 - 70);
+      const h = 70 + Math.floor(rng() * 130);
+      const y = groundY - h;
+      P(Math.max(120, Math.min(width - 160, x)), y, 18 + Math.floor(rng() * 12), h, rng() < 0.45 ? c1 : c2);
+    }
+    const lowCount = 3 + Math.floor(rng() * 3);
+    for (let i = 0; i < lowCount; i++) {
+      const x = 180 + rng() * (width - 420);
+      const y = 390 + Math.floor(rng() * 38);
+      P(x, y, 90 + rng() * 90, 14, c2);
+    }
+  }
+
+  buildPlainMap(theme) {
+    const rng = this._layoutRng('plain');
+    const width = 2400 + Math.floor(rng() * 800);
+    const { P, R, c2, groundY } = this._procHelpers(theme, width, 480);
+    const platformCount = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < platformCount; i++) {
+      const x = 320 + i * ((width - 680) / Math.max(1, platformCount - 1)) + (rng() * 140 - 70);
+      P(Math.max(160, Math.min(width - 260, x)), 405 + Math.floor(rng() * 36), 120 + Math.floor(rng() * 90), 14, c2);
+    }
+    const ropeCount = 6 + Math.floor(rng() * 5);
+    for (let i = 0; i < ropeCount; i++) {
+      const x = 190 + i * ((width - 380) / Math.max(1, ropeCount - 1)) + (rng() * 80 - 40);
+      const h = 190 + Math.floor(rng() * 135);
+      R(Math.max(90, Math.min(width - 110, x)), 0, Math.min(h, groundY - 105));
+    }
+  }
+
+  buildWallMap(theme) {
+    const rng = this._layoutRng('wall');
+    const width = 1900 + Math.floor(rng() * 500);
+    const { P, c1, c2, groundY } = this._procHelpers(theme, width, 480);
+    const wallCount = 6 + Math.floor(rng() * 4);
+    for (let i = 0; i < wallCount; i++) {
+      const x = 220 + i * ((width - 440) / Math.max(1, wallCount - 1)) + (rng() * 70 - 35);
+      const h = 150 + Math.floor(rng() * 230);
+      const w = 18 + Math.floor(rng() * 18);
+      P(Math.max(120, Math.min(width - 150, x)), groundY - h, w, h, rng() < 0.5 ? c1 : c2);
+    }
+  }
+
+  buildLaneMap(theme) {
+    const rng = this._layoutRng('lane');
+    const width = 2300 + Math.floor(rng() * 700);
+    const { P, c2, c3 } = this._procHelpers(theme, width, 480);
+    const laneCount = 4 + Math.floor(rng() * 3);
+    for (let i = 0; i < laneCount; i++) {
+      const y = 405 - i * (54 + Math.floor(rng() * 18));
+      const segments = 2 + Math.floor(rng() * 2);
+      for (let s = 0; s < segments; s++) {
+        const laneW = width / segments;
+        const x = s * laneW + 120 + rng() * 90;
+        const w = laneW - 220 - rng() * 120;
+        if (w > 220) P(x, y, w, 22 + Math.floor(rng() * 10), i % 2 === 0 ? c2 : c3);
+      }
     }
   }
 
@@ -242,6 +415,7 @@ class Game {
     const c1 = theme ? theme.groundColor : '#555';
     const c2 = theme ? theme.platformColor : '#666';
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+    const R = (x, y, h) => this.ropes.push(new Rope(x, y, h));
 
     P(0, 470, this.levelW, 70, c1);
     P(-32, 0, 32, 540, '#333');
@@ -252,6 +426,7 @@ class Game {
     P(220, 410, 80, 16, c2);
     P(680, 410, 80, 16, c2);
     P(450, 350, 90, 16, c2);
+    R(485, 28, 210);
   }
 
   buildOpenArea(theme) {
@@ -260,6 +435,7 @@ class Game {
     const c1 = theme ? theme.groundColor : '#555';
     const c2 = theme ? theme.platformColor : '#666';
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
+    const R = (x, y, h) => this.ropes.push(new Rope(x, y, h));
 
     P(0, 480, this.levelW, 60, c1);
     P(-32, 0, 32, 540, '#444');
@@ -269,6 +445,9 @@ class Game {
     P(650, 430, 140, 14, c2);
     P(1460, 430, 140, 14, c2);
     P(2130, 430, 140, 14, c2);
+    R(760, 0, 300);
+    R(1570, 0, 300);
+    R(2240, 0, 300);
   }
 
   buildOpen(theme) {
@@ -281,6 +460,7 @@ class Game {
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
     const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
+    const R = (x, y, h) => this.ropes.push(new Rope(x, y, h));
 
     // Ground
     P(0, 480, 3200, 60, c1);
@@ -339,6 +519,10 @@ class Game {
     TP(2300, 260, 100);
     TP(2650, 300, 120);
     TP(2900, 250, 100);
+    R(615, 0, 170);
+    R(1245, 0, 210);
+    R(1885, 0, 190);
+    R(2535, 0, 230);
 
     // Spikes
     S(560, 468, 48);
@@ -363,6 +547,7 @@ class Game {
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
     const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x, y, w));
+    const R = (x, y, h) => this.ropes.push(new Rope(x, y, h));
 
     // Ground
     P(0, 480, 1200, 60, c1);
@@ -395,6 +580,8 @@ class Game {
     TP(950, 260, 90);
     TP(450, 170, 80);
     TP(670, 170, 80);
+    R(390, 0, 210);
+    R(770, 0, 210);
 
     // Spikes
     S(300, 468, 48);
@@ -414,6 +601,7 @@ class Game {
     const P  = (x, y, w, h, c) => this.platforms.push(new Platform(x, y, w, h, c));
     const TP = (x, y, w) => { const p = new Platform(x, y, w, 6, theme ? theme.platformColorAlt : '#997'); p.thin = true; this.platforms.push(p); };
     const S  = (x, y, w) => this.spikes.push(new Spike(x, y, w));
+    const R = (x, y, h) => this.ropes.push(new Rope(x, y, h));
 
     // Ground
     P(0, 440, 2000, 100, c1);
@@ -442,6 +630,9 @@ class Game {
     TP(1030, 350, 80);
     TP(1310, 365, 90);
     TP(1590, 350, 80);
+    R(510, 0, 230);
+    R(1070, 0, 220);
+    R(1630, 0, 230);
 
     // Low shield-cover walls (good for tactical play against shield boss)
     P(320, 384, 16, 56, c1);
@@ -881,6 +1072,7 @@ class Game {
     const P = (x, y, w, h, c) => this.platforms.push(new Platform(x + ox, y, w, h, c));
     const TP = (x, y, w) => { const p = new Platform(x + ox, y, w, 6, '#997'); p.thin = true; this.platforms.push(p); };
     const S = (x, y, w) => this.spikes.push(new Spike(x + ox, y, w));
+    const R = (x, y, h) => this.ropes.push(new Rope(x + ox, y, h));
 
     // Side walls (full height)
     P(-32, -660, 32, 1900, '#444');
@@ -935,6 +1127,7 @@ class Game {
 
     // Floor 8 — center
     P(320, -80, 130, 16, '#888');
+    R(455, -240, 150);
 
     // Floor 9 — right only
     P(550, -150, 120, 16, '#777');
@@ -945,6 +1138,7 @@ class Game {
 
     // Floor 10 — left
     P(80, -220, 130, 16, '#888');
+    R(240, -380, 155);
 
     // Top platform
     P(250, -280, 300, 16, '#999');
@@ -980,7 +1174,7 @@ class Game {
     const xMin = this.levelType === 'tower' ? 120 : 40;
     const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
-    const e = new Enemy(x, y, typeToSpawn, isBig, this.wave);
+    const e = new Enemy(x, y, typeToSpawn, isBig, 1, this._roomPowerLevel());
     if (filter.element) {
       e.element = filter.element;
       e.elementColors = ELEMENT_COLORS[filter.element];
@@ -995,15 +1189,38 @@ class Game {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
     if (roomDef) {
-      this.currentObjective = {
+      const cached = this._getRoomConfig(roomDef.id);
+      this.currentObjective = cached.objective || roomDef.objective || {
         type: 'kills',
-        label: 'Objective',
+        label: 'Defeat Enemies',
         desc: 'Defeat enemies to fill the objective bar and draw out the boss.',
         icon: ''
       };
       this.pendingObjective = null;
       this.objZone = null;
       this.samurai = null;
+      const obj = this.currentObjective;
+      if (obj.type === 'zone') {
+        const zW = 130, zH = 90;
+        if (this.levelType === 'tower') {
+          this.objZone = { x: 270, y: 360, w: zW, h: zH };
+        } else if (this.levelType === 'arena') {
+          this.objZone = { x: 520, y: 315, w: zW, h: zH };
+        } else if (this.levelType === 'narrow') {
+          this.objZone = { x: 580, y: 270, w: zW, h: zH };
+        } else {
+          this.objZone = { x: 1240, y: 355, w: zW, h: zH };
+        }
+      } else if (obj.type === 'defend') {
+        const samX = this.levelType === 'tower' ? 240 : (this.levelType === 'arena' ? 200 : 300);
+        const samY = this.levelType === 'tower' ? 425 : (this.levelType === 'arena' ? 340 : 330);
+        const baseHp = 12 + this._roomPowerLevel(roomDef) * 4;
+        this.samurai = { x: samX, y: samY, w: 18, h: 28, hp: baseHp, maxHp: baseHp, dead: false, flashTimer: 0, facing: 1 };
+      } else if (obj.type === 'hunt') {
+        for (const e of this.enemies) {
+          if (!e.dead && this._matchesHuntFilter(e, obj.filter)) e.isHuntTarget = true;
+        }
+      }
       return;
     }
     // Consume a randomly pre-assigned objective if one was queued, else fall back to waveDef
@@ -1077,16 +1294,17 @@ class Game {
     const xMin = this.levelType === 'tower' ? 120 : 40;
     const xMax = this.levelType === 'tower' ? 840 : this.levelW - 60;
     x = Math.max(xMin, Math.min(xMax, x));
-    const e = new Enemy(x, y, pick.type, !!pick.big, this.wave);
+    const e = new Enemy(x, y, pick.type, !!pick.big, 1, this._roomPowerLevel());
     // Elemental variant chance — boosted when level has a theme element
-    const baseElemChance = ELEMENTAL_SPAWN_CHANCE + (this.wave - 1) * 0.04;
-    const boostedChance = this.levelElement ? Math.min(0.5, baseElemChance + 0.35) : Math.min(0.5, baseElemChance);
-    if (Math.random() < boostedChance) {
+    const baseElemChance = ELEMENTAL_SPAWN_CHANCE + (this._roomPowerLevel() - 1) * 0.04;
+    const allowedElements = (this.currentRoomElementTypes || []).filter(el => ELEMENT_COLORS[el]).slice(0, 2);
+    const boostedChance = allowedElements.length ? Math.min(0.5, baseElemChance + 0.35) : 0;
+    if (allowedElements.length && Math.random() < boostedChance) {
       // When a level element is active, bias 75% toward that element
-      if (this.levelElement && Math.random() < 0.75) {
+      if (this.levelElement && allowedElements.includes(this.levelElement) && Math.random() < 0.75) {
         e.element = this.levelElement;
       } else {
-        e.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+        e.element = allowedElements[Math.floor(Math.random() * allowedElements.length)];
       }
       e.elementColors = ELEMENT_COLORS[e.element];
       e.color = e.elementColors.body;
@@ -1107,14 +1325,15 @@ class Game {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
-    this.boss = new Boss(bx, by, waveDef.boss, this.wave);
+    this.boss = new Boss(bx, by, waveDef.boss, 1, this._roomPowerLevel());
     // Use forced level element if set, otherwise small random chance
+    const bossAllowedElements = (this.currentRoomElementTypes || []).filter(el => ELEMENT_COLORS[el]).slice(0, 2);
     if (this.levelElement) {
       this.boss.element = this.levelElement;
       this.boss.elementColors = ELEMENT_COLORS[this.levelElement];
       this.boss.color = this.boss.elementColors.body;
-    } else if (Math.random() < ELEMENTAL_SPAWN_CHANCE) {
-      this.boss.element = ENEMY_ELEMENTS[Math.floor(Math.random() * ENEMY_ELEMENTS.length)];
+    } else if (bossAllowedElements.length && Math.random() < ELEMENTAL_SPAWN_CHANCE) {
+      this.boss.element = bossAllowedElements[Math.floor(Math.random() * bossAllowedElements.length)];
       this.boss.elementColors = ELEMENT_COLORS[this.boss.element];
       this.boss.color = this.boss.elementColors.body;
     }
@@ -1134,7 +1353,7 @@ class Game {
     SFX.bossSpawn();
     SFX.bossRoar();
     const elemTag = this.boss.element ? ` [${this.boss.element.toUpperCase()}]` : '';
-    this.showWaveMessage(this.boss.name + elemTag + ` (${this.wave}/${TOTAL_WAVES})`);
+    this.showWaveMessage(this.boss.name + elemTag);
     // Boss entrance phrase
     this.ninjaResponseActive = false;
     const bPhrase = getBattlePhrase(waveDef.boss, this.player.ninjaType, this.boss.element);
@@ -1182,6 +1401,7 @@ class Game {
       completed: {},
       unlockSources: {},
       itemRoomAssignments: {},
+      itemRewardChoices: {},
       roomCache: {},
     };
   }
@@ -1199,6 +1419,7 @@ class Game {
         completed: parsed.completed || {},
         unlockSources: parsed.unlockSources || {},
         itemRoomAssignments: parsed.itemRoomAssignments || {},
+        itemRewardChoices: parsed.itemRewardChoices || {},
         roomCache: parsed.roomCache || {},
       };
     } catch (err) {
@@ -1210,6 +1431,7 @@ class Game {
     this.mapState.currentRoomId = this.currentRoomId;
     this.mapState.roomCache = this.roomCache;
     this.mapState.itemRoomAssignments = this.mapState.itemRoomAssignments || {};
+    this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
     try {
       localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(this.mapState));
     } catch (err) {
@@ -1224,13 +1446,18 @@ class Game {
         id: roomDef.id,
         waveIdx: roomDef.waveIdx,
         element: roomDef.element || null,
+        elementTypes: this._roomElementTypes(roomDef),
         mapType: roomDef.mapType || null,
         enemyTypes: roomDef.enemyTypes ? roomDef.enemyTypes.slice() : null,
         area: roomDef.area || null,
         kind: roomDef.kind || 'stage',
+        distance: roomDef.distance || 0,
+        objective: roomDef.objective || null,
         createdAtTick: this.tick || 0,
       };
     }
+    if (this.roomCache[roomDef.id].distance === undefined) this.roomCache[roomDef.id].distance = roomDef.distance || 0;
+    if (!this.roomCache[roomDef.id].objective) this.roomCache[roomDef.id].objective = roomDef.objective || null;
     return this.roomCache[roomDef.id];
   }
 
@@ -1241,52 +1468,111 @@ class Game {
     return (areaRank[roomDef.area] || 1) + (kindRank[roomDef.kind] || 0) + (roomDef.element ? 1 : 0);
   }
 
-  _itemForBossClear(roomDef) {
-    if (!roomDef) return null;
-    this.mapState.itemRoomAssignments = this.mapState.itemRoomAssignments || {};
-    for (const [itemId, assignedRoomId] of Object.entries(this.mapState.itemRoomAssignments)) {
-      if (assignedRoomId === roomDef.id) {
-        return this.player.unlockedItems && this.player.unlockedItems[itemId] ? null : itemId;
+  _roomPowerLevel(roomDef) {
+    roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
+    const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
+    return Math.max(1, distance + 1);
+  }
+
+  _roomProgressLabel() {
+    const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
+    const cleared = Object.keys(this.mapState.completed || {}).length;
+    const depth = this._roomPowerLevel(roomDef);
+    const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
+    return `Depth ${depth}${elemTag}  Cleared: ${cleared}`;
+  }
+
+  _ensureItemRoomAssignments() {
+    const assignments = {};
+    const usedRooms = new Set();
+    const source = this.mapState.itemRoomAssignments || {};
+    const itemIds = Object.values(BOSS_ITEM_DROPS).flat().filter(id => BOSS_ITEMS[id]);
+    const validItems = new Set(itemIds);
+    for (const itemId of itemIds) {
+      const roomId = source[itemId];
+      const room = MAP_ROOM_BY_ID[roomId];
+      if (room && !usedRooms.has(roomId) && validItems.has(itemId)) {
+        assignments[itemId] = roomId;
+        usedRooms.add(roomId);
       }
     }
-    const drops = (BOSS_ITEM_DROPS[roomDef.bossType] || []).slice();
-    if (!drops.length) return null;
-    const owned = this.player.unlockedItems || {};
-    const assigned = this.mapState.itemRoomAssignments || {};
-    const difficulty = this._roomDifficulty(roomDef);
-    const sorted = drops
-      .filter(id => !owned[id] && !assigned[id])
-      .sort((a, b) => {
-        const da = Math.abs(((BOSS_ITEMS[a] && BOSS_ITEMS[a].complexity) || 1) - difficulty);
-        const db = Math.abs(((BOSS_ITEMS[b] && BOSS_ITEMS[b].complexity) || 1) - difficulty);
-        return da - db || ((BOSS_ITEMS[a] && BOSS_ITEMS[a].complexity) || 1) - ((BOSS_ITEMS[b] && BOSS_ITEMS[b].complexity) || 1);
-      });
-    const itemId = sorted[0] || null;
-    if (itemId) {
-      this.mapState.itemRoomAssignments[itemId] = roomDef.id;
-      const cached = this._getRoomConfig(roomDef.id);
-      cached.itemId = itemId;
-      this._saveMapState();
+
+    const roomsByBoss = {};
+    for (const room of MAP_ROOM_DEFS) {
+      if (!roomsByBoss[room.bossType]) roomsByBoss[room.bossType] = [];
+      roomsByBoss[room.bossType].push(room);
     }
-    return itemId;
+    for (const bossRooms of Object.values(roomsByBoss)) {
+      bossRooms.sort((a, b) => this._roomDifficulty(a) - this._roomDifficulty(b));
+    }
+
+    for (const [bossType, drops] of Object.entries(BOSS_ITEM_DROPS)) {
+      const sortedDrops = drops
+        .filter(itemId => BOSS_ITEMS[itemId] && !assignments[itemId])
+        .sort((a, b) => ((BOSS_ITEMS[a].complexity || 1) - (BOSS_ITEMS[b].complexity || 1)));
+      for (const itemId of sortedDrops) {
+        const complexity = BOSS_ITEMS[itemId].complexity || 1;
+        const candidates = (roomsByBoss[bossType] || MAP_ROOM_DEFS).filter(room => !usedRooms.has(room.id));
+        let best = null;
+        let bestScore = Infinity;
+        for (const room of candidates) {
+          const score = Math.abs(this._roomDifficulty(room) - complexity);
+          if (score < bestScore) {
+            best = room;
+            bestScore = score;
+          }
+        }
+        if (!best) best = MAP_ROOM_DEFS.find(room => !usedRooms.has(room.id));
+        if (!best) continue;
+        assignments[itemId] = best.id;
+        usedRooms.add(best.id);
+      }
+    }
+
+    this.mapState.itemRoomAssignments = assignments;
+    for (const [itemId, roomId] of Object.entries(assignments)) {
+      const cached = this._getRoomConfig(roomId);
+      cached.itemId = itemId;
+    }
+    this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
+  }
+
+  _itemForRoom(roomId) {
+    this._ensureItemRoomAssignments();
+    for (const [itemId, assignedRoomId] of Object.entries(this.mapState.itemRoomAssignments || {})) {
+      if (assignedRoomId === roomId) return itemId;
+    }
+    return null;
+  }
+
+  _itemForBossClear(roomDef) {
+    if (!roomDef) return null;
+    return this._itemForRoom(roomDef.id);
   }
 
   _grantBossItem(itemId) {
     if (!itemId || !BOSS_ITEMS[itemId]) return;
     if (!this.player.unlockedItems) this.player.unlockedItems = {};
     this.player.unlockedItems[itemId] = true;
-    if (this.player.items[itemId] === undefined) this.player.items[itemId] = true;
+    this.player.items[itemId] = true;
     if (itemId === 'deathsKey') this.player.deathsKeyUsed = false;
     recordItemFound(itemId);
-    this._recomputeItemAttributeBonuses();
   }
 
-  _grantVigorBonus() {
-    const pl = this.player;
-    pl.bonusDamage += 1;
-    pl.maxHp += 1;
-    pl.hp = Math.min(pl.maxHp, pl.hp + 1);
-    pl.displayHp = Math.max(pl.displayHp || pl.hp, pl.hp);
+  _chooseRoomReward(roomId, choice) {
+    const itemId = this._itemForRoom(roomId);
+    if (!itemId || !BOSS_ITEMS[itemId]) return;
+    this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
+    this.mapState.itemRewardChoices[roomId] = choice;
+    if (choice === 'item') {
+      this._grantBossItem(itemId);
+    } else {
+      if (!this.player.unlockedItems) this.player.unlockedItems = {};
+      this.player.unlockedItems[itemId] = false;
+      this.player.items[itemId] = false;
+    }
+    this._recomputeItemAttributeBonuses();
+    this._saveMapState();
   }
 
   _recomputeItemAttributeBonuses() {
@@ -1304,19 +1590,22 @@ class Game {
     pl.bonusReach -= prev.dexterity || 0;
 
     const next = { mind: 0, vigor: 0, dexterity: 0 };
-    for (const itemId of Object.keys(pl.unlockedItems || {})) {
-      if (pl.items[itemId]) continue;
-      const attr = BOSS_ITEMS[itemId] && BOSS_ITEMS[itemId].attr;
+    this._ensureItemRoomAssignments();
+    for (const [roomId, choice] of Object.entries(this.mapState.itemRewardChoices || {})) {
+      if (choice !== 'attr') continue;
+      const itemId = this._itemForRoom(roomId);
+      const attr = itemId && BOSS_ITEMS[itemId] && BOSS_ITEMS[itemId].attr;
       if (next[attr] !== undefined) next[attr]++;
     }
     pl.itemAttrBonuses = next;
     pl._itemAttrApplied = { mind: next.mind, vigor: next.vigor, dexterity: next.dexterity };
     pl.bonusElemental += next.mind;
     pl.maxMana += next.mind;
-    pl.mana = Math.min(pl.maxMana, pl.mana + next.mind);
+    pl.mana = Math.min(pl.maxMana, pl.mana + Math.max(0, next.mind - (prev.mind || 0)));
     pl.bonusDamage += next.vigor;
     pl.maxHp += next.vigor;
-    pl.hp = Math.min(pl.maxHp, pl.hp + next.vigor);
+    pl.hp = Math.min(pl.maxHp, pl.hp + Math.max(0, next.vigor - (prev.vigor || 0)));
+    pl.displayHp = Math.min(pl.maxHp, pl.displayHp || pl.hp);
     pl.bonusSpeed += next.dexterity;
     pl.bonusReach += next.dexterity;
   }
@@ -1329,18 +1618,21 @@ class Game {
     this.mapState.currentRoomId = roomDef.id;
     this.currentWaveDefIdx = cached.waveIdx;
     this.levelElement = cached.element;
+    this.currentRoomElementTypes = cached.elementTypes || this._roomElementTypes(roomDef);
     this.currentMapType = cached.mapType || roomDef.mapType || null;
     this.currentRoomEnemyTypes = cached.enemyTypes || roomDef.enemyTypes || null;
     this.currentRoomArea = cached.area || roomDef.area || null;
     this.currentRoomKind = cached.kind || roomDef.kind || 'stage';
     this.pendingObjective = null;
-    this.wave = Math.max(1, Object.keys(this.mapState.completed || {}).length + 1);
+    this.wave = this._roomPowerLevel(roomDef);
     this._saveMapState();
     if (!opts.keepPlayer) this._prepareRoomStart();
   }
 
   _prepareRoomStart() {
+    this.lives = 1;
     this.waveKills = 0;
+    this.objectiveKills = 0;
     this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
     this.bossOrbCharge = 0;
     this.bossOrbCooldown = 0;
@@ -1364,12 +1656,61 @@ class Game {
     this.player.y = this.levelType === 'tower' ? 400 : 300;
     this.player.vx = 0;
     this.player.vy = 0;
+    this.player.attackCharges = this.player.actionChargeMax || 3;
+    this.player.specialCharges = this.player.actionChargeMax || 3;
+    this.player.attackRechargeTimer = 0;
+    this.player.specialRechargeTimer = 0;
+    this.player.attackFocus = 1;
+    this.player._attackDamageMult = 1;
     this.camera.x = 0;
     this.camera.y = 0;
     this.spawnTimer = -120;
     this.transitionTimer = oldLevelType === this.levelType ? 45 : 90;
     this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
     SFX.wave();
+  }
+
+  _retryCurrentRoom() {
+    this.gameOverDelay = 0;
+    this.gameOver = false;
+    this.killerInfo = null;
+    this.lives = 1;
+    this._openCurrentMap(30);
+    this.boss = null;
+    this.bossActive = false;
+    this.projectiles = [];
+    this.hitLines = [];
+    this.grenades = [];
+    this.enemies = [];
+    this.orbs = [];
+    this.shurikenPickups = [];
+    this.fireTrails = [];
+    this.player.hp = this.player.maxHp;
+    this.player.displayHp = this.player.hp;
+    this.player.deathTimer = 0;
+    this.player.x = this.levelType === 'tower' ? 380 : 100;
+    this.player.y = this.levelType === 'tower' ? 400 : 300;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.statusBurn = 0;
+    this.player.statusFreeze = 0;
+    this.player.statusFloat = 0;
+    this.player.statusParalyse = 0;
+    this.player.statusStun = 0;
+    this.player.statusCurse = 0;
+    this.player.statusBleed = 0;
+  }
+
+  _openCurrentMap(delay) {
+    this.mapScreen = {
+      selected: Math.max(0, this._defaultMapSelection([])),
+      recentUnlocks: [],
+      completedRoomId: null,
+      zoom: this.mapZoom || 1,
+      delay: delay === undefined ? 30 : delay,
+    };
+    this.waveMessage = '';
+    this.waveMessageTimer = 0;
   }
 
   _unlockMapRoom(roomId, sourceRoomId, reason, recentUnlocks) {
@@ -1404,7 +1745,14 @@ class Game {
     };
     this.player.defeatedBossTypes.add(roomDef.bossType);
     if (rewardItem) {
-      this.itemRewardScreen = { itemId: rewardItem, bossType: roomDef.bossType, roomId: roomDef.id, selected: 0, delay: 30 };
+      const previousChoice = this.mapState.itemRewardChoices && this.mapState.itemRewardChoices[roomDef.id];
+      this.itemRewardScreen = {
+        itemId: rewardItem,
+        bossType: roomDef.bossType,
+        roomId: roomDef.id,
+        selected: previousChoice === 'attr' ? 1 : 0,
+        delay: 30
+      };
     }
     for (const id of roomDef.navLinks || roomDef.unlockOnPrimary || []) {
       this._unlockMapRoom(id, roomDef.id, 'primary', recentUnlocks);
@@ -1416,9 +1764,10 @@ class Game {
     }
     this._saveMapState();
     this.mapScreen = {
-      selected: this._defaultMapSelection(recentUnlocks),
+      selected: Math.max(0, MAP_ROOM_DEFS.findIndex(r => r.id === roomDef.id)),
       recentUnlocks,
       completedRoomId: roomDef.id,
+      zoom: this.mapZoom || (this.mapScreen && this.mapScreen.zoom) || 1,
       delay: 45,
     };
     this.boss = null;
@@ -1441,45 +1790,15 @@ class Game {
   }
 
   _mapNeighborIds(room) {
-    const ids = new Set(room && room.navLinks ? room.navLinks : []);
-    if (room) {
-      for (const other of MAP_ROOM_DEFS) {
-        if (other.id !== room.id && (other.navLinks || []).includes(room.id) && this.mapState.unlocked[other.id]) {
-          ids.add(other.id);
-        }
-      }
-    }
+    const ids = new Set(room && room.navDirs ? Object.values(room.navDirs) : (room && room.navLinks ? room.navLinks : []));
     return ids;
   }
 
   _mapDirectionalNeighbors(room) {
-    const dirs = [
-      { key: 'left', dx: -1, dy: 0 },
-      { key: 'right', dx: 1, dy: 0 },
-      { key: 'up', dx: 0, dy: -1 },
-      { key: 'down', dx: 0, dy: 1 },
-    ];
     const result = {};
-    const ids = this._mapNeighborIds(room);
-    for (const dir of dirs) {
-      let best = null;
-      let bestScore = Infinity;
-      for (const id of ids) {
-        const other = MAP_ROOM_BY_ID[id];
-        if (!other || !this.mapState.unlocked[other.id]) continue;
-        const dc = other.col - room.col;
-        const dr = other.row - room.row;
-        if (dir.dx !== 0 && dc * dir.dx <= 0) continue;
-        if (dir.dy !== 0 && dr * dir.dy <= 0) continue;
-        const primary = dir.dx !== 0 ? Math.abs(dc) : Math.abs(dr);
-        const offAxis = dir.dx !== 0 ? Math.abs(dr) : Math.abs(dc);
-        const score = primary * 100 + offAxis * 35;
-        if (score < bestScore) {
-          bestScore = score;
-          best = other.id;
-        }
-      }
-      if (best) result[dir.key] = best;
+    const dirs = room && room.navDirs ? room.navDirs : {};
+    for (const [key, id] of Object.entries(dirs)) {
+      if (this.mapState.unlocked[id] || (this.mapScreen && this.mapScreen.freeTravel)) result[key] = id;
     }
     return result;
   }
@@ -1490,18 +1809,41 @@ class Game {
     if (!current) return;
     const directional = this._mapDirectionalNeighbors(current);
     const key = dx < 0 ? 'left' : dx > 0 ? 'right' : dy < 0 ? 'up' : 'down';
-    const targetId = directional[key];
+    let targetId = directional[key];
+    if (!targetId && this.mapScreen.freeTravel) {
+      let best = null;
+      let bestScore = Infinity;
+      for (const other of MAP_ROOM_DEFS) {
+        if (!other || other.id === current.id) continue;
+        const dc = other.col - current.col;
+        const dr = other.row - current.row;
+        if (dx !== 0 && dc * dx <= 0) continue;
+        if (dy !== 0 && dr * dy <= 0) continue;
+        const primary = dx !== 0 ? Math.abs(dc) : Math.abs(dr);
+        const offAxis = dx !== 0 ? Math.abs(dr) : Math.abs(dc);
+        const score = primary * 100 + offAxis * 25;
+        if (score < bestScore) {
+          bestScore = score;
+          best = other.id;
+        }
+      }
+      targetId = best;
+    }
     const bestIdx = targetId ? MAP_ROOM_DEFS.findIndex(r => r.id === targetId) : -1;
     if (bestIdx >= 0) this.mapScreen.selected = bestIdx;
   }
 
   _confirmMapRoom() {
     const room = MAP_ROOM_DEFS[this.mapScreen.selected];
-    if (!room || !this.mapState.unlocked[room.id]) return;
+    if (!room || (!this.mapState.unlocked[room.id] && !this.mapScreen.freeTravel)) return;
+    if (this.mapScreen.freeTravel && !this.mapState.unlocked[room.id]) {
+      this._unlockMapRoom(room.id, this.currentRoomId, 'freeTravel', []);
+      this._saveMapState();
+    }
     this.mapScreen = null;
     this._enterMapRoom(room.id);
     const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
-    this.showWaveMessage(`${room.name}${elemTag}`);
+    this.showWaveMessage(this._objectiveStartMessage());
   }
 
   _getNextBossPool() {
@@ -1816,9 +2158,39 @@ class Game {
     this.spawnTimer = -120;
     SFX.wave();
     if (!this.gameOverDelay) {
-      const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
-      this.showWaveMessage(`Round ${this.wave}/${TOTAL_WAVES}${elemTag} — Fight!`);
+      this.showWaveMessage(this._objectiveStartMessage());
     }
+  }
+
+  _spawnScreenPickup(PickupClass) {
+    return new PickupClass(
+      this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
+      this.camera.y + 80 + Math.random() * (CANVAS_H - 200)
+    );
+  }
+
+  _updatePickupArray(pickups, PickupClass) {
+    const interval = PickupClass.spawnInterval(this);
+    const phase = PickupClass.spawnPhase(this);
+    const maxOnScreen = PickupClass.maxOnScreen(this);
+    if (this.tick % interval === phase && pickups.filter(pickup => !pickup.done).length < maxOnScreen) {
+      pickups.push(this._spawnScreenPickup(PickupClass));
+    }
+    for (const pickup of pickups) pickup.update(this);
+    return pickups.filter(pickup => !pickup.done);
+  }
+
+  _updateShurikenPickups() {
+    this.shurikenPickups = this._updatePickupArray(this.shurikenPickups, ShurikenPickupOrb);
+  }
+
+  _updateBubbleShieldPickups() {
+    this.bubbleShieldPickups = this._updatePickupArray(this.bubbleShieldPickups, BubbleShieldPickupOrb);
+  }
+
+  _updateFieldPickups() {
+    this._updateShurikenPickups();
+    this._updateBubbleShieldPickups();
   }
 
   update() {
@@ -1844,11 +2216,7 @@ class Game {
         rs.selected = rs.selected === 0 ? 1 : 0;
       }
       if (rs.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
-        if (rs.selected === 0) {
-          this._grantBossItem(rs.itemId);
-        } else {
-          this._grantVigorBonus();
-        }
+        this._chooseRoomReward(rs.roomId, rs.selected === 0 ? 'item' : 'attr');
         this.itemRewardScreen = null;
       }
       return;
@@ -1860,10 +2228,25 @@ class Game {
         ms.delay--;
         consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
       }
-      if (consumePress('ArrowLeft') || consumePress('KeyA')) this._selectNextMapRoom(-1, 0);
-      if (consumePress('ArrowRight') || consumePress('KeyD')) this._selectNextMapRoom(1, 0);
-      if (consumePress('ArrowUp') || consumePress('KeyW')) this._selectNextMapRoom(0, -1);
-      if (consumePress('ArrowDown') || consumePress('KeyS')) this._selectNextMapRoom(0, 1);
+      const navLeft = consumePress('ArrowLeft') || consumePress('KeyA');
+      const navRight = consumePress('ArrowRight') || consumePress('KeyD');
+      const navUp = consumePress('ArrowUp') || consumePress('KeyW');
+      const navDown = consumePress('ArrowDown') || consumePress('KeyS');
+      const navDx = navLeft ? -1 : navRight ? 1 : 0;
+      const navDy = navUp ? -1 : navDown ? 1 : 0;
+      if (navDx || navDy) this._selectNextMapRoom(navDx, navDy);
+      if (consumePress('KeyQ') || consumePress('Minus') || consumePress('NumpadSubtract')) {
+        ms.zoom = Math.max(0.3, Math.round(((ms.zoom || 1) - 0.15) * 100) / 100);
+        this.mapZoom = ms.zoom;
+      }
+      if (consumePress('KeyE') || consumePress('Equal') || consumePress('NumpadAdd')) {
+        ms.zoom = Math.min(1.9, Math.round(((ms.zoom || 1) + 0.15) * 100) / 100);
+        this.mapZoom = ms.zoom;
+      }
+      if (consumePress('Digit0') || consumePress('Numpad0')) {
+        ms.freeTravel = !ms.freeTravel;
+        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 20, ms.freeTravel ? 'MAP FREE TRAVEL' : 'MAP LOCKED PATHS', ms.freeTravel ? '#7df' : '#aaa'));
+      }
       if (ms.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
         this._confirmMapRoom();
       }
@@ -2035,6 +2418,12 @@ class Game {
     // Transition freeze — block player control on map change
     if (this.transitionTimer > 0) {
       this.transitionTimer--;
+    } else if (this.player.deathTimer > 0) {
+      this.player.deathTimer--;
+      if (this.player.deathTimer <= 0) {
+        this._retryCurrentRoom();
+        return;
+      }
     } else {
       this.player.update(this);
     }
@@ -2078,108 +2467,7 @@ class Game {
     for (const o of this.orbs) o.update(this);
     for (const bi of this.bossItems) bi.update(this);
 
-    // ── Shuriken pickup icons ──
-    // In collect objective mode: spawn more caches (up to 6, every 120f); each pickup fills one boss orb
-    // In normal mode: spawn one every 5 seconds (up to 3 on screen); Triple Shuriken halves the interval
-    const _collectMode = this.currentObjective && this.currentObjective.type === 'collect';
-    const _shurikenInterval = _collectMode ? 120 : ((this.player.items && this.player.items.tripleShuriken) ? 150 : 300);
-    const _shurikenMax = _collectMode ? 6 : 3;
-    if (this.tick % _shurikenInterval === 60 && this.shurikenPickups.filter(s => !s.done).length < _shurikenMax) {
-      this.shurikenPickups.push({
-        x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
-        y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
-        bobTimer: Math.random() * Math.PI * 2,
-        life: 600, done: false, w: 20, h: 20,
-      });
-    }
-    for (const sp of this.shurikenPickups) {
-      if (sp.done) continue;
-      sp.bobTimer += 0.06;
-      sp.life--;
-      if (sp.life <= 0) { sp.done = true; continue; }
-      const pl = this.player;
-      if (rectOverlap(pl, sp)) {
-        sp.done = true;
-        SFX.pickup();
-        const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
-        if (_collectMode && !this.bossActive && !this.boss && this.bossOrbsCollected < this.bossOrbsRequired) {
-          // Each shuriken cache directly fills a boss orb charge
-          this.bossOrbCharge = this.bossOrbChargeMax;
-          this.effects.push(new Effect(cx, cy, '#ccc', 10, 4, 15));
-          this.effects.push(new TextEffect(cx, cy - 22, '\u2726 CACHE!', '#ccc'));
-        } else {
-        const color = (pl.ninjaType === 'fire') ? '#f93' : (pl.ninjaType === 'crystal') ? '#aff' : (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
-        const dmg = pl.type.attackDamage + pl.shurikenLevel;
-        for (let i = 0; i < pl.maxShurikens; i++) {
-          const isLastKunai = pl.items.theKunai && i === pl.maxShurikens - 1;
-          const sProj = fireProjectileAtNearestEnemy({
-            x: cx, y: cy, game: this, speed: 8 + i * 1.5, color: isLastKunai ? '#f66' : color,
-            damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-            piercing: true, preferBoss: true, ignoreLOS: true,
-          });
-          if (sProj) {
-            sProj.isShuriken = true;
-            if (pl.ninjaType === 'crystal') sProj.freezeDust = true;
-            if (pl.ninjaType === 'shadow' || pl.ninjaType === 'storm') sProj.shadowParalyse = true;
-            if (pl.items.homingShuriken) sProj.homing = true;
-            if (isLastKunai) { sProj.isKunai = true; sProj.kunaiDmg = dmg * 2; sProj.kunaiMaxShurikens = pl.maxShurikens; sProj.life = 30; }
-            if (pl.items.tripleShuriken) {
-              for (const triOff of [0.25, -0.25]) {
-                const tProj = fireProjectileAtNearestEnemy({
-                  x: cx, y: cy, game: this, speed: 8, color: isLastKunai ? '#f66' : color,
-                  damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-                  piercing: true, preferBoss: true, ignoreLOS: true,
-                });
-                if (tProj) {
-                  tProj.isShuriken = true;
-                  if (pl.ninjaType === 'crystal') tProj.freezeDust = true;
-                  if (pl.ninjaType === 'shadow' || pl.ninjaType === 'storm') tProj.shadowParalyse = true;
-                  if (pl.items.homingShuriken) tProj.homing = true;
-                  const ta = Math.atan2(sProj.vy, sProj.vx) + triOff;
-                  const tsp = Math.sqrt(sProj.vx * sProj.vx + sProj.vy * sProj.vy);
-                  tProj.vx = Math.cos(ta) * tsp;
-                  tProj.vy = Math.sin(ta) * tsp;
-                }
-              }
-            }
-          }
-        }
-        SFX.shuriken();
-        this.effects.push(new Effect(cx, cy, '#ccc', 12, 5, 18));
-        this.effects.push(new TextEffect(cx, cy - 22, '\u2726 SHURIKENS!', '#ccc'));
-        } // end else (not collect mode)
-      }
-    }
-    this.shurikenPickups = this.shurikenPickups.filter(s => !s.done);
-
-    // ── Bubble shield pickup spawns ──
-    // Spawns one every ~20 seconds (1200f), max 1 on screen at a time
-    if (this.tick % 1200 === 600 && this.bubbleShieldPickups.filter(b => !b.done).length < 1) {
-      this.bubbleShieldPickups.push({
-        x: this.camera.x + 60 + Math.random() * (CANVAS_W - 120),
-        y: this.camera.y + 80 + Math.random() * (CANVAS_H - 200),
-        bobTimer: Math.random() * Math.PI * 2,
-        life: 900, done: false, w: 20, h: 20,
-      });
-    }
-    for (const bp of this.bubbleShieldPickups) {
-      if (bp.done) continue;
-      bp.bobTimer += 0.05;
-      bp.life--;
-      if (bp.life <= 0) { bp.done = true; continue; }
-      const pl = this.player;
-      if (rectOverlap(pl, bp)) {
-        if (pl.bubbleShieldTimer > 0) continue; // already shielded
-        bp.done = true;
-        SFX.pickup();
-        pl.bubbleShieldTimer = pl.bubbleShieldMax;
-        const cx = pl.x + pl.w / 2, cy = pl.y + pl.h / 2;
-        this.effects.push(new Effect(cx, cy, '#4af', 18, 5, 18));
-        this.effects.push(new Effect(cx, cy, '#fff', 8, 3, 12));
-        this.effects.push(new TextEffect(cx, cy - 22, '\u2B22 SHIELD!', '#4af'));
-      }
-    }
-    this.bubbleShieldPickups = this.bubbleShieldPickups.filter(b => !b.done);
+    this._updateFieldPickups();
 
     // Fire trail update
     if (this.player.ninjaType === 'fire' && this.player.grounded && Math.abs(this.player.vx) > 1) {
@@ -2270,8 +2558,14 @@ class Game {
             // ~20 seconds of samurai alive per orb
             this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1200);
           }
-          // 'kills' and 'hunt': charge comes from enemy.js takeDamage
-          // 'collect': charge comes from shuriken pickups below
+          // 'kills' and 'hunt': progress comes from visible kill counts.
+          // 'collect': charge comes from shuriken pickup caches.
+        }
+        if (_obj && (_obj.type === 'kills' || _obj.type === 'hunt') && !this.bossActive && !this.boss) {
+          const progress = this._objectiveProgressInfo();
+          if (progress && progress.rawCurrent >= progress.rawTarget) {
+            this.spawnBoss();
+          }
         }
         // Spawn an orb when charge threshold met and cooldown elapsed
         if (this.bossOrbCharge >= this.bossOrbChargeMax && this.bossOrbCooldown <= 0 &&
@@ -2951,7 +3245,7 @@ class Game {
     // Z/J, X/K, C/L, V/M
     const combatKeys = [
       { k1: 'Z', k2: 'J', label: 'Attack', color: '#f88' },
-      { k1: 'X', k2: 'K', label: 'Special (costs mana)', color: '#8f8' },
+      { k1: 'X', k2: 'K', label: 'Special', color: '#8f8' },
       { k1: 'C', k2: 'L', label: 'Ultimate (when charged)', color: '#f8f' },
     ];
     for (let i = 0; i < combatKeys.length; i++) {
@@ -3422,6 +3716,7 @@ class Game {
       ctx.textAlign = 'left';
       ctx.restore();
     }
+    for (const r of this.ropes || []) r.render(ctx, cam);
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
 
@@ -3468,74 +3763,8 @@ class Game {
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
 
-    // Shuriken pickup icons
-    for (const sp of this.shurikenPickups) {
-      if (sp.done) continue;
-      const flash = sp.life < 120 && Math.floor(sp.life / 8) % 2;
-      if (flash) continue;
-      const alpha = sp.life < 60 ? sp.life / 60 : 1;
-      const sx = sp.x - cam.x;
-      const sy = sp.y + Math.sin(sp.bobTimer) * 6 - cam.y;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(sx + 10, sy + 10);
-      ctx.rotate(sp.bobTimer * 1.5);
-      ctx.fillStyle = '#e0e0e0';
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = '#ccc';
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2;
-        const b = a + Math.PI / 4;
-        ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
-        ctx.lineTo(Math.cos(b) * 4, Math.sin(b) * 4);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
-    // Bubble shield pickup icons
-    for (const bp of this.bubbleShieldPickups) {
-      if (bp.done) continue;
-      const flash = bp.life < 120 && Math.floor(bp.life / 8) % 2;
-      if (flash) continue;
-      const alpha = bp.life < 60 ? bp.life / 60 : 1;
-      const bpx = bp.x - cam.x;
-      const bpy = bp.y + Math.sin(bp.bobTimer) * 6 - cam.y;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(bpx + 10, bpy + 10);
-      // Shield shape
-      ctx.shadowColor = '#4af';
-      ctx.shadowBlur = 12;
-      ctx.fillStyle = 'rgba(60,180,255,0.35)';
-      ctx.strokeStyle = '#aef';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, -10);       // top-left
-      ctx.lineTo(8, -10);       // top-right
-      ctx.lineTo(10, -6);       // right shoulder
-      ctx.lineTo(10, 1);        // right side
-      ctx.lineTo(0, 10);        // bottom point
-      ctx.lineTo(-10, 1);       // left side
-      ctx.lineTo(-10, -6);      // left shoulder
-      ctx.lineTo(-8, -10);      // top-left
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      // Inner cross emblem
-      ctx.globalAlpha = alpha * 0.8;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.shadowBlur = 4;
-      ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 4); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-4, -1); ctx.lineTo(4, -1); ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.restore();
-    }
+    for (const sp of this.shurikenPickups) sp.render(ctx, cam);
+    for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
     for (const bo of this.bossOrbPickups) {
       if (bo.done) continue;
       const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
@@ -4374,7 +4603,7 @@ class Game {
     const buffY  = CANVAS_H - 50;        // 490
     const pipY   = CANVAS_H - 92;        // 448
 
-    // (mana pips removed — special ability cost integrated into FOCUS)
+    // Attack and magic charges recharge independently.
 
     // ── Buff icons ──
     const buffItems = [];
@@ -4427,7 +4656,7 @@ class Game {
       }
     }
 
-    // ── FOCUS bar — ninja-colored, ult charge shown as glow ──
+    // ── HP bar — ninja-colored, ult charge shown as glow ──
     const ninjaBarColors = {
       fire:    { fill: '#f93', dark: '#421800', delay: '#fa8' },
       earth:   { fill: '#a07040', dark: '#301808', delay: '#c09060' },
@@ -4442,8 +4671,64 @@ class Game {
     const centerX = CANVAS_W / 2;
     const barTotalW = 440;
     const barLeft = centerX - barTotalW / 2;
-    const focusRatio = pl.hp / pl.maxHp;
-    const displayFocusRatio = pl.displayHp / pl.maxHp;
+    const drawChargePips = (label, charges, timer, x, y, color) => {
+      const max = pl.actionChargeMax || 3;
+      const recharge = pl.actionRechargeMax || 180;
+      const safeCharges = Math.max(0, Math.min(max, charges || 0));
+      ctx.save();
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'right';
+      ctx.fillText(label, x - 8, y + 9);
+      ctx.textAlign = 'left';
+      for (let i = 0; i < max; i++) {
+        const px = x + i * 18;
+        ctx.fillStyle = i < safeCharges ? color : 'rgba(255,255,255,0.14)';
+        ctx.fillRect(px, y, 12, 12);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, y, 12, 12);
+      }
+      if (safeCharges < max) {
+        const px = x + safeCharges * 18;
+        const pct = Math.min(1, (timer || 0) / recharge);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(px, y + 12 - 12 * pct, 12, 12 * pct);
+      }
+      ctx.restore();
+    };
+    const chargeMax = pl.actionChargeMax || 3;
+    const chargePipW = (chargeMax - 1) * 18 + 12;
+    const chargeLabelW = 28;
+    const chargeGap = 48;
+    const chargeGroupW = chargeLabelW + 8 + chargePipW;
+    const attackFocusW = 112;
+    const attackFocusH = 12;
+    const attackGroupW = 28 + 8 + attackFocusW;
+    const chargeLeft = centerX - (attackGroupW + chargeGap + chargeGroupW) / 2;
+    const focusX = chargeLeft + 28 + 8;
+    const focusPct = Math.max(0, Math.min(1, pl.attackFocus === undefined ? 1 : pl.attackFocus));
+    ctx.save();
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = attrColors.vigor;
+    ctx.fillText('ATK', focusX - 8, pipY + 9);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(focusX, pipY, attackFocusW, attackFocusH);
+    ctx.fillStyle = attrColors.vigor;
+    ctx.fillRect(focusX, pipY, attackFocusW * focusPct, attackFocusH);
+    ctx.strokeStyle = attrColors.vigor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(focusX, pipY, attackFocusW, attackFocusH);
+    ctx.fillStyle = '#ddd';
+    ctx.font = 'bold 9px monospace';
+    const focusLabel = Math.round(focusPct * 100) + '%';
+    ctx.fillText(focusLabel, focusX + attackFocusW + 6, pipY + 10);
+    ctx.restore();
+    drawChargePips('MAG', pl.specialCharges, pl.specialRechargeTimer, chargeLeft + attackGroupW + chargeGap + chargeLabelW + 8, pipY, attrColors.mind);
+    const hpRatio = pl.hp / pl.maxHp;
+    const displayHpRatio = pl.displayHp / pl.maxHp;
 
     const ultPct = pl.ultimateCharge / pl.ultimateMax;
     const ultReady = pl.ultimateReady && !pl.ultimateActive;
@@ -4464,9 +4749,9 @@ class Game {
     ctx.restore();
 
     // Delayed damage
-    if (displayFocusRatio > focusRatio) {
+    if (displayHpRatio > hpRatio) {
       ctx.fillStyle = nbc.delay;
-      ctx.fillRect(barLeft, barY, barTotalW * displayFocusRatio, barH);
+      ctx.fillRect(barLeft, barY, barTotalW * displayHpRatio, barH);
     }
 
     // Active fill (also glows when ult ready/active)
@@ -4474,7 +4759,7 @@ class Game {
     if (ultActive) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14; }
     else if (ultReady) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = blinkOn ? 16 : 6; }
     ctx.fillStyle = nbc.fill;
-    ctx.fillRect(barLeft, barY, barTotalW * focusRatio, barH);
+    ctx.fillRect(barLeft, barY, barTotalW * hpRatio, barH);
     ctx.restore();
 
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
@@ -4482,16 +4767,16 @@ class Game {
     ctx.strokeRect(barLeft, barY, barTotalW, barH);
 
     // Label: show ult state inside bar
-    const focusLabel = String(Math.round(pl.hp)) + ' / ' + String(pl.maxHp);
+    const hpLabel = 'HP ' + String(Math.round(pl.hp)) + ' / ' + String(pl.maxHp);
     ctx.font = 'bold 18px monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText(focusLabel, centerX + 1, barY + barH - 4);
+    ctx.fillText(hpLabel, centerX + 1, barY + barH - 4);
     ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : attrColors.vigor;
-    ctx.fillText(focusLabel, centerX, barY + barH - 5);
+    ctx.fillText(hpLabel, centerX, barY + barH - 5);
     ctx.textAlign = 'left';
 
-    // Bubble shield timer strip (directly below the FOCUS bar)
+    // Bubble shield timer strip (directly below the HP bar)
     if (pl.bubbleShieldTimer > 0) {
       const shieldRatio = pl.bubbleShieldTimer / pl.bubbleShieldMax;
       const shY = barY + barH + 4;
@@ -4543,19 +4828,18 @@ class Game {
     // Boss Items display (left side, vertically centered)
     this.renderItemBar(pl);
 
-    // Wave info panel (top right, below ninja bar)
+    // Room info panel (top right, below ninja bar)
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(CANVAS_W - 175, 36, 167, 36);
+    ctx.fillRect(CANVAS_W - 218, 36, 210, 36);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(CANVAS_W - 175, 36, 167, 36);
+    ctx.strokeRect(CANVAS_W - 218, 36, 210, 36);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    const roundElemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
-    ctx.fillText(`Round ${this.wave}/${TOTAL_WAVES}${roundElemTag}`, CANVAS_W - 167, 52);
+    ctx.fillText(this._roomProgressLabel(), CANVAS_W - 210, 52);
     ctx.font = '10px monospace';
     ctx.fillStyle = '#ccc';
-    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 167, 66);
+    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 210, 66);
 
     // ── Objective indicator (bottom-left of wave panel) ──
     if (false && this.currentObjective && !this.gameWon && !this.bossActive) {
@@ -4593,12 +4877,14 @@ class Game {
       const objCx = CANVAS_W / 2;
       const objBarW = 420, objBarH = 24;
       const objBarX = objCx - objBarW / 2, objBarY = 40;
-      const objectivePct = Math.min(1, (this.bossOrbsCollected + Math.min(1, this.bossOrbCharge / this.bossOrbChargeMax)) / this.bossOrbsRequired);
+      const objectivePct = this._objectiveProgressRatio();
       const objectiveAccent = this.levelElement && ELEMENT_COLORS[this.levelElement] ? ELEMENT_COLORS[this.levelElement].accent : '#f80';
       const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
+      const objectiveName = ((this.currentObjective && this.currentObjective.label) || 'Defeat Enemies').trim();
+      const objectivePrefix = /^objective$/i.test(objectiveName) ? '' : 'OBJECTIVE: ';
       const objLabel = this.bossActive
         ? 'BOSS ACTIVE'
-        : `OBJECTIVE: Defeat enemies (${this.bossOrbsCollected}/${this.bossOrbsRequired})`;
+        : objectivePrefix + objectiveName + this._objectiveProgressText();
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.68)';
       ctx.fillRect(objBarX, objBarY, objBarW, objBarH);
@@ -4966,7 +5252,7 @@ class Game {
       // Title
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 20px monospace';
-      const titleTxt = `Choose Your Path — Round ${this.wave + 1}/${TOTAL_WAVES}`;
+      const titleTxt = 'Choose Your Path';
       ctx.fillText(titleTxt, CANVAS_W / 2 - ctx.measureText(titleTxt).width / 2, bannerH + 28);
       ctx.font = '11px monospace';
       ctx.fillStyle = '#aaa';
@@ -5384,7 +5670,7 @@ class Game {
       ctx.fillText(got, CANVAS_W / 2 - gotw / 2, CANVAS_H / 2 - 50);
       ctx.fillStyle = '#fff';
       ctx.font = '16px monospace';
-      const gost = `Wave: ${this.wave}/${TOTAL_WAVES}  Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
+      const gost = `${this._roomProgressLabel()}  Kills: ${this.totalKills}  Deaths: ${this.deaths}`;
       const gostw = ctx.measureText(gost).width;
       ctx.fillText(gost, CANVAS_W / 2 - gostw / 2, CANVAS_H / 2);
 
@@ -5456,11 +5742,10 @@ class Game {
     if (line) ctx.fillText(line, boxX + 140, yy);
     const optY = boxY + boxH - 62;
     const optW = 210, optH = 34;
-    const vigor = ITEM_ATTRIBUTES.vigor;
     for (let i = 0; i < 2; i++) {
       const ox = boxX + 48 + i * (optW + 26);
       const selected = rs.selected === i;
-      const col = i === 0 ? def.color : vigor.color;
+      const col = i === 0 ? def.color : attr.color;
       ctx.fillStyle = selected ? 'rgba(255,224,51,0.16)' : 'rgba(0,0,0,0.35)';
       ctx.fillRect(ox, optY, optW, optH);
       ctx.strokeStyle = selected ? '#ffe033' : col;
@@ -5468,7 +5753,7 @@ class Game {
       ctx.strokeRect(ox, optY, optW, optH);
       ctx.fillStyle = col;
       ctx.font = 'bold 12px monospace';
-      ctx.fillText(i === 0 ? 'TAKE ITEM' : '+1 VIGOR', ox + 16, optY + 22);
+      ctx.fillText(i === 0 ? 'TAKE ITEM' : '+1 ' + attr.label.toUpperCase(), ox + 16, optY + 22);
     }
     ctx.fillStyle = '#888';
     ctx.font = '11px monospace';
@@ -5487,12 +5772,15 @@ class Game {
 
     ctx.font = '11px monospace';
     ctx.fillStyle = '#aaa';
-    const hint = ms.delay > 0 ? '...' + Math.ceil(ms.delay / 60) : 'WASD / arrows select room   Z confirm';
+    const hint = ms.delay > 0 ? '...' + Math.ceil(ms.delay / 60) : 'WASD / arrows select room   Q/E zoom   0 free travel   Z confirm';
     ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
 
     const mapX = 70, mapY = 88, mapW = 610, mapH = 390;
-    const cellW = 74;
-    const cellH = 54;
+    const zoom = Math.max(0.3, Math.min(1.9, ms.zoom || this.mapZoom || 1));
+    ms.zoom = zoom;
+    const cellW = 74 * zoom;
+    const cellH = 54 * zoom;
+    const tileScale = Math.max(0.48, Math.min(1.22, zoom));
     const selectedForCamera = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId] || MAP_ROOM_DEFS[0];
     const mapCenterX = mapX + mapW / 2;
     const mapCenterY = mapY + mapH / 2;
@@ -5503,6 +5791,15 @@ class Game {
     ctx.strokeStyle = '#334';
     ctx.lineWidth = 2;
     ctx.strokeRect(mapX, mapY, mapW, mapH);
+    ctx.fillStyle = '#9ab';
+    ctx.font = 'bold 10px monospace';
+    const zoomText = 'ZOOM ' + Math.round(zoom * 100) + '%';
+    ctx.fillText(zoomText, mapX + mapW - ctx.measureText(zoomText).width - 8, mapY + 16);
+    if (ms.freeTravel) {
+      ctx.fillStyle = '#7df';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('FREE TRAVEL', mapX + 8, mapY + 16);
+    }
 
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
@@ -5551,13 +5848,19 @@ class Game {
     ctx.restore();
 
     const selectedForLinks = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId];
+    this._ensureItemRoomAssignments();
+    const roomItemById = {};
+    for (const [itemId, roomId] of Object.entries(this.mapState.itemRoomAssignments || {})) {
+      roomItemById[roomId] = itemId;
+    }
 
-    const drawLink = (fromId, toId) => {
+    const drawLink = (fromId, toId, preview) => {
       const a = MAP_ROOM_BY_ID[fromId], b = MAP_ROOM_BY_ID[toId];
       if (!a || !b) return;
       const fromUnlocked = !!this.mapState.unlocked[fromId];
       const toUnlocked = !!this.mapState.unlocked[toId];
-      if (!fromUnlocked || !toUnlocked) return;
+      const ghost = preview === 'ghost';
+      if (!ghost && (!fromUnlocked || (!toUnlocked && !preview))) return;
       const ax = roomX(a);
       const ay = roomY(a);
       const bx = roomX(b);
@@ -5572,16 +5875,18 @@ class Game {
       const cx = mx + (-dy / len) * bend;
       const cy = my + (dx / len) * bend;
       ctx.save();
-      ctx.globalAlpha = 0.95;
-      ctx.strokeStyle = '#ffe033';
-      ctx.lineWidth = 3.5;
+      ctx.globalAlpha = ghost ? 0.18 : (toUnlocked ? 0.95 : 0.45);
+      ctx.strokeStyle = ghost ? '#8a8a8a' : (toUnlocked ? '#ffe033' : '#9a9a9a');
+      ctx.lineWidth = ghost ? 1.25 : (toUnlocked ? 3.5 : 2);
+      if (ghost || !toUnlocked) ctx.setLineDash([7, 6]);
       ctx.beginPath();
       ctx.moveTo(ax, ay);
       ctx.quadraticCurveTo(cx, cy, bx, by);
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.fillStyle = ctx.strokeStyle;
       ctx.beginPath();
-      ctx.arc(bx, by, 4, 0, Math.PI * 2);
+      ctx.arc(bx, by, ghost ? 2 : (toUnlocked ? 4 : 3), 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     };
@@ -5591,9 +5896,23 @@ class Game {
     ctx.rect(mapX, mapY, mapW, mapH);
     ctx.clip();
 
+    const allPathKeys = new Set();
+    for (const room of MAP_ROOM_DEFS) {
+      for (const id of Object.values(room.navDirs || {})) {
+        const key = room.id < id ? room.id + '|' + id : id + '|' + room.id;
+        if (allPathKeys.has(key)) continue;
+        allPathKeys.add(key);
+        drawLink(room.id, id, 'ghost');
+      }
+    }
+
     if (selectedForLinks && this.mapState.unlocked[selectedForLinks.id]) {
-      const directional = this._mapDirectionalNeighbors(selectedForLinks);
-      for (const id of Object.values(directional)) drawLink(selectedForLinks.id, id);
+      const previewIds = new Set([
+        ...Object.values(selectedForLinks.navDirs || {}),
+        ...(selectedForLinks.unlockOnPrimary || []),
+        ...(selectedForLinks.unlockOnSecondary || []),
+      ]);
+      for (const id of previewIds) drawLink(selectedForLinks.id, id, true);
     }
 
     const drawRoomIcon = (room, x, y, size, color, alpha) => {
@@ -5673,14 +5992,15 @@ class Game {
         : room.kind === 'bridgeBoss' ? '#7bd'
         : null;
       const baseFill = completed ? '#26442f' : (elem ? elem.body : '#665c38');
-      const fill = !unlocked ? '#1c1c22' : room.kind === 'finalBoss' ? '#7a6320'
+      const accessible = unlocked || ms.freeTravel;
+      const fill = !accessible ? '#1c1c22' : room.kind === 'finalBoss' ? '#7a6320'
         : room.kind === 'trueFinal' ? '#15552d'
         : room.kind === 'bridgeBoss' ? '#294d5b'
         : room.kind === 'miniBoss' ? '#4a3866'
         : baseFill;
-      const stroke = selected ? '#ffe033' : recent ? '#fff' : current ? '#4f4' : kindColor || (unlocked ? '#aaa' : '#333');
+      const stroke = selected ? '#ffe033' : recent ? '#fff' : current ? '#4f4' : kindColor || (accessible ? '#aaa' : '#333');
 
-      if (unlocked) {
+      if (accessible) {
         ctx.fillStyle = selected ? 'rgba(255,224,51,0.12)' : current ? 'rgba(80,255,80,0.08)' : 'rgba(255,255,255,0.04)';
         ctx.fillRect(x - cellW / 2 + 3, y - cellH / 2 + 3, cellW - 6, cellH - 6);
       }
@@ -5688,8 +6008,8 @@ class Game {
       ctx.fillStyle = fill;
       ctx.strokeStyle = stroke;
       ctx.lineWidth = selected ? 4 : recent || current ? 3 : 1.5;
-      const tileW = selected ? 56 : 48;
-      const tileH = selected ? 38 : 34;
+      const tileW = (selected ? 56 : 48) * tileScale;
+      const tileH = (selected ? 38 : 34) * tileScale;
       const drawDiamond = room.kind === 'miniBoss';
       const drawTriangle = room.kind === 'bridgeBoss';
       if (kindColor && unlocked) {
@@ -5732,6 +6052,53 @@ class Game {
         ctx.restore();
       }
       drawRoomIcon(room, x, y, Math.min(tileW, tileH), kindColor || '#fff', unlocked ? 0.95 : 0.32);
+      const skyExit = room.navDirs && Object.values(room.navDirs).some(id => MAP_ROOM_BY_ID[id] && MAP_ROOM_BY_ID[id].area === 'skies');
+      if (skyExit) {
+        ctx.save();
+        ctx.globalAlpha = unlocked ? 1 : 0.42;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.strokeStyle = '#7bd';
+        ctx.lineWidth = 1.5;
+        const sx = x + tileW / 2 - 8;
+        const sy = y - tileH / 2 - 10;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - 8);
+        ctx.lineTo(sx + 8, sy + 6);
+        ctx.lineTo(sx - 8, sy + 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#9df';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('SKY', sx, sy + 5);
+        ctx.textAlign = 'left';
+        ctx.restore();
+      }
+      const roomItemId = completed ? roomItemById[room.id] : null;
+      const roomItemDef = roomItemId ? BOSS_ITEMS[roomItemId] : null;
+      if (roomItemDef) {
+        const choice = this.mapState.itemRewardChoices && this.mapState.itemRewardChoices[room.id];
+        const itemAttr = ITEM_ATTRIBUTES[roomItemDef.attr] || ITEM_ATTRIBUTES.mind;
+        ctx.save();
+        ctx.globalAlpha = choice === 'attr' ? 0.48 : 0.95;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.strokeStyle = choice === 'attr' ? itemAttr.color : roomItemDef.color;
+        ctx.lineWidth = 1.5;
+        const ix = x + tileW / 2 - 9;
+        const iy = y - tileH / 2 + 9;
+        ctx.beginPath();
+        ctx.arc(ix, iy, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        drawItemIcon(ctx, roomItemId, ix, iy, 13, roomItemDef.color);
+        if (choice === 'attr') {
+          ctx.fillStyle = itemAttr.color;
+          ctx.font = 'bold 8px monospace';
+          ctx.fillText('+', ix - 3, iy + 16);
+        }
+        ctx.restore();
+      }
 
       if (completed) {
         ctx.fillStyle = '#9f9';

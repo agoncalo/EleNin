@@ -423,14 +423,13 @@ const BOSS_NAMES = {
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v8';
+const MAP_STORAGE_KEY = 'elenin-map-cache-v27';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
-  mountain:  { label: 'MOUNTAIN',   color: '#9bdff2', centerCol: -7, centerRow: -1 },
-  volcano:   { label: 'VOLCANO',    color: '#e22',    centerCol: 7,  centerRow: -1 },
-  castle:    { label: 'CASTLE',     color: '#888',    centerCol: 0,  centerRow: -5 },
-  castleTop: { label: 'CASTLE TOP', color: '#aaa',    centerCol: 0,  centerRow: -8 },
+  mountain:  { label: 'MOUNTAIN',   color: '#9bdff2', centerCol: -5, centerRow: -1 },
+  volcano:   { label: 'VOLCANO',    color: '#e22',    centerCol: 5,  centerRow: -1 },
+  castle:    { label: 'CASTLE',     color: '#888',    centerCol: 0,  centerRow: -7 },
   skies:     { label: 'SKIES',      color: '#0797d8', centerCol: 0,  centerRow: -12 },
 };
 const MAP_ROOM_DEFS = (() => {
@@ -478,15 +477,6 @@ const MAP_ROOM_DEFS = (() => {
       const row = idx % 5;
       return [col, row - 2 - Math.floor(col / 2)];
     }
-    if (area === 'castle') {
-      const castleOffsets = [[-1,1], [1,1], [0,0], [0,-1], [-2,0], [2,0]];
-      return castleOffsets[idx] || spiralOffset(idx);
-    }
-    if (area === 'castleTop') {
-      const col = idx % 4;
-      const row = Math.floor(idx / 4);
-      return [col - 2, -row];
-    }
     if (area === 'skies') {
       const skyOffsets = [
         [0,0], [-1,1], [1,1], [-2,0], [2,0], [-1,-1], [1,-1],
@@ -498,9 +488,31 @@ const MAP_ROOM_DEFS = (() => {
     }
     return spiralOffset(idx);
   };
+  const skyOffsetFor = (boss, element, idx) => {
+    if (boss === 'flyshooter' && element === 'ghost') return [0, -5];
+    if (element === 'ghost' && boss === 'deflector') return [-3, -5];
+    if (element === 'ghost' && boss === 'protector') return [3, -5];
+    if (element === 'ghost' && boss === 'attacker') return [-1, -4];
+    const skyOffsets = [
+      [0,0], [-1,1], [1,1], [-2,0], [2,0], [-1,-1], [1,-1],
+      [0,-2], [-3,1], [3,1], [-2,2], [2,2], [0,2],
+      [-3,-1], [3,-1], [-1,-3], [1,-3], [-4,0],
+      [4,0], [-2,-2], [2,-2],
+    ];
+    return skyOffsets[idx % skyOffsets.length];
+  };
+  const castleOffsetFor = (boss, element, idx) => {
+    if (boss === 'flyshooter' && element === null) return [0, 0];
+    if (element === null && boss === 'deflector') return [-3, 2];
+    if (element === null && boss === 'protector') return [-1, 2];
+    if (element === null && boss === 'attacker') return [1, 2];
+    if (element === 'ghost' && boss === 'walker') return [3, 2];
+    const topOffsets = [[-3,-2], [-1,-2], [1,-2], [3,-2], [-2,-2], [2,-2], [0,-2]];
+    return topOffsets[idx % topOffsets.length];
+  };
   const areaFor = (boss, element) => {
     if (element === 'lightning') return 'skies';
-    if (element === 'ghost') return easyBosses.has(boss) ? 'castleTop' : 'skies';
+    if (element === 'ghost') return easyBosses.has(boss) ? 'castle' : 'skies';
     if (element === 'fire' || element === 'spiky') return 'volcano';
     if (element === 'crystal' || element === 'steel') return 'mountain';
     if (boss === 'flyshooter' && element === null) return 'castle';
@@ -508,10 +520,13 @@ const MAP_ROOM_DEFS = (() => {
     return 'forest';
   };
   const layoutFor = (area, boss, element, idx) => {
-    if (boss === 'flyer' || boss === 'flyshooter') return 'openArea';
-    if (area === 'castle' || area === 'castleTop') return 'cubicle';
-    if (area === 'forest' && element === null && boss === 'walker') return null;
-    return idx % 2 === 0 ? 'openArea' : 'cubicle';
+    if (area === 'forest' && element === null && boss === 'walker') return 'normal';
+    if (boss === 'flyer' || boss === 'flyshooter') return 'plain';
+    if (boss === 'shielded' || boss === 'protector') return 'wall';
+    if (boss === 'charger' || boss === 'bouncer') return 'lane';
+    if (area === 'castle') return idx % 2 === 0 ? 'wall' : 'lane';
+    const layouts = ['normal', 'plain', 'wall', 'lane'];
+    return layouts[(idx + (element ? element.length : 0)) % layouts.length];
   };
   const enemyMix = (area, boss, element, idx) => {
     const rangedByArea = {
@@ -519,7 +534,6 @@ const MAP_ROOM_DEFS = (() => {
       mountain: ['shooter'],
       volcano: ['shooter'],
       castle: ['shooter'],
-      castleTop: ['shooter', 'flyshooter'],
       skies: ['flyshooter', 'shooter'],
     };
     const commonByArea = {
@@ -527,7 +541,6 @@ const MAP_ROOM_DEFS = (() => {
       mountain: ['charger', 'jumper', 'bouncer', 'flyer', 'walker'],
       volcano: ['charger', 'bouncer', 'jumper', 'flyer', 'walker'],
       castle: ['charger', 'bouncer', 'jumper', 'flyer', 'walker'],
-      castleTop: ['flyer', 'charger', 'bouncer', 'jumper', 'walker'],
       skies: ['flyer', 'charger', 'bouncer', 'jumper', 'walker'],
     };
     const specialByArea = {
@@ -535,7 +548,6 @@ const MAP_ROOM_DEFS = (() => {
       mountain: ['shielded', 'deflector'],
       volcano: ['shielded', 'attacker'],
       castle: ['deflector', 'protector', 'attacker', 'shielded'],
-      castleTop: ['deflector', 'shielded', 'attacker'],
       skies: ['attacker', 'deflector', 'protector'],
     };
     const rangedTypes = new Set(['shooter', 'flyshooter']);
@@ -566,16 +578,38 @@ const MAP_ROOM_DEFS = (() => {
     if (boss === 'flyshooter' && element === 'ghost') return 'trueFinal';
     if (boss === 'flyshooter' && element === null) return 'finalBoss';
     if (specialBosses.has(boss)) return 'miniBoss';
-    if (area === 'castleTop' || area === 'skies') return 'bridgeBoss';
+    if (area === 'skies' || (area === 'castle' && element === 'ghost')) return 'bridgeBoss';
     return 'stage';
+  };
+  const objectiveFor = (boss, element, enemyTypes, idx) => {
+    const targetType = (enemyTypes || []).find(type => type === boss) || (enemyTypes || [boss])[idx % Math.max(1, (enemyTypes || [boss]).length)];
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+                       shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
+                       flyer:'Flyers', flyshooter:'Overlords' }[targetType] || title(targetType);
+    const seed = idx + boss.length + (element ? element.length : 0);
+    const options = [
+      { type: 'kills', label: 'Defeat Enemies', desc: 'Defeat enemies to fill the objective bar and draw out the boss.', icon: '' },
+      { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills fill the objective bar. One is always present.`, icon: '' },
+      { type: 'survive', label: 'Survive', desc: 'Survival time fills the objective bar. Stay alive!', icon: '' },
+      { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to fill the objective bar.', icon: '' },
+      { type: 'collect', label: 'Collect Shurikens', desc: 'Pick up marked shuriken caches to fill the objective bar.', icon: '' },
+      { type: 'defend', label: 'Defend the Samurai', desc: 'Keep the samurai alive while the objective bar fills.', icon: '' },
+    ];
+    if (boss === 'flyshooter' && (element === null || element === 'ghost')) return options[0];
+    return options[seed % options.length];
   };
   const addRoom = (boss, element) => {
     const area = areaFor(boss, element);
     if (!byArea[area]) byArea[area] = [];
     const idx = byArea[area].length;
     const spec = MAP_AREAS[area];
-    const offset = areaOffset(area, idx);
+    const offset = area === 'castle'
+      ? castleOffsetFor(boss, element, idx)
+      : area === 'skies'
+        ? skyOffsetFor(boss, element, idx)
+        : areaOffset(area, idx);
     const id = `${area}-${boss}-${elemId(element)}`;
+    const enemyTypes = enemyMix(area, boss, element, idx);
     const room = {
       id,
       name: `${title(element)} ${BOSS_NAMES[boss] || boss.toUpperCase()}`,
@@ -587,8 +621,9 @@ const MAP_ROOM_DEFS = (() => {
       waveIdx: waveIdxFor(boss),
       bossType: boss,
       element,
-      enemyTypes: enemyMix(area, boss, element, idx),
+      enemyTypes,
       kind: kindFor(boss, element, area),
+      objective: objectiveFor(boss, element, enemyTypes, idx),
       navLinks: [],
       unlockOnPrimary: [],
       unlockOnSecondary: [],
@@ -597,7 +632,7 @@ const MAP_ROOM_DEFS = (() => {
       room.name = 'Forest Outpost';
       room.subtitle = 'Basic mission';
       room.enemyTypes = ['walker','shooter'];
-      room.mapType = null;
+      room.mapType = 'normal';
     }
     byArea[area].push(room);
     rooms.push(room);
@@ -606,24 +641,157 @@ const MAP_ROOM_DEFS = (() => {
     for (const boss of bossOrder) addRoom(boss, element);
   }
   const byId = Object.fromEntries(rooms.map(r => [r.id, r]));
-  const navBridgeIds = {
-    'forest-bouncer-normal': ['mountain-walker-crystal', 'volcano-walker-fire'],
-    'forest-shielded-water': ['mountain-shooter-crystal', 'volcano-shooter-fire'],
-    'mountain-shielded-crystal': ['castle-deflector-normal'],
-    'mountain-protector-steel': ['castle-protector-normal', 'castleTop-walker-ghost'],
-    'volcano-shielded-fire': ['castle-attacker-normal'],
-    'volcano-attacker-fire': ['castle-protector-normal', 'castleTop-bouncer-ghost'],
-    'castle-deflector-normal': ['castle-protector-normal', 'castle-attacker-normal'],
-    'castle-protector-normal': ['castle-flyshooter-normal', 'skies-walker-lightning'],
-    'castle-attacker-normal': ['castle-flyshooter-normal', 'skies-shooter-lightning'],
-    'castle-flyshooter-normal': ['skies-walker-lightning', 'skies-flyer-lightning'],
-    'castleTop-walker-ghost': ['skies-walker-ghost', 'skies-walker-lightning'],
-    'castleTop-flyer-ghost': ['skies-flyer-ghost', 'skies-flyer-lightning'],
-    'skies-walker-lightning': ['castle-protector-normal'],
-    'skies-shooter-lightning': ['castle-attacker-normal'],
-    'skies-attacker-lightning': ['skies-flyshooter-ghost'],
-    'skies-flyshooter-lightning': ['skies-flyshooter-ghost'],
+  const areaBounds = {};
+  for (const room of rooms) {
+    if (!areaBounds[room.area]) {
+      areaBounds[room.area] = { minCol: room.col, maxCol: room.col, minRow: room.row, maxRow: room.row };
+    } else {
+      const b = areaBounds[room.area];
+      b.minCol = Math.min(b.minCol, room.col);
+      b.maxCol = Math.max(b.maxCol, room.col);
+      b.minRow = Math.min(b.minRow, room.row);
+      b.maxRow = Math.max(b.maxRow, room.row);
+    }
+  }
+  const borderDistance = room => {
+    const b = areaBounds[room.area];
+    if (!b) return 0;
+    return Math.min(room.col - b.minCol, b.maxCol - room.col, room.row - b.minRow, b.maxRow - room.row);
   };
+  const navBridgeIds = {};
+  const navBridgeDirs = {};
+  const bridgeSourceIds = new Set();
+  const bridgeTargetIds = new Set();
+  const protectedBridgePairs = [];
+  const addBridge = (fromId, toId, protectedBridge, forceDir) => {
+    if (!fromId || !toId || fromId === toId) return;
+    if (!navBridgeIds[fromId]) navBridgeIds[fromId] = [];
+    if (!navBridgeIds[fromId].includes(toId)) navBridgeIds[fromId].push(toId);
+    if (forceDir) navBridgeDirs[fromId + '|' + toId] = forceDir;
+    bridgeSourceIds.add(fromId);
+    bridgeTargetIds.add(toId);
+    if (protectedBridge) protectedBridgePairs.push({ fromId, toId, dir: forceDir });
+  };
+  const edgeRooms = (area, side) => {
+    const b = areaBounds[area];
+    const areaRooms = rooms.filter(room => room.area === area);
+    if (!b) return areaRooms;
+    if (side === 'left') return areaRooms.filter(room => room.col === b.minCol);
+    if (side === 'right') return areaRooms.filter(room => room.col === b.maxCol);
+    if (side === 'up') return areaRooms.filter(room => room.row === b.minRow);
+    if (side === 'down') return areaRooms.filter(room => room.row === b.maxRow);
+    return areaRooms;
+  };
+  const bridgeScore = (from, to, fromSide, toSide) => {
+    const dc = to.col - from.col;
+    const dr = to.row - from.row;
+    const horizontal = fromSide === 'left' || fromSide === 'right' || toSide === 'left' || toSide === 'right';
+    const vertical = fromSide === 'up' || fromSide === 'down' || toSide === 'up' || toSide === 'down';
+    const rowPenalty = horizontal ? Math.abs(dr) * 120 : 0;
+    const colPenalty = vertical ? Math.abs(dc) * 120 : 0;
+    const travel = Math.abs(dc) + Math.abs(dr);
+    const depthPenalty = borderDistance(from) + borderDistance(to);
+    return rowPenalty + colPenalty + travel + depthPenalty * 20;
+  };
+  const addAreaBridge = (fromArea, toArea, fromSide, toSide, count) => {
+    const sources = edgeRooms(fromArea, fromSide).slice();
+    const targets = edgeRooms(toArea, toSide).slice();
+    const usedSources = new Set();
+    const usedTargets = new Set();
+    for (let i = 0; i < count; i++) {
+      let best = null;
+      let bestScore = Infinity;
+      for (const from of sources) {
+        if (bridgeSourceIds.has(from.id)) continue;
+        if (usedSources.has(from.id)) continue;
+        for (const to of targets) {
+          if (bridgeTargetIds.has(to.id)) continue;
+          if (usedTargets.has(to.id)) continue;
+          const score = bridgeScore(from, to, fromSide, toSide);
+          if (score < bestScore) {
+            bestScore = score;
+            best = { from, to };
+          }
+        }
+      }
+      if (!best) break;
+      addBridge(best.from.id, best.to.id);
+      usedSources.add(best.from.id);
+      usedTargets.add(best.to.id);
+    }
+  };
+  const hardestEdgeRoom = (area, side) => {
+    const candidates = edgeRooms(area, side).filter(room => !bridgeSourceIds.has(room.id));
+    let best = null;
+    let bestScore = -Infinity;
+    for (const room of candidates) {
+      const areaRank = { forest: 1, mountain: 2, volcano: 2, castle: 3, skies: 5 };
+      const kindRank = { stage: 0, bridgeBoss: 1, miniBoss: 2, finalBoss: 4, trueFinal: 5 };
+      const score =
+        (room.distance || 0) * 100 +
+        (areaRank[room.area] || 1) * 40 +
+        (kindRank[room.kind] || 0) * 30 +
+        (room.element ? 15 : 0) +
+        (room.waveIdx || 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = room;
+      }
+    }
+    return best;
+  };
+  const hardEdgeRooms = (area, side) => {
+    return edgeRooms(area, side)
+      .filter(room => !bridgeSourceIds.has(room.id))
+      .sort((a, b) => {
+        const kindRank = { stage: 0, bridgeBoss: 1, miniBoss: 2, finalBoss: 4, trueFinal: 5 };
+        const score = room =>
+          (kindRank[room.kind] || 0) * 100 +
+          (room.element ? 40 : 0) +
+          (room.waveIdx || 0);
+        return score(b) - score(a);
+      });
+  };
+  const addHardBridge = (fromArea, toArea, fromSide, toSide) => {
+    const from = hardestEdgeRoom(fromArea, fromSide);
+    const targets = edgeRooms(toArea, toSide).filter(room => !bridgeTargetIds.has(room.id));
+    if (!from || !targets.length) return;
+    let bestTarget = null;
+    let bestScore = Infinity;
+    for (const to of targets) {
+      const score = bridgeScore(from, to, fromSide, toSide);
+      if (score < bestScore) {
+        bestScore = score;
+        bestTarget = to;
+      }
+    }
+    if (bestTarget) addBridge(from.id, bestTarget.id, true);
+  };
+  const addExplicitHardBridge = (fromArea, toArea, fromSide, toSide, index) => {
+    const from = hardEdgeRooms(fromArea, fromSide)[index || 0];
+    const targets = edgeRooms(toArea, toSide).filter(room => !bridgeTargetIds.has(room.id));
+    if (!from || !targets.length) return;
+    let bestTarget = null;
+    let bestScore = Infinity;
+    for (const to of targets) {
+      const score = bridgeScore(from, to, fromSide, toSide);
+      if (score < bestScore) {
+        bestScore = score;
+        bestTarget = to;
+      }
+    }
+    if (bestTarget) addBridge(from.id, bestTarget.id);
+  };
+  const addPinnedBridge = (fromId, toId, dir) => {
+    if (byId[fromId] && byId[toId]) addBridge(fromId, toId, true, dir);
+  };
+  addAreaBridge('forest', 'mountain', 'left', 'right', 2);
+  addAreaBridge('forest', 'volcano', 'right', 'left', 2);
+  addPinnedBridge('mountain-attacker-steel', 'skies-deflector-ghost', 'up');
+  addPinnedBridge('volcano-flyer-fire', 'skies-protector-ghost', 'up');
+  addAreaBridge('mountain', 'castle', 'up', 'down', 2);
+  addAreaBridge('volcano', 'castle', 'up', 'down', 2);
+  addAreaBridge('castle', 'skies', 'up', 'down', 2);
   const nearestInDirection = (room, candidates, dx, dy) => {
     let best = null;
     let bestScore = Infinity;
@@ -635,6 +803,7 @@ const MAP_ROOM_DEFS = (() => {
       if (dy !== 0 && dr * dy <= 0) continue;
       const primary = dx !== 0 ? Math.abs(dc) : Math.abs(dr);
       const offAxis = dx !== 0 ? Math.abs(dr) : Math.abs(dc);
+      if (offAxis > 0 && borderDistance(other) >= borderDistance(room)) continue;
       const score = primary * 100 + offAxis * 45;
       if (score < bestScore) {
         bestScore = score;
@@ -649,24 +818,119 @@ const MAP_ROOM_DEFS = (() => {
     if (Math.abs(dc) >= Math.abs(dr)) return dc < 0 ? 'left' : 'right';
     return dr < 0 ? 'up' : 'down';
   };
+  const oppositeDir = { left: 'right', right: 'left', up: 'down', down: 'up' };
+  const sortedDirections = [
+    ['left', -1, 0],
+    ['right', 1, 0],
+    ['up', 0, -1],
+    ['down', 0, 1],
+  ];
+  for (const room of rooms) room.navDirs = {};
+  const setNavPair = (from, to, dir) => {
+    if (!from || !to || !dir) return false;
+    const opp = oppositeDir[dir];
+    if (!opp || from.navDirs[dir] || to.navDirs[opp]) return false;
+    from.navDirs[dir] = to.id;
+    to.navDirs[opp] = from.id;
+    return true;
+  };
+  const clearNavPair = (from, dir) => {
+    if (!from || !dir || !from.navDirs[dir]) return;
+    const to = byId[from.navDirs[dir]];
+    const opp = oppositeDir[dir];
+    delete from.navDirs[dir];
+    if (to && opp && to.navDirs[opp] === from.id) delete to.navDirs[opp];
+  };
+  const forceNavPair = (from, to, dir) => {
+    if (!from || !to || !dir) return false;
+    const opp = oppositeDir[dir];
+    if (!opp) return false;
+    clearNavPair(from, dir);
+    clearNavPair(to, opp);
+    from.navDirs[dir] = to.id;
+    to.navDirs[opp] = from.id;
+    return true;
+  };
   for (const room of rooms) {
     const bridgeRooms = (navBridgeIds[room.id] || []).map(id => byId[id]).filter(Boolean);
     const areaRooms = rooms.filter(other => other.area === room.area);
-    const directional = {};
-    for (const dir of [
-      ['left', -1, 0],
-      ['right', 1, 0],
-      ['up', 0, -1],
-      ['down', 0, 1],
-    ]) {
-      const target = nearestInDirection(room, areaRooms, dir[1], dir[2]);
-      if (target) directional[dir[0]] = target.id;
-    }
     for (const bridge of bridgeRooms) {
-      directional[dirKeyFor(room, bridge)] = bridge.id;
+      setNavPair(room, bridge, navBridgeDirs[room.id + '|' + bridge.id] || dirKeyFor(room, bridge));
     }
-    room.navLinks = Object.values(directional).filter((id, idx, arr) => arr.indexOf(id) === idx).slice(0, 4);
+    for (const dir of sortedDirections) {
+      const target = nearestInDirection(room, areaRooms, dir[1], dir[2]);
+      if (target) setNavPair(room, target, dir[0]);
+    }
+  }
+  for (const pair of protectedBridgePairs) {
+    const from = byId[pair.fromId];
+    const to = byId[pair.toId];
+    forceNavPair(from, to, pair.dir || dirKeyFor(from, to));
+  }
+  for (const room of rooms) {
+    room.navLinks = Object.values(room.navDirs).filter((id, idx, arr) => arr.indexOf(id) === idx);
     room.unlockOnPrimary = room.navLinks.slice();
+  }
+  const start = byId[MAP_START_ROOM_ID] || rooms[0];
+  const reachableFromStart = () => {
+    const seen = new Set();
+    const queue = start ? [start] : [];
+    if (start) seen.add(start.id);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const room = queue[qi];
+      for (const id of room.navLinks || []) {
+        const next = byId[id];
+        if (!next || seen.has(next.id)) continue;
+        seen.add(next.id);
+        queue.push(next);
+      }
+    }
+    return seen;
+  };
+  let reachable = reachableFromStart();
+  while (start && reachable.size < rooms.length) {
+    let best = null;
+    let bestScore = Infinity;
+    for (const from of rooms) {
+      if (!reachable.has(from.id)) continue;
+      for (const to of rooms) {
+        if (reachable.has(to.id)) continue;
+        const dir = dirKeyFor(from, to);
+        const opp = oppositeDir[dir];
+        if (from.navDirs[dir] || to.navDirs[opp]) continue;
+        const sameAreaPenalty = from.area === to.area ? 0 : 80;
+        const score = Math.abs(from.col - to.col) * 10 + Math.abs(from.row - to.row) * 10 + sameAreaPenalty;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { from, to, dir };
+        }
+      }
+    }
+    if (!best) break;
+    setNavPair(best.from, best.to, best.dir);
+    for (const room of rooms) {
+      room.navLinks = Object.values(room.navDirs).filter((id, idx, arr) => arr.indexOf(id) === idx);
+      room.unlockOnPrimary = room.navLinks.slice();
+    }
+    reachable = reachableFromStart();
+  }
+  if (start) {
+    const queue = [start];
+    start.distance = 0;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const room = queue[qi];
+      for (const id of room.navLinks || []) {
+        const next = byId[id];
+        if (!next || next.distance !== undefined) continue;
+        next.distance = room.distance + 1;
+        queue.push(next);
+      }
+    }
+  }
+  for (const room of rooms) {
+    if (room.distance === undefined) {
+      room.distance = Math.max(1, Math.abs(room.col - (start ? start.col : 0)) + Math.abs(room.row - (start ? start.row : 0)));
+    }
   }
   return rooms;
 })();

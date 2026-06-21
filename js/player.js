@@ -69,6 +69,17 @@ class Player {
 
     // Special state
     this.specialCooldown = 0;
+    this.actionChargeMax = 3;
+    this.actionRechargeMax = 180;
+    this.attackCharges = this.actionChargeMax;
+    this.specialCharges = this.actionChargeMax;
+    this.attackRechargeTimer = 0;
+    this.specialRechargeTimer = 0;
+    this.attackFocus = 1;
+    this.attackFocusDrop = 0.30;
+    this.attackFocusMin = 0.10;
+    this.attackFocusRechargeMax = 300;
+    this._attackDamageMult = 1;
 
     // Mana system (pip-based)
     this.maxMana = MANA_CAPS[this.ninjaType]; // default, set per ninja in switchNinja
@@ -168,7 +179,7 @@ class Player {
     // Death respawn delay
     this.deathTimer = 0;
 
-    // Focus (HP) regen
+    // Former focus regen timer kept for save/runtime compatibility.
     this.focusRegenTimer = 0;
 
     // Bubble shield orb — temporary damage block
@@ -210,6 +221,56 @@ class Player {
   }
 
   get type() { return NINJA_TYPES[this.ninjaType]; }
+
+  _updateActionCharges() {
+    const max = this.actionChargeMax || 3;
+    const recharge = this.actionRechargeMax || 180;
+    if (this.attackCharges === undefined) this.attackCharges = max;
+    if (this.specialCharges === undefined) this.specialCharges = max;
+    this.attackCharges = max;
+    this.attackRechargeTimer = 0;
+    if (this.attackFocus === undefined) this.attackFocus = 1;
+    if (this.attackFocus < 1) {
+      const drop = this.attackFocusDrop || 0.30;
+      const focusRecharge = this.attackFocusRechargeMax || 300;
+      this.attackFocus = Math.min(1, this.attackFocus + drop / focusRecharge);
+    } else {
+      this.attackFocus = 1;
+    }
+    if (this.specialCharges < max) {
+      this.specialRechargeTimer = (this.specialRechargeTimer || 0) + 1;
+      if (this.specialRechargeTimer >= recharge) {
+        this.specialRechargeTimer = 0;
+        this.specialCharges = Math.min(max, this.specialCharges + 1);
+      }
+    } else {
+      this.specialRechargeTimer = 0;
+    }
+  }
+
+  _spendActionCharge(kind, game) {
+    if (kind === 'attack') return true;
+    const prop = kind === 'special' ? 'specialCharges' : 'attackCharges';
+    if (this[prop] === undefined) this[prop] = this.actionChargeMax || 3;
+    if (this[prop] <= 0) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'COOLDOWN', '#aaa'));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return false;
+    }
+    this[prop]--;
+    return true;
+  }
+
+  _consumeAttackFocus() {
+    if (this.attackFocus === undefined) this.attackFocus = 1;
+    this._attackDamageMult = Math.max(this.attackFocusMin || 0.10, Math.min(1, this.attackFocus));
+    this.attackFocus = Math.max(this.attackFocusMin || 0.10, this.attackFocus - (this.attackFocusDrop || 0.30));
+  }
+
+  _applyAttackFocusDamage(dmg) {
+    const mult = Math.max(this.attackFocusMin || 0.10, Math.min(1, this._attackDamageMult || this.attackFocus || 1));
+    return Math.max(1, Math.ceil(dmg * mult));
+  }
 
   // Mecha hand punch hit detection
   _mechaHandHit(game, g, hand) {
@@ -544,17 +605,10 @@ class Player {
   update(game) {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
+    this._updateActionCharges();
 
-    // Focus (HP) slow regen — 1 HP every 300 frames, only when not at max
-    if (this.hp > 0 && this.hp < this.maxHp) {
-      this.focusRegenTimer++;
-      if (this.focusRegenTimer >= 300) {
-        this.focusRegenTimer = 0;
-        this.hp = Math.min(this.hp + 1, this.maxHp);
-      }
-    } else {
-      this.focusRegenTimer = 0;
-    }
+    // HP no longer fuels actions; attack and magic use separate recharge pips.
+    this.focusRegenTimer = 0;
 
     // Bubble shield countdown
     if (this.bubbleShieldTimer > 0) this.bubbleShieldTimer--;
@@ -592,6 +646,10 @@ class Player {
     if (this.deathTimer > 0) {
       this.deathTimer--;
       if (this.deathTimer <= 0) {
+        if (game && typeof game._retryCurrentRoom === 'function') {
+          game._retryCurrentRoom();
+          return;
+        }
         this.hp = this.maxHp;
         this.x = 100; this.y = 200;
         this.vx = 0; this.vy = 0;
@@ -1563,6 +1621,21 @@ class Player {
       }
     }
 
+    // Rope collision: touching a rope refills normal jumps.
+    for (const r of game.ropes || []) {
+      const touchingRope = rectOverlap(this, r);
+      if (touchingRope) {
+        if (this.jumpsLeft < maxJ) {
+          this.jumpsLeft = maxJ;
+          this.vy = Math.min(this.vy, 1);
+          game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff0a0', 8, 3, 12));
+          game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'JUMPS', '#fff0a0'));
+          SFX.pickup();
+        }
+      }
+      if (r.pulse !== undefined) r.pulse = touchingRope ? Math.min(12, r.pulse + 1) : Math.max(0, r.pulse - 1);
+    }
+
     // Bubble buff collision
     for (const b of game.bubbles) {
       if (!b.done && !b.consumed && rectOverlap(this, b)) {
@@ -1615,8 +1688,8 @@ class Player {
             game.killPhrasePos = { x: this.x + this.w / 2, y: this.y - 20 };
           }
           game.deaths++;
-          game.lives--;
-          if (game.lives <= 0) {
+          game.lives = 0;
+          if (false) {
             game.killerInfo = burnKiller;
             game.gameOverDelay = 120;
             game.phraseText = '';
@@ -1735,6 +1808,7 @@ class Player {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#aaf', 18, 6, 16));
             }
 
+            if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
             e.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
@@ -1907,6 +1981,7 @@ class Player {
             game.boss.vy = -6;
             game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#aaf', 18, 6, 16));
           }
+          if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, 'steel', 'sword');
           // Vampire Teeth: heal 1% HP per hit (min 1)
           if (this.items.vampireTeeth) {
@@ -1962,11 +2037,8 @@ class Player {
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
         SFX.play(200, 'square', 0.2, 0.15, 0);
       } else {
-        const attackCost = Math.max(1, Math.floor(this.hp * 0.15));
-        this.hp = Math.max(1, this.hp - attackCost);
         this.shadowAttackHit = false;
         this.attack(game);
-        if (this.hp <= 1) this.attackCooldown = 120; // low-FOCUS penalty
         if (this.items.theCode) this.codeComboCount = 1;
       }
     }
@@ -1987,10 +2059,9 @@ class Player {
 
     // Special ability
     if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
-      const specialCost = Math.max(1, Math.floor(this.hp * 0.35));
-      this.hp = Math.max(1, this.hp - specialCost);
-      this.useSpecial(game);
-      if (this.hp <= 1) this.specialCooldown = 120; // low-FOCUS penalty
+      if (this._spendActionCharge('special', game)) {
+        this.useSpecial(game);
+      }
     }
 
     // Fire ninja: combo decay & fire armor
@@ -2569,7 +2640,8 @@ class Player {
     this.attackTimer = 10;
     this.swingHitSet = new Set();
     this._swingHealDone = false;
-    this.attackCooldown = this.ninjaType === 'earth' ? 10 : 15;
+    this._consumeAttackFocus();
+    this.attackCooldown = 60;
     if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();
 
@@ -2590,7 +2662,7 @@ class Player {
           this.x + this.w / 2 + this.facing * bubDist + Math.random() * 6,
           this.y + this.h / 2 + offY,
           this.facing,
-          this.type.attackDamage
+          this._applyAttackFocusDamage(this.type.attackDamage)
         ));
       }
     }
@@ -2599,7 +2671,7 @@ class Player {
     if (this.ninjaType === 'crystal') {
       const fx = this.x + this.w / 2 + this.facing * 20;
       const fy = this.y + this.h / 2;
-      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this.type.attackDamage + this.bonusElemental, 'player');
+      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this._applyAttackFocusDamage(this.type.attackDamage + this.bonusElemental), 'player');
       proj.w = 10; proj.h = 8;
       proj.freezeDust = true;
       proj.life = 60;
@@ -3167,8 +3239,8 @@ class Player {
         }
       }
       game.deaths++;
-      game.lives--;
-      if (game.lives <= 0) {
+      game.lives = 0;
+      if (false) {
         game.killerInfo = killerInfo || null;
         game.gameOverDelay = 120;
         game.phraseText = '';

@@ -73,6 +73,7 @@ function gameLoop(timestamp) {
     if (game.controlsScreen) {
       if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.controlsScreen = false;
+        game._openCurrentMap(30);
       }
       clearFrameInput();
       accumulator -= FIXED_DT;

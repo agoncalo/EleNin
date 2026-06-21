@@ -553,10 +553,10 @@ class Orb {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     // Skip attraction and pickup if player is already full of this resource
-    const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
-                 (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive)) ||
-                 (this.type === 'bubbleshield' && pl.bubbleShieldTimer > 0);
-    if (full) return;
+    //const full = (this.type === 'heal' && pl.hp >= pl.maxHp) ||
+    //             (this.type === 'ultcharge' && (pl.ultimateReady || pl.ultimateActive)) ||
+    //             (this.type === 'bubbleshield' && pl.bubbleShieldTimer > 0);
+    //if (full) return;
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;

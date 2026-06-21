@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 JS_ORDER = [
     'constants', 'utils', 'audio', 'music', 'input', 'effects',
-    'entities', 'stone', 'bubble', 'projectile', 'player', 'enemy',
+    'entities', 'stone', 'bubble', 'projectile', 'pickups', 'player', 'enemy',
     'pause', 'game', 'main'
 ]
 

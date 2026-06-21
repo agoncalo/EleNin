@@ -47,3 +47,46 @@ class Spike {
     }
   }
 }
+
+// Rope: hanging structure that refills normal jumps when touched.
+class Rope {
+  constructor(x, y, h) {
+    this.x = x;
+    this.y = y;
+    this.w = 24;
+    this.h = h || 140;
+    this.touching = false;
+    this.pulse = 0;
+  }
+
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const mid = sx + this.w / 2;
+    ctx.save();
+    ctx.strokeStyle = '#caa66a';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(mid, sy);
+    const segments = 7;
+    for (let i = 1; i <= segments; i++) {
+      const py = sy + (this.h / segments) * i;
+      const px = mid + Math.sin(i * 1.7 + this.pulse * 0.18) * 3;
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,240,180,0.65)';
+    ctx.lineWidth = 1.5;
+    for (let y = sy + 16; y < sy + this.h; y += 24) {
+      ctx.beginPath();
+      ctx.moveTo(mid - 7, y);
+      ctx.lineTo(mid + 7, y + 8);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#6b4b2a';
+    ctx.fillRect(mid - 12, sy - 4, 24, 8);
+    ctx.restore();
+  }
+}

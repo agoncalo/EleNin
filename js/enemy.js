@@ -1,15 +1,16 @@
 // ── Enemy base ───────────────────────────────────────────────
 class Enemy {
-  constructor(x, y, type, big, wave) {
+  constructor(x, y, type, big, wave, hpScale) {
     const base = ENEMY_STATS[type];
     this.type = type;
     this.big = !!big;
     this.wave = wave || 1;
+    const healthScale = hpScale || this.wave;
     this.w = big ? 42 : 28;
     this.h = big ? 42 : 28;
     this.x = x; this.y = y;
     this.vx = 0; this.vy = 0;
-    this.hp = (big ? base.hp * 4 : base.hp) * this.wave;
+    this.hp = (big ? base.hp * 4 : base.hp) * healthScale;
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
@@ -1411,7 +1412,7 @@ class Enemy {
 
     // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
-    if ((sourceType === 'sword' || sourceType === 'boulder') && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'boulder' || sourceType === 'shuriken') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
       const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
@@ -1476,11 +1477,7 @@ class Enemy {
       const _obj = game.currentObjective;
       // Determine if this hit should charge the meter
       let _shouldCharge = false;
-      if (!_obj || _obj.type === 'kills') {
-        _shouldCharge = true;
-      } else if (_obj.type === 'hunt') {
-        _shouldCharge = game._matchesHuntFilter(this, _obj.filter);
-      }
+      if (!_obj) _shouldCharge = true;
       // 'survive', 'zone', 'defend': charge via time in game.js, not from damage
       // 'collect': charge from shuriken caches in game.js, not from damage
       if (_shouldCharge) {
@@ -1549,6 +1546,9 @@ class Enemy {
   onDeath(game) {
     game.waveKills++;
     game.totalKills++;
+    if (game.currentObjective && game.currentObjective.type === 'hunt' && game._matchesHuntFilter(this, game.currentObjective.filter)) {
+      game.objectiveKills = (game.objectiveKills || 0) + 1;
+    }
     // Track kill for achievements & bestiary
     recordKill(game.player.ninjaType);
     recordBestiaryKill(this.type, this.big, false, this.element);
@@ -2500,14 +2500,14 @@ class Enemy {
 
 // ── Boss (extends Enemy) ─────────────────────────────────────
 class Boss extends Enemy {
-  constructor(x, y, bossType, wave) {
+  constructor(x, y, bossType, wave, hpScale) {
     // Call Enemy constructor with boss type, not big, and wave
-    super(x, y, bossType, false, wave);
+    super(x, y, bossType, false, wave, hpScale);
     this.bossType = bossType;
     // Override dimensions — boss is bigger than any regular enemy
     this.w = 56; this.h = 56;
-    // Override HP — uses bossBase * wave for consistent per-round scaling
-    this.hp = (ENEMY_STATS[bossType].bossBase || 200) * wave;
+    // Override HP with the map-distance scale when provided.
+    this.hp = (ENEMY_STATS[bossType].bossBase || 200) * (hpScale || wave);
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     // Override contact damage — boss takes 3 hits to kill player
