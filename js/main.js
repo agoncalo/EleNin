@@ -20,9 +20,11 @@ function gameLoop(timestamp) {
   accumulator += delta;
 
   // Cap accumulator to prevent spiral of death
-  if (accumulator > 200) accumulator = 200;
+  if (accumulator > 120) accumulator = 120;
 
-  while (accumulator >= FIXED_DT) {
+  let updateSteps = 0;
+  while (accumulator >= FIXED_DT && updateSteps < 5) {
+    updateSteps++;
     if (hitstopFrames > 0) {
       hitstopFrames--;
       clearFrameInput();
@@ -94,6 +96,7 @@ function gameLoop(timestamp) {
     accumulator -= FIXED_DT;
     clearFrameInput();
   }
+  if (updateSteps >= 5 && accumulator >= FIXED_DT) accumulator = 0;
 
   game.render();
   renderPauseMenu(ctx);

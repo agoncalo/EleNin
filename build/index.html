@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-21 18:20 UTC
-console.log("EleNin build: 2026-06-21 18:20 UTC");
+// BUILD TIMESTAMP: 2026-06-21 19:45 UTC
+console.log("EleNin build: 2026-06-21 19:45 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -17760,6 +17760,36 @@ function renderAchievementsPopup(ctx) {
 // ── Main Menu Options ────────────────────────────────────────
 const MAIN_MENU_OPTIONS = ['Play', 'Controls', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
 
+const GAME_OBJECT_LIMITS = {
+  projectiles: 180,
+  hitLines: 90,
+  grenades: 48,
+  effects: 120,
+  stoneBlocks: 36,
+  bubbles: 64,
+  orbs: 100,
+  trimerangs: 28,
+  diamondShards: 96,
+  flamePools: 36,
+  fireTrails: 90,
+  weatherParticles: 96,
+};
+
+function keepNotDone(obj) { return obj && !obj.done; }
+function keepEnemyAlive(enemy) { return enemy && !enemy.dead; }
+function keepPositiveLife(obj) { return obj && obj.life > 0; }
+
+function compactLiveArray(array, keepFn, maxLen) {
+  let write = 0;
+  for (let read = 0; read < array.length; read++) {
+    const item = array[read];
+    if (keepFn(item)) array[write++] = item;
+  }
+  array.length = write;
+  if (maxLen && array.length > maxLen) array.splice(0, array.length - maxLen);
+  return array;
+}
+
 // ── Game ──────────────────────────────────────────────────────
 class Game {
   constructor() {
@@ -17855,6 +17885,7 @@ class Game {
     this.hazardTimer = 0;
     this.weatherParticles = [];
     this.weatherTimer = 0;
+    this.weatherFogCount = 0;
 
     // Phrase system
     this.phraseText = '';
@@ -18620,9 +18651,9 @@ class Game {
 
   // ── Weather System ──
   _updateWeather() {
-    if (!this.levelElement) { this.weatherParticles = []; return; }
+    if (!this.levelElement) { this.weatherParticles.length = 0; this.weatherFogCount = 0; return; }
     const theme = ELEMENT_LEVEL_THEMES[this.levelElement];
-    if (!theme || !theme.weather) { this.weatherParticles = []; return; }
+    if (!theme || !theme.weather) { this.weatherParticles.length = 0; this.weatherFogCount = 0; return; }
     const weather = theme.weather;
     this.weatherTimer = (this.weatherTimer || 0) + 1;
     // Spawn new particles
@@ -18638,17 +18669,19 @@ class Game {
       } else if (weather === 'snow') {
         this.weatherParticles.push({ x: px, y: py, vx: -0.8 + Math.random() * 1.6, vy: 1.5 + Math.random() * 2, life: 200, maxLife: 200, type: 'snow' });
       } else if (weather === 'embers') {
-        this.weatherParticles.push({ x: cam.x + Math.random() * CANVAS_W, y: cam.y + CANVAS_H - 60, vx: -0.5 + Math.random(), vy: -(2 + Math.random() * 3), life: 120, maxLife: 120, type: 'embers' });
+        this.weatherParticles.push({ x: cam.x + Math.random() * CANVAS_W, y: cam.y + CANVAS_H - 60, vx: -0.5 + Math.random(), vy: -(2 + Math.random() * 3), life: 120, maxLife: 120, type: 'embers', color: Math.random() < 0.5 ? '#ff6622' : '#ff9900' });
       } else if (weather === 'fog') {
-        if (this.weatherParticles.filter(p => p.type === 'fog').length < 18) {
+        if ((this.weatherFogCount || 0) < 18) {
           this.weatherParticles.push({ x: px, y: cam.y + 200 + Math.random() * 200, vx: 0.3 + Math.random() * 0.5, vy: 0, life: 160, maxLife: 160, type: 'fog' });
         }
       } else if (weather === 'leaves') {
         this.weatherParticles.push({ x: px, y: py, vx: 1 + Math.random() * 2, vy: 2 + Math.random() * 2, life: 180, maxLife: 180, type: 'leaves', rot: Math.random() * Math.PI * 2 });
       }
     }
-    // Update particles
-    for (const p of this.weatherParticles) {
+    let write = 0;
+    const maxY = this.camera.y + CANVAS_H + 20;
+    for (let read = 0; read < this.weatherParticles.length; read++) {
+      const p = this.weatherParticles[read];
       p.x += p.vx;
       p.y += p.vy;
       p.life--;
@@ -18656,8 +18689,16 @@ class Game {
         p.rot += 0.05;
         p.vx += Math.sin(this.weatherTimer * 0.03) * 0.05;
       }
+      if (p.life > 0 && p.y < maxY) this.weatherParticles[write++] = p;
     }
-    this.weatherParticles = this.weatherParticles.filter(p => p.life > 0 && p.y < this.camera.y + CANVAS_H + 20);
+    this.weatherParticles.length = write;
+    if (this.weatherParticles.length > GAME_OBJECT_LIMITS.weatherParticles) {
+      this.weatherParticles.splice(0, this.weatherParticles.length - GAME_OBJECT_LIMITS.weatherParticles);
+    }
+    this.weatherFogCount = 0;
+    for (const p of this.weatherParticles) {
+      if (p.type === 'fog') this.weatherFogCount++;
+    }
   }
 
   _renderWeather(ctx, cam, bgOnly = false) {
@@ -18686,7 +18727,7 @@ class Game {
         ctx.fill();
       } else if (p.type === 'embers') {
         ctx.globalAlpha = alpha * 0.8;
-        ctx.fillStyle = Math.random() < 0.5 ? '#ff6622' : '#ff9900';
+        ctx.fillStyle = p.color || '#ff6622';
         ctx.beginPath();
         ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
         ctx.fill();
@@ -18712,9 +18753,9 @@ class Game {
 
   // ── Hazard System ──
   _updateHazards() {
-    if (!this.levelElement) { this.levelHazards = []; return; }
+    if (!this.levelElement) { this.levelHazards.length = 0; return; }
     const theme = ELEMENT_LEVEL_THEMES[this.levelElement];
-    if (!theme || !theme.hazard) { this.levelHazards = []; return; }
+    if (!theme || !theme.hazard) { this.levelHazards.length = 0; return; }
     this.hazardTimer = (this.hazardTimer || 0) + 1;
     const hazardType = theme.hazard;
     const pl = this.player;
@@ -18767,7 +18808,13 @@ class Game {
         }
       }
     }
-    this.levelHazards = this.levelHazards.filter(h => h.timer > 0 && h.y < this.levelH + 60);
+    let write = 0;
+    const maxY = this.levelH + 60;
+    for (let read = 0; read < this.levelHazards.length; read++) {
+      const h = this.levelHazards[read];
+      if (h.timer > 0 && h.y < maxY) this.levelHazards[write++] = h;
+    }
+    this.levelHazards.length = write;
   }
 
   _renderHazards(ctx, cam) {
@@ -19242,6 +19289,7 @@ class Game {
   }
 
   _ensureItemRoomAssignments() {
+    if (this._itemRoomAssignmentsReady && this.mapState.itemRoomAssignments) return;
     const assignments = {};
     const usedRooms = new Set();
     const source = this.mapState.itemRoomAssignments || {};
@@ -19289,6 +19337,9 @@ class Game {
     }
 
     this.mapState.itemRoomAssignments = assignments;
+    this._itemRoomAssignmentsReady = true;
+    this._roomItemByIdSource = null;
+    this._roomItemByIdCache = null;
     for (const [itemId, roomId] of Object.entries(assignments)) {
       const cached = this._getRoomConfig(roomId);
       cached.itemId = itemId;
@@ -19932,11 +19983,11 @@ class Game {
     const interval = PickupClass.spawnInterval(this);
     const phase = PickupClass.spawnPhase(this);
     const maxOnScreen = PickupClass.maxOnScreen(this);
-    if (this.tick % interval === phase && pickups.filter(pickup => !pickup.done).length < maxOnScreen) {
+    if (this.tick % interval === phase && pickups.length < maxOnScreen) {
       pickups.push(this._spawnScreenPickup(PickupClass));
     }
     for (const pickup of pickups) pickup.update(this);
-    return pickups.filter(pickup => !pickup.done);
+    return compactLiveArray(pickups, keepNotDone, maxOnScreen);
   }
 
   _updateShurikenPickups() {
@@ -19950,6 +20001,69 @@ class Game {
   _updateFieldPickups() {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
+  }
+
+  _mapAreaBounds() {
+    if (this._mapAreaBoundsCache) return this._mapAreaBoundsCache;
+    const bounds = [];
+    for (const [areaId, area] of Object.entries(MAP_AREAS)) {
+      let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+      for (const room of MAP_ROOM_DEFS) {
+        if (room.area !== areaId) continue;
+        minCol = Math.min(minCol, room.col);
+        maxCol = Math.max(maxCol, room.col);
+        minRow = Math.min(minRow, room.row);
+        maxRow = Math.max(maxRow, room.row);
+      }
+      if (minCol !== Infinity) bounds.push({ areaId, area, minCol, maxCol, minRow, maxRow });
+    }
+    this._mapAreaBoundsCache = bounds;
+    return bounds;
+  }
+
+  _mapGhostPathPairs() {
+    if (this._mapGhostPathPairsCache) return this._mapGhostPathPairsCache;
+    const seen = new Set();
+    const pairs = [];
+    for (const room of MAP_ROOM_DEFS) {
+      for (const id of Object.values(room.navDirs || {})) {
+        const key = room.id < id ? room.id + '|' + id : id + '|' + room.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ fromId: room.id, toId: id });
+      }
+    }
+    this._mapGhostPathPairsCache = pairs;
+    return pairs;
+  }
+
+  _roomHasSkyExit(room) {
+    if (!this._roomSkyExitCache) {
+      this._roomSkyExitCache = {};
+      for (const r of MAP_ROOM_DEFS) {
+        let hasExit = false;
+        for (const id of Object.values(r.navDirs || {})) {
+          if (MAP_ROOM_BY_ID[id] && MAP_ROOM_BY_ID[id].area === 'skies') {
+            hasExit = true;
+            break;
+          }
+        }
+        this._roomSkyExitCache[r.id] = hasExit;
+      }
+    }
+    return !!this._roomSkyExitCache[room.id];
+  }
+
+  _roomItemById() {
+    const assignments = this.mapState.itemRoomAssignments || {};
+    if (this._roomItemByIdCache && this._roomItemByIdSource === assignments) return this._roomItemByIdCache;
+    const roomItemById = {};
+    for (const [itemId, roomId] of Object.entries(assignments)) {
+      roomItemById[roomId] = itemId;
+    }
+    this._roomItemByIdSource = assignments;
+    this._roomItemByIdCache = roomItemById;
+    return roomItemById;
   }
 
   update() {
@@ -20190,7 +20304,7 @@ class Game {
     // During ultimate cutscene, freeze everything except effects
     if (this.player.ultCutscene) {
       for (const e of this.effects) e.update();
-      this.effects = this.effects.filter(e => !e.done);
+      compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
       // Camera still follows
       const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
       const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
@@ -20208,14 +20322,14 @@ class Game {
     for (const g of this.grenades) g.update(this);
     if (this.trimerangs) {
       for (const t of this.trimerangs) t.update(this);
-      this.trimerangs = this.trimerangs.filter(t => !t.done);
+      compactLiveArray(this.trimerangs, keepNotDone, GAME_OBJECT_LIMITS.trimerangs);
     }
     if (this.diamondShards) {
       for (const d of this.diamondShards) d.update(this);
-      this.diamondShards = this.diamondShards.filter(d => !d.done);
+      compactLiveArray(this.diamondShards, keepNotDone, GAME_OBJECT_LIMITS.diamondShards);
     }
     for (const f of this.flamePools) f.update(this);
-    this.flamePools = this.flamePools.filter(f => !f.done);
+    compactLiveArray(this.flamePools, keepNotDone, GAME_OBJECT_LIMITS.flamePools);
     if (this.crystalCastle) {
       this.crystalCastle.update(this);
       if (this.crystalCastle.done) this.crystalCastle = null;
@@ -20247,7 +20361,7 @@ class Game {
         }
       }
     }
-    this.fireTrails = this.fireTrails.filter(ft => ft.life > 0);
+    compactLiveArray(this.fireTrails, keepPositiveLife, GAME_OBJECT_LIMITS.fireTrails);
 
     // Weather & hazard updates
     if (!this.pathChoiceScreen && !this.orbBucketChoice) {
@@ -20397,7 +20511,7 @@ class Game {
             if (this.bossOrbsCollected >= this.bossOrbsRequired) this.spawnBoss();
           }
         }
-        this.bossOrbPickups = this.bossOrbPickups.filter(o => !o.done);
+        compactLiveArray(this.bossOrbPickups, keepNotDone);
       }
       if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
         this._completeCurrentMapRoom();
@@ -20429,16 +20543,15 @@ class Game {
     }
 
     // Cleanup
-    this.enemies = this.enemies.filter(e => !e.dead);
-    this.projectiles = this.projectiles.filter(p => !p.done);
-    this.hitLines = this.hitLines.filter(h => !h.done);
-    this.grenades = this.grenades.filter(g => !g.done);
-    this.effects = this.effects.filter(e => !e.done);
-    if (this.effects.length > 120) this.effects.splice(0, this.effects.length - 120);
-    this.stoneBlocks = this.stoneBlocks.filter(b => !b.done);
-    this.bubbles = this.bubbles.filter(b => !b.done);
-    this.orbs = this.orbs.filter(o => !o.done);
-    this.bossItems = this.bossItems.filter(bi => !bi.done);
+    compactLiveArray(this.enemies, keepEnemyAlive);
+    compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
+    compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
+    compactLiveArray(this.grenades, keepNotDone, GAME_OBJECT_LIMITS.grenades);
+    compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
+    compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
+    compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
+    compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
+    compactLiveArray(this.bossItems, keepNotDone);
 
     // Camera follows player (smooth)
     const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
@@ -23581,13 +23694,8 @@ class Game {
     ctx.beginPath();
     ctx.rect(mapX, mapY, mapW, mapH);
     ctx.clip();
-    for (const [areaId, area] of Object.entries(MAP_AREAS)) {
-      const areaRooms = MAP_ROOM_DEFS.filter(r => r.area === areaId);
-      if (!areaRooms.length) continue;
-      const minCol = Math.min(...areaRooms.map(r => r.col));
-      const maxCol = Math.max(...areaRooms.map(r => r.col));
-      const minRow = Math.min(...areaRooms.map(r => r.row));
-      const maxRow = Math.max(...areaRooms.map(r => r.row));
+    for (const areaInfo of this._mapAreaBounds()) {
+      const { area, minCol, maxCol, minRow, maxRow } = areaInfo;
       const ax = mapCenterX + (minCol - selectedForCamera.col) * cellW - cellW * 0.55;
       const ay = mapCenterY + (minRow - selectedForCamera.row) * cellH - cellH * 0.55;
       const aw = (maxCol - minCol + 1) * cellW + cellW * 0.1;
@@ -23608,10 +23716,7 @@ class Game {
 
     const selectedForLinks = MAP_ROOM_DEFS[ms.selected] || MAP_ROOM_BY_ID[this.currentRoomId];
     this._ensureItemRoomAssignments();
-    const roomItemById = {};
-    for (const [itemId, roomId] of Object.entries(this.mapState.itemRoomAssignments || {})) {
-      roomItemById[roomId] = itemId;
-    }
+    const roomItemById = this._roomItemById();
 
     const drawLink = (fromId, toId, preview) => {
       const a = MAP_ROOM_BY_ID[fromId], b = MAP_ROOM_BY_ID[toId];
@@ -23655,14 +23760,8 @@ class Game {
     ctx.rect(mapX, mapY, mapW, mapH);
     ctx.clip();
 
-    const allPathKeys = new Set();
-    for (const room of MAP_ROOM_DEFS) {
-      for (const id of Object.values(room.navDirs || {})) {
-        const key = room.id < id ? room.id + '|' + id : id + '|' + room.id;
-        if (allPathKeys.has(key)) continue;
-        allPathKeys.add(key);
-        drawLink(room.id, id, 'ghost');
-      }
+    for (const pair of this._mapGhostPathPairs()) {
+      drawLink(pair.fromId, pair.toId, 'ghost');
     }
 
     if (selectedForLinks && this.mapState.unlocked[selectedForLinks.id]) {
@@ -23811,8 +23910,7 @@ class Game {
         ctx.restore();
       }
       drawRoomIcon(room, x, y, Math.min(tileW, tileH), kindColor || '#fff', unlocked ? 0.95 : 0.32);
-      const skyExit = room.navDirs && Object.values(room.navDirs).some(id => MAP_ROOM_BY_ID[id] && MAP_ROOM_BY_ID[id].area === 'skies');
-      if (skyExit) {
+      if (this._roomHasSkyExit(room)) {
         ctx.save();
         ctx.globalAlpha = unlocked ? 1 : 0.42;
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
@@ -24114,9 +24212,11 @@ function gameLoop(timestamp) {
   accumulator += delta;
 
   // Cap accumulator to prevent spiral of death
-  if (accumulator > 200) accumulator = 200;
+  if (accumulator > 120) accumulator = 120;
 
-  while (accumulator >= FIXED_DT) {
+  let updateSteps = 0;
+  while (accumulator >= FIXED_DT && updateSteps < 5) {
+    updateSteps++;
     if (hitstopFrames > 0) {
       hitstopFrames--;
       clearFrameInput();
@@ -24188,6 +24288,7 @@ function gameLoop(timestamp) {
     accumulator -= FIXED_DT;
     clearFrameInput();
   }
+  if (updateSteps >= 5 && accumulator >= FIXED_DT) accumulator = 0;
 
   game.render();
   renderPauseMenu(ctx);
