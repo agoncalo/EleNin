@@ -690,9 +690,9 @@ class Enemy {
       }
       case 'deflector': {
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
-        // A Friend's Letter: deflector becomes friendly
-        if (game.player.items.friendsLetter) {
-          this.friendly = true;
+        // A Friend's Letter and objective Ronin allies fight on the player's side.
+        if (this.friendly || game.player.items.friendsLetter) {
+          if (game.player.items.friendsLetter) this.friendly = true;
           // Face nearest non-friendly enemy
           let nearDist = Infinity, nearE = null;
           for (const other of game.enemies) {
@@ -722,7 +722,7 @@ class Enemy {
           this.deflectReady = (this.vy >= -1 && this.vy <= 1);
           break;
         }
-        // Miniboss samurai — faces player with dead zone to prevent flipping
+        // Hostile Ronin faces player with dead zone to prevent flipping
         if (this.vy >= 0 && this.vy < 1 && Math.abs(px - cx) > 8) this.facing = px > cx ? 1 : -1;
         const distToPlayer = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
         this.jumpTimer++;

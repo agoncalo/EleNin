@@ -364,7 +364,7 @@ const WAVE_DEFS = [
   },
 
   { boss: 'shielded', killsForBoss: 42,  // Round 3 choice
-    objective: { type: 'defend', label: 'Defend the Samurai', desc: 'Keep the samurai alive — they charge Boss Orbs.', icon: '⊕' },
+    objective: { type: 'defend', label: 'Protect the Ronin', desc: 'Keep the allied Ronin alive — they charge Boss Orbs.', icon: '⊕' },
     pool: [
       { type: 'jumper', weight: 2 },
       { type: 'bouncer', weight: 2 },
@@ -593,7 +593,7 @@ const MAP_ROOM_DEFS = (() => {
       { type: 'survive', label: 'Survive', desc: 'Survival time fills the objective bar. Stay alive!', icon: '' },
       { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to fill the objective bar.', icon: '' },
       { type: 'collect', label: 'Collect Shurikens', desc: 'Pick up marked shuriken caches to fill the objective bar.', icon: '' },
-      { type: 'defend', label: 'Defend the Samurai', desc: 'Keep the samurai alive while the objective bar fills.', icon: '' },
+      { type: 'defend', label: 'Protect the Ronin', desc: 'Keep the allied Ronin alive while the objective bar fills.', icon: '' },
     ];
     if (boss === 'flyshooter' && (element === null || element === 'ghost')) return options[0];
     return options[seed % options.length];
