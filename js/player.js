@@ -1925,7 +1925,7 @@ class Player {
         }
         // Destroy/deflect enemy projectiles with attack
         for (const p of game.projectiles) {
-          if (!p.done && p.owner !== 'player' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
+          if (!p.done && p.owner !== 'player' && p.owner !== 'ally' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
             if (this.items.iaito) {
               // Deflect back at enemies
               p.vx = -p.vx * 1.3;
@@ -4740,7 +4740,7 @@ class CrystalCastle {
 
     // Block enemy projectiles
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'ally' || p.owner === 'boss') continue;
       if (this._touchesCastleRect(p)) {
         p.done = true;
         game.effects.push(new Effect(p.x, p.y, '#aff', 5, 2, 8));

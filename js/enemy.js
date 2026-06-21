@@ -140,7 +140,7 @@ class Enemy {
     if (this.lightningTeleportCooldown > 0) return;
     this.lightningTeleportCooldown = randInt(210, 340);
 
-    const pl = game.player;
+    const pl = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
     const pcx = pl.x + pl.w / 2;
     const pcy = pl.y + pl.h / 2;
     const cx = this.x + this.w / 2;
@@ -452,9 +452,12 @@ class Enemy {
     if (this.soakTimer > 0) this.soakTimer--;
 
     const speed = this.big ? 2.4 : 1.9;
-    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
-    const py = playerStealthed ? (this.y) : (game.player.y + game.player.h / 2);
+    const target = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const targetIsPlayer = target === game.player;
+    const playerStealthed = targetIsPlayer && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (targetBox.x + targetBox.w / 2);
+    const py = playerStealthed ? (this.y) : (targetBox.y + targetBox.h / 2);
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
 
@@ -1250,18 +1253,15 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
-      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+    const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
+    if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && contactTarget && !this.slamming && !contactTarget.slamming) {
+      const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
       const isCharging = ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') || this.type === 'charger';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
       const spikyMul = this._spikySpikesActive() ? 1.5 : 1;
-      if (game.player.invincibleTimer <= 0) {
-        game.player.vx = kbDir * kbStr;
-        game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
-        if (isCharging) game.player.knockbackTimer = 10;
-      }
-      game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
+      game._applyFriendlyKnockback(contactTarget, this, kbDir * kbStr, isCharging ? -3 : (this.big ? -5 : -4), isCharging ? 10 : 8);
+      game._damageFriendlyTarget(contactTarget, Math.round(dmg * spikyMul), this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.contactTick = 30;
       if (isCharging) {
         this.chargeState = 'recoil';
@@ -1272,7 +1272,7 @@ class Enemy {
     }
   }
 
-  takeDamage(amount, game, fromX, attackElement, sourceType) {
+  takeDamage(amount, game, fromX, attackElement, sourceType, sourceActor) {
     if (this.dead) return false;
     if (this.friendly) return false;
     this._syncElementState();
@@ -1298,10 +1298,11 @@ class Enemy {
       }
       return false;
     }
-    // Spiky: reflect sword damage back to player
+    // Spiky: reflect sword damage back to the sword user
     if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
-      game.player.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
+      const reflectTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      reflectTarget.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
       this.flashTimer = 6;
@@ -1310,7 +1311,9 @@ class Enemy {
     }
     // Shock: sword attacks get electrified
     if (this.element === 'lightning' && sourceType === 'sword' && game && game.player) {
-      game.player.statusParalyse = 120;
+      const shockTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      if (shockTarget.statusParalyse !== undefined) shockTarget.statusParalyse = 120;
+      else shockTarget.takeDamage(1, game, 'lightning', { type: this.type, element: 'lightning', isBoss: false });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 24, this.y - 10, 'PARALYSED', '#6ff'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#6ff', 8, 3, 12));
     }
@@ -1732,10 +1735,12 @@ class Enemy {
   _shieldAngle(game) {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const stealthed = game && game.player && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    if (!stealthed && game && game.player) {
-      const px = game.player.x + game.player.w / 2;
-      const py = game.player.y + game.player.h / 2;
+    const target = game && game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : (game && game.player);
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const stealthed = target === (game && game.player) && game && game.player && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    if (!stealthed && targetBox) {
+      const px = targetBox.x + targetBox.w / 2;
+      const py = targetBox.y + targetBox.h / 2;
       return Math.atan2(py - cy, px - cx);
     }
     return this.facing > 0 ? 0 : Math.PI;
@@ -2739,9 +2744,12 @@ class Boss extends Enemy {
     // Soak decay
     if (this.soakTimer > 0) this.soakTimer--;
 
-    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
-    const py = playerStealthed ? this.y : (game.player.y + game.player.h / 2);
+    const target = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const targetIsPlayer = target === game.player;
+    const playerStealthed = targetIsPlayer && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (targetBox.x + targetBox.w / 2);
+    const py = playerStealthed ? this.y : (targetBox.y + targetBox.h / 2);
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const dx = px - cx;
@@ -3171,16 +3179,11 @@ class Boss extends Enemy {
           }
           if (this.stateTimer > 10 && this.grounded) {
             game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
-            if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
-              const kbDir = Math.sign(game.player.x - cx) || 1;
-              if (!game.player.slamming) {
-                if (game.player.invincibleTimer <= 0) {
-                  game.player.vx = kbDir * 18;
-                  game.player.vy = -9;
-                  game.player.knockbackTimer = 12;
-                }
-                game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
-              }
+            const slamTarget = game._nearestFriendlyInRadius ? game._nearestFriendlyInRadius(cx, this.y + this.h, 95, this) : (Math.abs(dx) < 80 && Math.abs(dy) < 60 ? game.player : null);
+            if (slamTarget && !slamTarget.slamming) {
+              const kbDir = Math.sign(game._entityCenterX(slamTarget) - cx) || 1;
+              game._applyFriendlyKnockback(slamTarget, this, kbDir * 18, -9, 12);
+              game._damageFriendlyTarget(slamTarget, 4 + Math.floor((this.wave - 1) * 0.5), this.element || null, { type: this.bossType, element: this.element, isBoss: true });
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -3333,34 +3336,27 @@ class Boss extends Enemy {
     if (!this.flying && this.y < -60) { this.y = -60; this.vy = 0; }
 
     // Contact damage
-    if (this.contactTick <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
-      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+    const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
+    if (this.contactTick <= 0 && contactTarget && !contactTarget.slamming) {
+      const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
       const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
       if (isCharging) {
-        if (game.player.invincibleTimer <= 0) {
-          game.player.vx = kbDir * 22;
-          game.player.vy = -5;
-          game.player.knockbackTimer = 14;
-        }
+        game._applyFriendlyKnockback(contactTarget, this, kbDir * 22, -5, 14);
         const chargeDmg = Math.round(this.contactDmg * 1.5);
-        game.player.takeDamage(chargeDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        game._damageFriendlyTarget(contactTarget, chargeDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
         this.chargeState = 'recoil';
         this.chargeTimer = 0;
         this.vx = -this.facing * speed * 3;
         this.vy = -8;
       } else {
-        if (game.player.invincibleTimer <= 0) {
-          game.player.vx = kbDir * 18;
-          game.player.vy = -9;
-          game.player.knockbackTimer = 12;
-        }
-        game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        game._applyFriendlyKnockback(contactTarget, this, kbDir * 18, -9, 12);
+        game._damageFriendlyTarget(contactTarget, this.contactDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
       this.contactTick = 45;
     }
   }
 
-  takeDamage(amount, game, fromX, attackElement, sourceType) {
+  takeDamage(amount, game, fromX, attackElement, sourceType, sourceActor) {
     if (this.dead) return false;
     if (this.friendly) return false;
     this._syncElementState();
@@ -3377,10 +3373,11 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#8f8', 6, 2, 10));
       return false;
     }
-    // Spiky: reflect sword damage back to player
+    // Spiky: reflect sword damage back to the sword user
     if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
-      game.player.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
+      const reflectTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      reflectTarget.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
       this.flashTimer = 6;

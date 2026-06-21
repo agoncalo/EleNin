@@ -214,7 +214,7 @@ class DiamondShard {
     if (this.life <= 0) { this.done = true; return; }
     // Deflect enemy projectiles on contact
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'ally' || p.owner === 'boss') continue;
       const dx = p.x - this.x;
       const dy = p.y - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + 10) {
@@ -307,7 +307,7 @@ class Projectile {
     this.w = 8; this.h = 6;
     this.color = color;
     this.damage = damage;
-    this.owner = owner; // 'player' or 'enemy'
+    this.owner = owner; // 'player', 'ally', 'enemy', or 'boss'
     this.done = false;
     this.life = 180;
     this.reflected = false;
@@ -365,7 +365,7 @@ class Projectile {
     }
     if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
-    if (this.homing && this.owner === 'player') {
+    if (this.homing && (this.owner === 'player' || this.owner === 'ally')) {
       const target = findNearestTarget(this.x, this.y, game, 0);
       if (target) {
         const tdx = (target.x + target.w / 2) - (this.x + this.w / 2);
@@ -463,7 +463,8 @@ class Projectile {
         }
       }
     }
-    if (this.owner === 'player') {
+    if (this.owner === 'player' || this.owner === 'ally') {
+      const fromPlayer = this.owner === 'player';
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
 
@@ -511,8 +512,8 @@ class Projectile {
           }
 
           const _srcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
-          const _dmgHit = e.takeDamage(this.damage, game, this.x, undefined, _srcType);
-          if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+          const _dmgHit = e.takeDamage(this.damage, game, this.x, this.element || undefined, _srcType, this.sourceActor || null);
+          if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
             this._kunaiExplode(game, e);
@@ -548,7 +549,7 @@ class Projectile {
             e.vy += (dy / dist) * (pushStrength * 0.3);
           }
           this.hitSet.add(e);
-          if (game.player.ninjaType === 'fire') {
+          if (fromPlayer && game.player.ninjaType === 'fire') {
             e.burnTimer = 150;
             game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
             game.player.comboTimer = 180;
@@ -563,7 +564,7 @@ class Projectile {
             }
           }
           // Ultimate charge gain: projectile hit
-          if (!game.player.ultimateReady && !game.player.ultimateActive) {
+          if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
             game.player.addUltimateCharge(2);
           }
           if (!this.piercing) { this._dropOrDie(); return; }
@@ -613,8 +614,8 @@ class Projectile {
           }
         }
         const _bossSrcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
-        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, undefined, _bossSrcType);
-        if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, this.element || undefined, _bossSrcType, this.sourceActor || null);
+        if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {
           this._kunaiExplode(game);
@@ -636,7 +637,7 @@ class Projectile {
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 10, 4, 14));
         }
         this.hitSet.add(game.boss);
-        if (game.player.ninjaType === 'fire') {
+        if (fromPlayer && game.player.ninjaType === 'fire') {
           game.boss.burnTimer = 150;
           game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
           game.player.comboTimer = 180;
@@ -651,20 +652,20 @@ class Projectile {
           }
         }
         // Ultimate charge gain: projectile hit boss
-        if (!game.player.ultimateReady && !game.player.ultimateActive) {
+        if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
           game.player.addUltimateCharge(3);
         }
         if (!this.piercing) { this._dropOrDie(); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
-      const pl = game.player;
-      if (rectOverlap(this, pl.getHurtbox())) {
+      const pl = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, null) : game.player;
+      if (pl && rectOverlap(this, pl.getHurtbox ? pl.getHurtbox() : pl)) {
         const isBoss = this.owner === 'boss';
         let srcType = this.sourceType || null;
         if (!srcType && isBoss && game.boss) srcType = game.boss.bossType;
         const ki = { type: srcType || 'enemy', element: this.element || null, isBoss: isBoss };
-        pl.takeDamage(this.damage, game, this.element || null, ki);
+        game._damageFriendlyTarget(pl, this.damage, this.element || null, ki);
         this.done = true;
       }
     }
@@ -864,11 +865,13 @@ class HitLine {
     this.hitPlayer = false;
     this.timer = 0; // reuse timer for flash countdown
     const angles = this._angles();
-    const pl = game.player;
-    if (pl.invincibleTimer <= 0) {
-      const pcx = pl.x + pl.w / 2;
-      const pcy = pl.y + pl.h / 2;
-      const threshold = Math.max(pl.w, pl.h) / 2 + 5;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    for (const pl of targets) {
+      if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const box = pl.getHurtbox ? pl.getHurtbox() : pl;
+      const pcx = box.x + box.w / 2;
+      const pcy = box.y + box.h / 2;
+      const threshold = Math.max(box.w, box.h) / 2 + 5;
       for (const a of angles) {
         const dirX = Math.cos(a), dirY = Math.sin(a);
         const tDot = (pcx - this.x) * dirX + (pcy - this.y) * dirY;
@@ -877,7 +880,7 @@ class HitLine {
           const closestY = this.y + dirY * tDot;
           const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
           if (dist < threshold) {
-            pl.takeDamage(this.damage, game, this.element || null,
+            game._damageFriendlyTarget(pl, this.damage, this.element || null,
               { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
             this.hitPlayer = true;
             // Extra impact on top of normal takeDamage feedback
@@ -891,6 +894,7 @@ class HitLine {
           }
         }
       }
+      if (this.hitPlayer) break;
     }
     // Miss feedback: origin burst + light shake so the player reads the timing
     if (!this.hitPlayer) {
@@ -1062,13 +1066,15 @@ class Grenade {
     const r = this.explodeRadius;
 
     if (this.owner === 'enemy' || this.owner === 'boss') {
-      // Damage player
-      const pl = game.player;
-      const pdx = pl.x + pl.w / 2 - cx;
-      const pdy = pl.y + pl.h / 2 - cy;
-      if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
-        if (pl.invincibleTimer <= 0) {
-          pl.takeDamage(this.damage, game, this.element || null,
+      const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+      for (const pl of targets) {
+        if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+        const px = game._entityCenterX ? game._entityCenterX(pl) : (pl.x + pl.w / 2);
+        const py = game._entityCenterY ? game._entityCenterY(pl) : (pl.y + pl.h / 2);
+        const pdx = px - cx;
+        const pdy = py - cy;
+        if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
+          game._damageFriendlyTarget(pl, this.damage, this.element || null,
             { type: 'bouncer', element: this.element, isBoss: (this.owner === 'boss') });
         }
       }

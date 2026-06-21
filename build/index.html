@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-21 20:00 UTC
-console.log("EleNin build: 2026-06-21 20:00 UTC");
+// BUILD TIMESTAMP: 2026-06-21 20:23 UTC
+console.log("EleNin build: 2026-06-21 20:23 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -5785,7 +5785,7 @@ class DiamondShard {
     if (this.life <= 0) { this.done = true; return; }
     // Deflect enemy projectiles on contact
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'ally' || p.owner === 'boss') continue;
       const dx = p.x - this.x;
       const dy = p.y - this.y;
       if (Math.sqrt(dx * dx + dy * dy) < this.radius + 10) {
@@ -5878,7 +5878,7 @@ class Projectile {
     this.w = 8; this.h = 6;
     this.color = color;
     this.damage = damage;
-    this.owner = owner; // 'player' or 'enemy'
+    this.owner = owner; // 'player', 'ally', 'enemy', or 'boss'
     this.done = false;
     this.life = 180;
     this.reflected = false;
@@ -5936,7 +5936,7 @@ class Projectile {
     }
     if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
-    if (this.homing && this.owner === 'player') {
+    if (this.homing && (this.owner === 'player' || this.owner === 'ally')) {
       const target = findNearestTarget(this.x, this.y, game, 0);
       if (target) {
         const tdx = (target.x + target.w / 2) - (this.x + this.w / 2);
@@ -6034,7 +6034,8 @@ class Projectile {
         }
       }
     }
-    if (this.owner === 'player') {
+    if (this.owner === 'player' || this.owner === 'ally') {
+      const fromPlayer = this.owner === 'player';
       for (const e of game.enemies) {
         if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
 
@@ -6082,8 +6083,8 @@ class Projectile {
           }
 
           const _srcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
-          const _dmgHit = e.takeDamage(this.damage, game, this.x, undefined, _srcType);
-          if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+          const _dmgHit = e.takeDamage(this.damage, game, this.x, this.element || undefined, _srcType, this.sourceActor || null);
+          if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
           if (this.isKunai) {
             this._kunaiExplode(game, e);
@@ -6119,7 +6120,7 @@ class Projectile {
             e.vy += (dy / dist) * (pushStrength * 0.3);
           }
           this.hitSet.add(e);
-          if (game.player.ninjaType === 'fire') {
+          if (fromPlayer && game.player.ninjaType === 'fire') {
             e.burnTimer = 150;
             game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
             game.player.comboTimer = 180;
@@ -6134,7 +6135,7 @@ class Projectile {
             }
           }
           // Ultimate charge gain: projectile hit
-          if (!game.player.ultimateReady && !game.player.ultimateActive) {
+          if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
             game.player.addUltimateCharge(2);
           }
           if (!this.piercing) { this._dropOrDie(); return; }
@@ -6184,8 +6185,8 @@ class Projectile {
           }
         }
         const _bossSrcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
-        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, undefined, _bossSrcType);
-        if (!this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
+        const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, this.element || undefined, _bossSrcType, this.sourceActor || null);
+        if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
         if (this.isKunai) {
           this._kunaiExplode(game);
@@ -6207,7 +6208,7 @@ class Projectile {
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 10, 4, 14));
         }
         this.hitSet.add(game.boss);
-        if (game.player.ninjaType === 'fire') {
+        if (fromPlayer && game.player.ninjaType === 'fire') {
           game.boss.burnTimer = 150;
           game.player.comboMeter = Math.min(game.player.comboMeter + 1, 10);
           game.player.comboTimer = 180;
@@ -6222,20 +6223,20 @@ class Projectile {
           }
         }
         // Ultimate charge gain: projectile hit boss
-        if (!game.player.ultimateReady && !game.player.ultimateActive) {
+        if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
           game.player.addUltimateCharge(3);
         }
         if (!this.piercing) { this._dropOrDie(); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
-      const pl = game.player;
-      if (rectOverlap(this, pl.getHurtbox())) {
+      const pl = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, null) : game.player;
+      if (pl && rectOverlap(this, pl.getHurtbox ? pl.getHurtbox() : pl)) {
         const isBoss = this.owner === 'boss';
         let srcType = this.sourceType || null;
         if (!srcType && isBoss && game.boss) srcType = game.boss.bossType;
         const ki = { type: srcType || 'enemy', element: this.element || null, isBoss: isBoss };
-        pl.takeDamage(this.damage, game, this.element || null, ki);
+        game._damageFriendlyTarget(pl, this.damage, this.element || null, ki);
         this.done = true;
       }
     }
@@ -6435,11 +6436,13 @@ class HitLine {
     this.hitPlayer = false;
     this.timer = 0; // reuse timer for flash countdown
     const angles = this._angles();
-    const pl = game.player;
-    if (pl.invincibleTimer <= 0) {
-      const pcx = pl.x + pl.w / 2;
-      const pcy = pl.y + pl.h / 2;
-      const threshold = Math.max(pl.w, pl.h) / 2 + 5;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    for (const pl of targets) {
+      if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const box = pl.getHurtbox ? pl.getHurtbox() : pl;
+      const pcx = box.x + box.w / 2;
+      const pcy = box.y + box.h / 2;
+      const threshold = Math.max(box.w, box.h) / 2 + 5;
       for (const a of angles) {
         const dirX = Math.cos(a), dirY = Math.sin(a);
         const tDot = (pcx - this.x) * dirX + (pcy - this.y) * dirY;
@@ -6448,7 +6451,7 @@ class HitLine {
           const closestY = this.y + dirY * tDot;
           const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
           if (dist < threshold) {
-            pl.takeDamage(this.damage, game, this.element || null,
+            game._damageFriendlyTarget(pl, this.damage, this.element || null,
               { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
             this.hitPlayer = true;
             // Extra impact on top of normal takeDamage feedback
@@ -6462,6 +6465,7 @@ class HitLine {
           }
         }
       }
+      if (this.hitPlayer) break;
     }
     // Miss feedback: origin burst + light shake so the player reads the timing
     if (!this.hitPlayer) {
@@ -6633,13 +6637,15 @@ class Grenade {
     const r = this.explodeRadius;
 
     if (this.owner === 'enemy' || this.owner === 'boss') {
-      // Damage player
-      const pl = game.player;
-      const pdx = pl.x + pl.w / 2 - cx;
-      const pdy = pl.y + pl.h / 2 - cy;
-      if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
-        if (pl.invincibleTimer <= 0) {
-          pl.takeDamage(this.damage, game, this.element || null,
+      const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+      for (const pl of targets) {
+        if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+        const px = game._entityCenterX ? game._entityCenterX(pl) : (pl.x + pl.w / 2);
+        const py = game._entityCenterY ? game._entityCenterY(pl) : (pl.y + pl.h / 2);
+        const pdx = px - cx;
+        const pdy = py - cy;
+        if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
+          game._damageFriendlyTarget(pl, this.damage, this.element || null,
             { type: 'bouncer', element: this.element, isBoss: (this.owner === 'boss') });
         }
       }
@@ -8878,7 +8884,7 @@ class Player {
         }
         // Destroy/deflect enemy projectiles with attack
         for (const p of game.projectiles) {
-          if (!p.done && p.owner !== 'player' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
+          if (!p.done && p.owner !== 'player' && p.owner !== 'ally' && p.owner !== 'boss' && this.attackBox && rectOverlap(this.attackBox, p)) {
             if (this.items.iaito) {
               // Deflect back at enemies
               p.vx = -p.vx * 1.3;
@@ -11693,7 +11699,7 @@ class CrystalCastle {
 
     // Block enemy projectiles
     for (const p of game.projectiles) {
-      if (p.done || p.owner === 'player' || p.owner === 'boss') continue;
+      if (p.done || p.owner === 'player' || p.owner === 'ally' || p.owner === 'boss') continue;
       if (this._touchesCastleRect(p)) {
         p.done = true;
         game.effects.push(new Effect(p.x, p.y, '#aff', 5, 2, 8));
@@ -12104,6 +12110,598 @@ class CrystalCastle {
   }
 }
 
+// === js/allies.js ===
+class AllyNinja {
+  constructor(x, y, ninjaType, power, slot) {
+    this.x = x;
+    this.y = y;
+    this.w = 24;
+    this.h = 32;
+    this.vx = 0;
+    this.vy = 0;
+    this.facing = slot % 2 === 0 ? 1 : -1;
+    this.ninjaType = NINJA_TYPES[ninjaType] ? ninjaType : 'fire';
+    this.power = power || 1;
+    this.slot = slot || 0;
+    this.friendly = true;
+    this.isAllyNinja = true;
+    this.grounded = false;
+    this.jumpsLeft = 2;
+    this.maxJumps = 2;
+    this.attackCooldown = 35 + slot * 8;
+    this.specialCooldown = 110 + slot * 25;
+    this.attackTimer = 0;
+    this.attackBox = null;
+    this.swingHitSet = new Set();
+    this.invincibleTimer = 45;
+    this.flashTimer = 0;
+    this.knockbackTimer = 0;
+    this.displayHp = this.hp = this.maxHp = 32;
+    this.dead = false;
+    this._cutSpawned = false;
+    this._nextThink = 0;
+    this._target = null;
+  }
+
+  get type() { return NINJA_TYPES[this.ninjaType] || NINJA_TYPES.fire; }
+  getHurtbox() { return this; }
+
+  _centerX() { return this.x + this.w / 2; }
+  _centerY() { return this.y + this.h / 2; }
+
+  _nearestTarget(game, maxDist) {
+    let best = null;
+    let bestDist = maxDist === undefined ? Infinity : maxDist * maxDist;
+    for (const e of game.enemies) {
+      if (!e || e.dead || e.friendly) continue;
+      const dx = (e.x + e.w / 2) - this._centerX();
+      const dy = (e.y + e.h / 2) - this._centerY();
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; best = e; }
+    }
+    if (game.boss && !game.boss.dead && !game.boss.friendly) {
+      const dx = (game.boss.x + game.boss.w / 2) - this._centerX();
+      const dy = (game.boss.y + game.boss.h / 2) - this._centerY();
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) best = game.boss;
+    }
+    return best;
+  }
+
+  _damageForSword() {
+    return Math.max(2, this.type.attackDamage + Math.floor(this.power / 4));
+  }
+
+  _damageForSpecial() {
+    return Math.max(2, this.type.attackDamage + 1 + Math.floor(this.power / 5));
+  }
+
+  _startAttack(game) {
+    this.attackCooldown = 56 + this.slot * 4;
+    this.attackTimer = 12;
+    this.swingHitSet.clear();
+    const reach = this.ninjaType === 'earth' ? 58 : this.ninjaType === 'storm' ? 62 : 48;
+    const cx = this._centerX();
+    const cy = this._centerY();
+    this.attackBox = {
+      x: this.facing > 0 ? cx - 4 : cx - reach + 4,
+      y: cy - 24,
+      w: reach,
+      h: 48
+    };
+    game.effects.push(new Effect(cx + this.facing * 22, cy, this.type.accentColor, 5, 2, 8));
+    if (typeof SFX !== 'undefined' && SFX.attack) SFX.attack();
+  }
+
+  _applyAttackHits(game) {
+    if (!this.attackBox) return;
+    const dmg = this._damageForSword();
+    for (const e of game.enemies) {
+      if (e.dead || e.friendly || this.swingHitSet.has(e) || !rectOverlap(this.attackBox, e)) continue;
+      e.takeDamage(dmg, game, this._centerX(), 'steel', 'sword', this);
+      this.swingHitSet.add(e);
+      game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, this.type.accentColor, 8, 3, 10));
+      triggerHitstop(2);
+    }
+    if (game.boss && !game.boss.dead && !this.swingHitSet.has(game.boss) && rectOverlap(this.attackBox, game.boss)) {
+      game.boss.takeDamage(dmg, game, this._centerX(), 'steel', 'sword', this);
+      this.swingHitSet.add(game.boss);
+      game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, this.type.accentColor, 10, 3, 12));
+      triggerHitstop(2);
+    }
+  }
+
+  _useSpecial(game, target) {
+    if (!target) return;
+    this.specialCooldown = 170 + this.slot * 35 + (this.power % 4) * 12;
+    const cx = this._centerX();
+    const cy = this._centerY();
+    const tx = target.x + target.w / 2;
+    const ty = target.y + target.h / 2;
+    const dx = tx - cx;
+    const dy = ty - cy;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const dmg = this._damageForSpecial();
+    const accent = this.type.accentColor;
+
+    if (this.ninjaType === 'earth') {
+      damageInRadius(game, cx + this.facing * 34, this.y + this.h, 80, dmg + 1, cx);
+      game.effects.push(new SlamRing(cx + this.facing * 34, this.y + this.h, this.type.color, accent));
+      triggerScreenShake(3, 6);
+      return;
+    }
+
+    if (this.ninjaType === 'shadow') {
+      this.x = target.x + (tx > cx ? -this.w - 6 : target.w + 6);
+      this.y = target.y + target.h / 2 - this.h / 2;
+      this.facing = tx > cx ? 1 : -1;
+      target.paralyseTimer = Math.max(target.paralyseTimer || 0, 35);
+      target.takeDamage(dmg + 1, game, this._centerX(), 'steel', 'sword', this);
+      game.effects.push(new Effect(target.x + target.w / 2, target.y + target.h / 2, '#a4e', 12, 4, 14));
+      return;
+    }
+
+    const speed = this.ninjaType === 'storm' ? 9 : this.ninjaType === 'wind' ? 10 : 7;
+    const p = new Projectile(cx - 4, cy - 3, (dx / d) * speed, (dy / d) * speed, accent, dmg, 'ally');
+    p.sourceActor = this;
+    p.fromSpecial = true;
+    p.element = NINJA_ATTACK_ELEMENTS[this.ninjaType] || null;
+    p.life = 95;
+    if (this.ninjaType === 'fire') {
+      p.w = 16; p.h = 12; p.isFireball = true; p.homing = true;
+    } else if (this.ninjaType === 'bubble') {
+      p.w = 14; p.h = 14; p.soaking = true;
+    } else if (this.ninjaType === 'crystal') {
+      p.w = 12; p.h = 10; p.freezeDust = true;
+    } else if (this.ninjaType === 'wind') {
+      p.w = 18; p.h = 8; p.piercing = true;
+    } else if (this.ninjaType === 'storm') {
+      p.w = 12; p.h = 8; p.soaking = true; p.shadowParalyse = true;
+    }
+    game.projectiles.push(p);
+    game.effects.push(new Effect(cx, cy, accent, 8, 3, 10));
+  }
+
+  _tryJump(game, target) {
+    if (this.jumpsLeft <= 0) return;
+    const needsHeight = target && (target.y + target.h / 2) < this.y - 26;
+    const blockedAhead = this._blockedAhead(game);
+    if (!needsHeight && !blockedAhead) return;
+    this.vy = this.type.jumpPower * (this.grounded ? 1 : 0.84);
+    this.grounded = false;
+    this.jumpsLeft--;
+    game.effects.push(new Effect(this._centerX(), this.y + this.h, '#fff', 4, 2, 7));
+  }
+
+  _blockedAhead(game) {
+    const probe = {
+      x: this.facing > 0 ? this.x + this.w + 1 : this.x - 9,
+      y: this.y + 6,
+      w: 8,
+      h: this.h - 8
+    };
+    for (const p of game.platforms) {
+      if (!p.thin && rectOverlap(probe, p)) return true;
+    }
+    for (const b of game.stoneBlocks) {
+      if (!b.done && b.isCollidable && b.isCollidable() && rectOverlap(probe, b)) return true;
+    }
+    return false;
+  }
+
+  _physics(game) {
+    this.vy += GRAVITY;
+    if (this.vy > MAX_FALL) this.vy = MAX_FALL;
+    this.x += this.vx;
+    this.y += this.vy;
+
+    const wasGrounded = this.grounded;
+    this.grounded = false;
+    for (const p of game.platforms) {
+      if (!rectOverlap(this, p)) continue;
+      if (p.thin) {
+        if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+          this.jumpsLeft = this.maxJumps;
+        }
+        continue;
+      }
+      if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
+        this.y = p.y - this.h;
+        this.vy = 0;
+        this.grounded = true;
+        this.jumpsLeft = this.maxJumps;
+      } else if (this.vx > 0 && this.x + this.w - this.vx <= p.x + 4) {
+        this.x = p.x - this.w;
+        this.vx = 0;
+      } else if (this.vx < 0 && this.x - this.vx >= p.x + p.w - 4) {
+        this.x = p.x + p.w;
+        this.vx = 0;
+      }
+    }
+
+    for (const b of game.stoneBlocks) {
+      if (b.done || !b.isCollidable || !b.isCollidable() || !rectOverlap(this, b)) continue;
+      if (this.vy > 0 && this.y + this.h - this.vy <= b.y + 4) {
+        this.y = b.y - this.h;
+        this.vy = 0;
+        this.grounded = true;
+        this.jumpsLeft = this.maxJumps;
+      } else if (this.vx > 0) {
+        this.x = b.x - this.w;
+        this.vx = 0;
+      } else if (this.vx < 0) {
+        this.x = b.x + b.w;
+        this.vx = 0;
+      }
+    }
+
+    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); }
+    if (this.x + this.w > game.levelW) { this.x = game.levelW - this.w; this.vx = -Math.abs(this.vx); }
+    if (this.y > 820) {
+      this.takeDamage(4, game, 'pit', { type: 'pit' });
+      this.x = Math.max(40, Math.min(game.levelW - 80, game.player.x + 60 + this.slot * 36));
+      this.y = Math.max(-40, game.player.y - 90);
+      this.vx = 0;
+      this.vy = 0;
+    }
+    if (this.grounded && !wasGrounded) {
+      game.effects.push(new Effect(this._centerX(), this.y + this.h, '#aaa', 2, 1, 5));
+    }
+  }
+
+  update(game) {
+    if (this.dead) return;
+    if (this.invincibleTimer > 0) this.invincibleTimer--;
+    if (this.flashTimer > 0) this.flashTimer--;
+    if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.specialCooldown > 0) this.specialCooldown--;
+    if (this.knockbackTimer > 0) this.knockbackTimer--;
+    this.displayHp = lerp(this.displayHp, this.hp, 0.16);
+
+    const target = this._nearestTarget(game, 640);
+    this._target = target;
+    if (target && this.knockbackTimer <= 0) {
+      const dx = (target.x + target.w / 2) - this._centerX();
+      const dy = (target.y + target.h / 2) - this._centerY();
+      if (Math.abs(dx) > 8) this.facing = dx > 0 ? 1 : -1;
+      const desired = this.ninjaType === 'wind' ? 62 : 48;
+      if (Math.abs(dx) > desired) {
+        this.vx = this.facing * (this.type.speed * 0.76);
+      } else {
+        this.vx *= 0.78;
+      }
+      if ((this.grounded || this.jumpsLeft > 0) && (Math.abs(dx) < 190 || this._blockedAhead(game))) {
+        this._tryJump(game, target);
+      }
+      if (this.attackCooldown <= 0 && Math.abs(dx) < 62 && Math.abs(dy) < 48) {
+        this._startAttack(game);
+      }
+      if (this.specialCooldown <= 0 && Math.abs(dx) < 470 && Math.abs(dy) < 260) {
+        this._useSpecial(game, target);
+      }
+    } else if (this.knockbackTimer <= 0) {
+      const homeX = game.player.x + 48 + this.slot * 42;
+      const dx = homeX - this.x;
+      if (Math.abs(dx) > 80) {
+        this.facing = dx > 0 ? 1 : -1;
+        this.vx = this.facing * (this.type.speed * 0.55);
+      } else {
+        this.vx *= 0.82;
+      }
+    }
+
+    if (this.attackTimer > 0) {
+      this.attackTimer--;
+      this._applyAttackHits(game);
+      if (this.attackTimer <= 0) this.attackBox = null;
+    }
+
+    this._physics(game);
+  }
+
+  takeDamage(amount, game, element, killerInfo) {
+    if (this.dead || this.invincibleTimer > 0) return false;
+    amount = Math.max(1, Math.round(amount || 1));
+    this.hp -= amount;
+    this.flashTimer = 10;
+    this.invincibleTimer = 22;
+    if (game) {
+      game.effects.push(new DamageNumber(this._centerX(), this.y, amount, element || null));
+      game.effects.push(new Effect(this._centerX(), this._centerY(), '#fff', 5, 2, 8));
+      if (typeof SFX !== 'undefined' && SFX.playerHurt) SFX.playerHurt();
+    }
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.dead = true;
+      if (game) {
+        game.effects.push(new TextEffect(this._centerX(), this.y - 12, 'ALLY DOWN', '#f66'));
+        game.effects.push(new Effect(this._centerX(), this._centerY(), this.type.accentColor, 18, 5, 18));
+        triggerScreenShake(4, 10);
+      }
+    }
+    return true;
+  }
+
+  render(ctx, cam) {
+    if (this.dead) return;
+    const t = this.type;
+    if (Math.floor(this.flashTimer / 2) % 2 === 1) return;
+
+    const scale = 0.86;
+    const screenCx = this.x + this.w / 2 - cam.x;
+    const screenFootY = this.y + this.h - cam.y;
+    const screenTopY = screenFootY - this.h * scale;
+
+    ctx.save();
+    if (this.invincibleTimer > 0) ctx.globalAlpha = 0.72;
+
+    renderHpBar(ctx, cam, this, this.w);
+    ctx.fillStyle = '#4f4';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ALLY', screenCx, screenTopY - 4);
+    ctx.textAlign = 'left';
+
+    ctx.translate(screenCx, screenFootY);
+    ctx.scale(scale, scale);
+    const sx = -this.w / 2;
+    const sy = -this.h;
+
+    // Same base ninja sprite as the player, with the kasa hat intentionally omitted.
+    ctx.fillStyle = t.color;
+    ctx.fillRect(sx, sy, this.w, this.h);
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(sx - 0.5, sy - 0.5, this.w + 1, this.h + 1);
+
+    ctx.fillStyle = '#fff';
+    const eyeX = this.facing > 0 ? sx + 14 : sx + 4;
+    ctx.fillRect(eyeX, sy + 8, 6, 6);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(this.facing > 0 ? eyeX + 3 : eyeX, sy + 10, 3, 3);
+
+    ctx.fillStyle = t.accentColor;
+    ctx.fillRect(sx, sy + 5, this.w, 3);
+
+    ctx.fillStyle = t.accentColor;
+    ctx.fillRect(sx, sy + this.h - 10, this.w, 3);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(sx, sy + this.h - 9, this.w, 1);
+
+    if (this.invincibleTimer > 0) {
+      ctx.strokeStyle = t.accentColor;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha *= 0.55;
+      ctx.strokeRect(sx + 3, sy + 3, 18, 28);
+      ctx.globalAlpha = this.invincibleTimer > 0 ? 0.72 : 1;
+    }
+
+    if (this.attackTimer <= 0) {
+      this._renderBackWeapon(ctx, sx, sy, t);
+    } else {
+      this._renderAttackWeapon(ctx, sx, sy, t);
+    }
+    ctx.restore();
+  }
+
+  _renderBackWeapon(ctx, sx, sy, t) {
+    ctx.save();
+    const backX = this.facing > 0 ? sx + 3 : sx + this.w - 3;
+    const beltY = sy + this.h - 10;
+    ctx.translate(backX, beltY);
+    ctx.rotate(this.facing > 0 ? -0.45 : 0.45);
+
+    if (this.ninjaType === 'shadow') {
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fillRect(-1.5, -24, 3, 28);
+      ctx.fillStyle = '#4a4a4a';
+      ctx.fillRect(-1.5, -24, 1.5, 28);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-1.5, -24, 3, 28);
+      ctx.fillStyle = '#a4e';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-2, -4 + i * 6, 4, 3);
+      ctx.save();
+      ctx.translate(0, -24);
+      ctx.beginPath();
+      ctx.moveTo(1, -1);
+      ctx.bezierCurveTo(6, -4, 8, -10, 3, -16);
+      ctx.lineTo(1, -14);
+      ctx.bezierCurveTo(5, -9, 4, -4, -1, -2);
+      ctx.closePath();
+      ctx.fillStyle = '#e0d0f8';
+      ctx.shadowColor = '#c060ff';
+      ctx.shadowBlur = 6;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#c060ff';
+      ctx.beginPath();
+      ctx.arc(0, 5, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.ninjaType === 'bubble') {
+      ctx.fillStyle = '#3a7a9a';
+      ctx.fillRect(-1.5, -26, 3, 30);
+      ctx.fillStyle = '#5ab0d0';
+      ctx.fillRect(-1.5, -26, 1.5, 30);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-1.5, -26, 3, 30);
+      ctx.fillStyle = '#2a6888';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
+      ctx.strokeStyle = '#60d8f8';
+      ctx.shadowColor = '#40c0e0';
+      ctx.shadowBlur = 4;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, -30, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(100,220,255,0.2)';
+      ctx.beginPath();
+      ctx.arc(0, -30, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.ninjaType === 'earth') {
+      ctx.fillStyle = '#8a6a3a';
+      ctx.fillRect(-3, -16, 6, 20);
+      ctx.fillStyle = '#a8844a';
+      ctx.fillRect(-3, -16, 3, 20);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-3, -16, 6, 20);
+      ctx.fillStyle = '#e8d0b0';
+      ctx.fillRect(-2, -18, 4, 3);
+      ctx.fillRect(-3, -15, 2, 2);
+      ctx.fillRect(1, -15, 2, 2);
+      ctx.fillStyle = '#2e9e2e';
+      ctx.fillRect(-3.5, -6, 7, 3);
+    } else if (this.ninjaType === 'crystal') {
+      ctx.fillStyle = '#4a8a9a';
+      ctx.fillRect(-1.5, -24, 3, 28);
+      ctx.fillStyle = '#6ab8c8';
+      ctx.fillRect(-1.5, -24, 1.5, 28);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-1.5, -24, 3, 28);
+      ctx.fillStyle = '#2a6878';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-2, -2 + i * 5, 4, 3);
+      ctx.save();
+      ctx.translate(0, -28);
+      ctx.shadowColor = '#6ee';
+      ctx.shadowBlur = 5;
+      ctx.fillStyle = '#aff';
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(3, 0);
+      ctx.lineTo(0, 3);
+      ctx.lineTo(-3, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      if (this.ninjaType === 'storm') {
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 6;
+      }
+      ctx.fillStyle = this.ninjaType === 'storm' ? '#332200' : '#2a2a2a';
+      ctx.fillRect(-2, -28, 4, 32);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-2, 2, 4, 3);
+      ctx.fillStyle = '#555';
+      ctx.fillRect(-3, -6, 6, 2);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-2.5, -28.5, 5, 34);
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(-2, -36, 4, 9);
+      ctx.strokeRect(-2.5, -36.5, 5, 10);
+      ctx.fillStyle = '#aa8';
+      ctx.fillRect(-3, -28, 6, 2);
+      ctx.fillStyle = '#888';
+      ctx.fillRect(-1, -38, 2, 3);
+    }
+    ctx.restore();
+  }
+
+  _renderAttackWeapon(ctx, sx, sy, t) {
+    const slashProgress = 1 - this.attackTimer / 12;
+    const cx = sx + this.w / 2;
+    const cy = sy + this.h / 2;
+    const dir = this.facing;
+
+    if (this.ninjaType === 'earth') {
+      const punchExt = Math.sin(slashProgress * Math.PI) * 48;
+      const fistW = 26;
+      const fistH = 38;
+      const fx = cx + dir * (8 + punchExt);
+      const fy = cy - fistH / 2 - 4;
+      ctx.save();
+      ctx.fillStyle = '#c8a878';
+      ctx.fillRect(fx - (dir > 0 ? 0 : fistW), fy, fistW, fistH);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(fx - (dir > 0 ? 0 : fistW) - 0.5, fy - 0.5, fistW + 1, fistH + 1);
+      ctx.fillStyle = '#e8d0b0';
+      const kx = dir > 0 ? fx + fistW - 5 : fx - fistW + 1;
+      for (let i = 1; i <= 4; i++) ctx.fillRect(kx, fy + (fistH / 5) * i - 2, 4, 4);
+      ctx.fillStyle = '#2e9e2e';
+      ctx.fillRect(dir > 0 ? fx + 3 : fx - fistW + 3, fy + 2, 4, fistH - 4);
+      ctx.restore();
+      return;
+    }
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (dir < 0) ctx.scale(-1, 1);
+    const isShadow = this.ninjaType === 'shadow';
+    const startA = isShadow ? -Math.PI * 0.8 : -Math.PI * 0.65;
+    const sweep = isShadow ? Math.PI * 1.25 : Math.PI;
+    ctx.rotate(startA + sweep * slashProgress);
+
+    if (isShadow) {
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fillRect(-8, -2, 48, 4);
+      ctx.fillStyle = '#a4e';
+      for (let i = 0; i < 4; i++) ctx.fillRect(1 + i * 9, -3, 5, 6);
+      ctx.save();
+      ctx.translate(38, 0);
+      ctx.beginPath();
+      ctx.moveTo(2, -3);
+      ctx.bezierCurveTo(16, -10, 20, -24, 6, -38);
+      ctx.lineTo(2, -36);
+      ctx.bezierCurveTo(12, -22, 10, -10, -2, -5);
+      ctx.closePath();
+      ctx.fillStyle = '#e0d0f8';
+      ctx.shadowColor = '#c060ff';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      const bladeLen = this.ninjaType === 'storm' ? 54 : 44;
+      if (this.ninjaType === 'storm') {
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 10;
+      }
+      ctx.fillStyle = '#d8d8e8';
+      ctx.fillRect(0, -2, bladeLen, 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(3, -2, bladeLen - 8, 1);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = t.accentColor;
+      ctx.fillRect(-6, -3, 12, 6);
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-6.5, -3.5, bladeLen + 7, 7);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = t.accentColor;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, this.ninjaType === 'storm' ? 56 : 46, -0.9, 0.9);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // === js/enemy.js ===
 // ── Enemy base ───────────────────────────────────────────────
 class Enemy {
@@ -12247,7 +12845,7 @@ class Enemy {
     if (this.lightningTeleportCooldown > 0) return;
     this.lightningTeleportCooldown = randInt(210, 340);
 
-    const pl = game.player;
+    const pl = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
     const pcx = pl.x + pl.w / 2;
     const pcy = pl.y + pl.h / 2;
     const cx = this.x + this.w / 2;
@@ -12559,9 +13157,12 @@ class Enemy {
     if (this.soakTimer > 0) this.soakTimer--;
 
     const speed = this.big ? 2.4 : 1.9;
-    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
-    const py = playerStealthed ? (this.y) : (game.player.y + game.player.h / 2);
+    const target = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const targetIsPlayer = target === game.player;
+    const playerStealthed = targetIsPlayer && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (targetBox.x + targetBox.w / 2);
+    const py = playerStealthed ? (this.y) : (targetBox.y + targetBox.h / 2);
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
 
@@ -13357,18 +13958,15 @@ class Enemy {
     }
 
     // Contact damage
-    if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && rectOverlap(this, game.player.getHurtbox()) && !this.slamming && !game.player.slamming) {
-      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+    const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
+    if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && contactTarget && !this.slamming && !contactTarget.slamming) {
+      const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
       const isCharging = ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') || this.type === 'charger';
       const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
       const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
       const spikyMul = this._spikySpikesActive() ? 1.5 : 1;
-      if (game.player.invincibleTimer <= 0) {
-        game.player.vx = kbDir * kbStr;
-        game.player.vy = isCharging ? -3 : (this.big ? -5 : -4);
-        if (isCharging) game.player.knockbackTimer = 10;
-      }
-      game.player.takeDamage(Math.round(dmg * spikyMul), game, this.element || null, { type: this.type, element: this.element, isBoss: false });
+      game._applyFriendlyKnockback(contactTarget, this, kbDir * kbStr, isCharging ? -3 : (this.big ? -5 : -4), isCharging ? 10 : 8);
+      game._damageFriendlyTarget(contactTarget, Math.round(dmg * spikyMul), this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.contactTick = 30;
       if (isCharging) {
         this.chargeState = 'recoil';
@@ -13379,7 +13977,7 @@ class Enemy {
     }
   }
 
-  takeDamage(amount, game, fromX, attackElement, sourceType) {
+  takeDamage(amount, game, fromX, attackElement, sourceType, sourceActor) {
     if (this.dead) return false;
     if (this.friendly) return false;
     this._syncElementState();
@@ -13405,10 +14003,11 @@ class Enemy {
       }
       return false;
     }
-    // Spiky: reflect sword damage back to player
+    // Spiky: reflect sword damage back to the sword user
     if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
-      game.player.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
+      const reflectTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      reflectTarget.takeDamage(reflDmg, game, 'spike', { type: this.type, element: 'spiky', isBoss: false });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
       this.flashTimer = 6;
@@ -13417,7 +14016,9 @@ class Enemy {
     }
     // Shock: sword attacks get electrified
     if (this.element === 'lightning' && sourceType === 'sword' && game && game.player) {
-      game.player.statusParalyse = 120;
+      const shockTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      if (shockTarget.statusParalyse !== undefined) shockTarget.statusParalyse = 120;
+      else shockTarget.takeDamage(1, game, 'lightning', { type: this.type, element: 'lightning', isBoss: false });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 24, this.y - 10, 'PARALYSED', '#6ff'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#6ff', 8, 3, 12));
     }
@@ -13839,10 +14440,12 @@ class Enemy {
   _shieldAngle(game) {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const stealthed = game && game.player && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    if (!stealthed && game && game.player) {
-      const px = game.player.x + game.player.w / 2;
-      const py = game.player.y + game.player.h / 2;
+    const target = game && game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : (game && game.player);
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const stealthed = target === (game && game.player) && game && game.player && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    if (!stealthed && targetBox) {
+      const px = targetBox.x + targetBox.w / 2;
+      const py = targetBox.y + targetBox.h / 2;
       return Math.atan2(py - cy, px - cx);
     }
     return this.facing > 0 ? 0 : Math.PI;
@@ -14846,9 +15449,12 @@ class Boss extends Enemy {
     // Soak decay
     if (this.soakTimer > 0) this.soakTimer--;
 
-    const playerStealthed = game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
-    const px = playerStealthed ? (this.x + this.facing * 100) : (game.player.x + game.player.w / 2);
-    const py = playerStealthed ? this.y : (game.player.y + game.player.h / 2);
+    const target = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
+    const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
+    const targetIsPlayer = target === game.player;
+    const playerStealthed = targetIsPlayer && game.player.ninjaType === 'shadow' && game.player.shadowStealth > 180;
+    const px = playerStealthed ? (this.x + this.facing * 100) : (targetBox.x + targetBox.w / 2);
+    const py = playerStealthed ? this.y : (targetBox.y + targetBox.h / 2);
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const dx = px - cx;
@@ -15278,16 +15884,11 @@ class Boss extends Enemy {
           }
           if (this.stateTimer > 10 && this.grounded) {
             game.effects.push(new Effect(cx, this.y + this.h, '#f84', 15, 5, 15));
-            if (Math.abs(dx) < 80 && Math.abs(dy) < 60) {
-              const kbDir = Math.sign(game.player.x - cx) || 1;
-              if (!game.player.slamming) {
-                if (game.player.invincibleTimer <= 0) {
-                  game.player.vx = kbDir * 18;
-                  game.player.vy = -9;
-                  game.player.knockbackTimer = 12;
-                }
-                game.player.takeDamage(4 + Math.floor((this.wave - 1) * 0.5), game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
-              }
+            const slamTarget = game._nearestFriendlyInRadius ? game._nearestFriendlyInRadius(cx, this.y + this.h, 95, this) : (Math.abs(dx) < 80 && Math.abs(dy) < 60 ? game.player : null);
+            if (slamTarget && !slamTarget.slamming) {
+              const kbDir = Math.sign(game._entityCenterX(slamTarget) - cx) || 1;
+              game._applyFriendlyKnockback(slamTarget, this, kbDir * 18, -9, 12);
+              game._damageFriendlyTarget(slamTarget, 4 + Math.floor((this.wave - 1) * 0.5), this.element || null, { type: this.bossType, element: this.element, isBoss: true });
             }
             this.state = 'chase'; this.stateTimer = 0; this.actionTimer = 0;
           }
@@ -15440,34 +16041,27 @@ class Boss extends Enemy {
     if (!this.flying && this.y < -60) { this.y = -60; this.vy = 0; }
 
     // Contact damage
-    if (this.contactTick <= 0 && !game.player.slamming && rectOverlap(this, game.player.getHurtbox())) {
-      const kbDir = Math.sign(game.player.x + game.player.w / 2 - (this.x + this.w / 2)) || 1;
+    const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
+    if (this.contactTick <= 0 && contactTarget && !contactTarget.slamming) {
+      const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
       const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
       if (isCharging) {
-        if (game.player.invincibleTimer <= 0) {
-          game.player.vx = kbDir * 22;
-          game.player.vy = -5;
-          game.player.knockbackTimer = 14;
-        }
+        game._applyFriendlyKnockback(contactTarget, this, kbDir * 22, -5, 14);
         const chargeDmg = Math.round(this.contactDmg * 1.5);
-        game.player.takeDamage(chargeDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        game._damageFriendlyTarget(contactTarget, chargeDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
         this.chargeState = 'recoil';
         this.chargeTimer = 0;
         this.vx = -this.facing * speed * 3;
         this.vy = -8;
       } else {
-        if (game.player.invincibleTimer <= 0) {
-          game.player.vx = kbDir * 18;
-          game.player.vy = -9;
-          game.player.knockbackTimer = 12;
-        }
-        game.player.takeDamage(this.contactDmg, game, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        game._applyFriendlyKnockback(contactTarget, this, kbDir * 18, -9, 12);
+        game._damageFriendlyTarget(contactTarget, this.contactDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
       this.contactTick = 45;
     }
   }
 
-  takeDamage(amount, game, fromX, attackElement, sourceType) {
+  takeDamage(amount, game, fromX, attackElement, sourceType, sourceActor) {
     if (this.dead) return false;
     if (this.friendly) return false;
     this._syncElementState();
@@ -15484,10 +16078,11 @@ class Boss extends Enemy {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#8f8', 6, 2, 10));
       return false;
     }
-    // Spiky: reflect sword damage back to player
+    // Spiky: reflect sword damage back to the sword user
     if (this._spikySpikesActive() && sourceType === 'sword' && game && game.player) {
       const reflDmg = Math.max(1, Math.round(amount * 0.5));
-      game.player.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
+      const reflectTarget = sourceActor && sourceActor.takeDamage ? sourceActor : game.player;
+      reflectTarget.takeDamage(reflDmg, game, 'spike', { type: this.bossType, element: 'spiky', isBoss: true });
       game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'REFLECT', '#f86'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f64', 8, 3, 10));
       this.flashTimer = 6;
@@ -17773,6 +18368,7 @@ const GAME_OBJECT_LIMITS = {
   flamePools: 36,
   fireTrails: 90,
   weatherParticles: 96,
+  allies: 3,
 };
 
 function keepNotDone(obj) { return obj && !obj.done; }
@@ -17806,6 +18402,8 @@ class Game {
     this.platforms = [];
     this.ropes = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.projectiles = [];
     this.hitLines = [];
     this.grenades = [];
@@ -17914,6 +18512,7 @@ class Game {
     this.transitionTimer = 0;
 
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     this.showWaveMessage(this._objectiveStartMessage());
     // Start phrase (character-specific)
@@ -19136,6 +19735,179 @@ class Game {
     }
   }
 
+  _elementAllyTypes(roomDef) {
+    const element = (roomDef && roomDef.element) || this.levelElement || null;
+    const byElement = {
+      fire: ['fire', 'earth'],
+      spiky: ['fire', 'earth'],
+      water: ['bubble', 'wind'],
+      crystal: ['crystal', 'earth'],
+      steel: ['earth', 'crystal'],
+      ghost: ['shadow', 'storm'],
+      lightning: ['storm', 'wind'],
+      wind: ['wind', 'bubble']
+    };
+    if (element && byElement[element]) return byElement[element];
+    const byArea = {
+      forest: ['wind', 'fire'],
+      mountain: ['crystal', 'earth'],
+      volcano: ['fire', 'earth'],
+      castle: ['shadow', 'crystal'],
+      skies: ['storm', 'wind']
+    };
+    return byArea[(roomDef && roomDef.area) || this.currentRoomArea] || ['fire', 'wind'];
+  }
+
+  _spawnLevelAllies(roomDef) {
+    this.allies = [];
+    this.friendlyTargets = [];
+    if (!roomDef || roomDef.kind === 'bridgeBoss') return;
+    const roll = this._hashText(roomDef.id + ':ally-ninjas') % 100;
+    if (roll >= 20) return;
+    const power = this._roomPowerLevel(roomDef);
+    const count = power >= 7 ? 2 : 1;
+    const types = this._elementAllyTypes(roomDef);
+    const baseX = this.levelType === 'tower' ? 330 : 170;
+    for (let i = 0; i < count; i++) {
+      const type = types[i % types.length] || types[0] || 'fire';
+      const anchor = this._objectiveAnchor(baseX + i * 58, 32, 32);
+      const ally = new AllyNinja(Math.round(anchor.x + 4), Math.round(anchor.y), type, power, i);
+      ally.patrolLeft = Math.max(0, ally.x - 160);
+      ally.patrolRight = Math.min(this.levelW, ally.x + 200);
+      this.allies.push(ally);
+      this.effects.push(new TextEffect(ally.x + ally.w / 2, ally.y - 12, type.toUpperCase() + ' ALLY', ally.type.accentColor));
+    }
+  }
+
+  _friendlyAlive(entity) {
+    if (!entity || entity.dead) return false;
+    if (entity === this.player) return entity.hp > 0 && (!entity.deathTimer || entity.deathTimer <= 0);
+    return entity.hp === undefined || entity.hp > 0;
+  }
+
+  _refreshFriendlyTargets() {
+    const targets = [];
+    if (this._friendlyAlive(this.player)) targets.push(this.player);
+    if (this.allies) {
+      for (const ally of this.allies) {
+        if (this._friendlyAlive(ally)) targets.push(ally);
+      }
+    }
+    if (this._friendlyAlive(this.samurai)) targets.push(this.samurai);
+    this.friendlyTargets = targets;
+    return targets;
+  }
+
+  _entityHurtbox(entity) {
+    return entity && entity.getHurtbox ? entity.getHurtbox() : entity;
+  }
+
+  _entityCenterX(entity) {
+    const box = this._entityHurtbox(entity);
+    return box ? box.x + box.w / 2 : 0;
+  }
+
+  _entityCenterY(entity) {
+    const box = this._entityHurtbox(entity);
+    return box ? box.y + box.h / 2 : 0;
+  }
+
+  _chooseEnemyTarget(source) {
+    let targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    if (!targets.length) return this.player;
+    if (targets.length === 1) return targets[0] === source ? this.player : targets[0];
+    if (source && source._allyTargetLock > 0 && this._friendlyAlive(source._allyTargetRef) && source._allyTargetRef !== source) {
+      source._allyTargetLock--;
+      return source._allyTargetRef;
+    }
+    if (source && source._allyTargetSeed === undefined) {
+      source._allyTargetSeed = this._hashText((source.type || source.bossType || 'enemy') + ':' + Math.round(source.x) + ':' + Math.round(source.y));
+    }
+    const seed = source ? source._allyTargetSeed || 0 : 0;
+    const sx = source ? source.x + source.w / 2 : this.player.x + this.player.w / 2;
+    const sy = source ? source.y + source.h / 2 : this.player.y + this.player.h / 2;
+    let best = null;
+    let bestScore = Infinity;
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const tx = this._entityCenterX(target);
+      const ty = this._entityCenterY(target);
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const spread = 0.78 + (((seed + i * 53 + Math.floor(this.tick / 90) * 17) % 100) / 100) * 0.46;
+      const playerDogpilePenalty = target === this.player ? 1.12 : 1;
+      const score = (dx * dx + dy * dy * 0.8) * spread * playerDogpilePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = target;
+      }
+    }
+    best = best || this.player;
+    if (source) {
+      source._allyTargetRef = best;
+      source._allyTargetLock = 45 + (seed % 65);
+    }
+    return best;
+  }
+
+  _firstOverlappingFriendly(rect, source) {
+    const targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    for (const target of targets) {
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const box = this._entityHurtbox(target);
+      if (box && rectOverlap(rect, box)) return target;
+    }
+    return null;
+  }
+
+  _nearestFriendlyInRadius(cx, cy, radius, source) {
+    const targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    let best = null;
+    let bestDist = radius * radius;
+    for (const target of targets) {
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const dx = this._entityCenterX(target) - cx;
+      const dy = this._entityCenterY(target) - cy;
+      const d = dx * dx + dy * dy;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = target;
+      }
+    }
+    return best;
+  }
+
+  _damageFriendlyTarget(target, amount, element, killerInfo) {
+    if (!this._friendlyAlive(target) || !target.takeDamage) return false;
+    if (target.friendly && target.objectiveAlly) {
+      if ((target._friendlyHitTimer || 0) > 0) return false;
+      const dmg = Math.max(1, Math.round(amount || 1));
+      target.hp = Math.max(0, target.hp - dmg);
+      target.flashTimer = 12;
+      target._friendlyHitTimer = 24;
+      this.effects.push(new DamageNumber(target.x + target.w / 2, target.y, dmg, element || null));
+      this.effects.push(new Effect(target.x + target.w / 2, target.y + target.h / 2, '#fff', 5, 2, 8));
+      if (target.hp <= 0) {
+        target.dead = true;
+        this.bossOrbCharge = 0;
+        this.effects.push(new TextEffect(target.x + target.w / 2, target.y - 16, 'RONIN FALLEN!', '#f44'));
+        triggerScreenShake(6, 15);
+        SFX.enemyDie();
+      }
+      return true;
+    }
+    target.takeDamage(amount, this, element || null, killerInfo || { type: 'enemy', element: element || null, isBoss: false });
+    return true;
+  }
+
+  _applyFriendlyKnockback(target, source, kbX, kbY, timer) {
+    if (!target || (target.invincibleTimer || 0) > 0) return;
+    target.vx = kbX;
+    target.vy = kbY;
+    if (target.knockbackTimer !== undefined) target.knockbackTimer = timer || 10;
+  }
+
   _initObjective() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
@@ -19554,11 +20326,14 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
     this.fireTrails = [];
     const oldLevelType = this.levelType;
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     this.player.x = this.levelType === 'tower' ? 380 : 100;
     this.player.y = this.levelType === 'tower' ? 400 : 300;
@@ -19590,6 +20365,8 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
     this.fireTrails = [];
@@ -19681,6 +20458,8 @@ class Game {
     this.boss = null;
     this.bossActive = false;
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.projectiles = [];
     this.hitLines = [];
   }
@@ -20039,6 +20818,8 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     // Boss kill phrase
     const isLastBoss = this.wave > TOTAL_WAVES;
     if (!isLastBoss && !this.gameOverDelay) {
@@ -20051,6 +20832,7 @@ class Game {
     }
     const oldLevelType = this.levelType;
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     // Only reposition player if level type changed
     if (this.levelType !== oldLevelType) {
@@ -20462,6 +21244,8 @@ class Game {
       return; // Skip all other updates during cutscene
     }
 
+    for (const ally of this.allies) ally.update(this);
+    this._refreshFriendlyTargets();
     for (const e of this.enemies) e.update(this);
     if (this.boss && !this.boss.dead) this.boss.update(this);
     for (const p of this.projectiles) p.update(this);
@@ -20537,25 +21321,7 @@ class Game {
       // Friendly Ronin update (defend objective)
       if (this.samurai && !this.samurai.dead) {
         if (this.samurai.flashTimer > 0) this.samurai.flashTimer--;
-        // Hostile enemies nearby damage the ally.
-        for (const e of this.enemies) {
-          if (e.dead || e === this.samurai || e.friendly) continue;
-          const sdx = Math.abs(e.x + e.w / 2 - (this.samurai.x + this.samurai.w / 2));
-          const sdy = Math.abs(e.y + e.h / 2 - (this.samurai.y + this.samurai.h / 2));
-          if (sdx < 28 && sdy < 36 && this.tick % 30 === 0) {
-            this.samurai.hp -= 1;
-            this.samurai.flashTimer = 12;
-            if (this.samurai.hp <= 0) {
-              this.samurai.hp = 0;
-              this.samurai.dead = true;
-              this.bossOrbCharge = 0; // charge lost when the ally falls
-              this.effects.push(new TextEffect(this.samurai.x + this.samurai.w / 2, this.samurai.y - 16, 'RONIN FALLEN!', '#f44'));
-              triggerScreenShake(6, 15);
-              SFX.enemyDie();
-            }
-            break;
-          }
-        }
+        if (this.samurai._friendlyHitTimer > 0) this.samurai._friendlyHitTimer--;
       }
       // ── Boss Summon Orb logic ──
       if (!this.bossActive && !this.boss) {
@@ -20690,6 +21456,8 @@ class Game {
     }
 
     // Cleanup
+    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
+    this._refreshFriendlyTargets();
     compactLiveArray(this.enemies, keepEnemyAlive);
     compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
     compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
@@ -21811,6 +22579,7 @@ class Game {
 
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
+    for (const ally of this.allies) ally.render(ctx, cam, this);
     this._renderRoninAllyMarker(ctx, cam);
 
     // Hunt objective: draw target marker over matching enemies

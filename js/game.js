@@ -14,6 +14,7 @@ const GAME_OBJECT_LIMITS = {
   flamePools: 36,
   fireTrails: 90,
   weatherParticles: 96,
+  allies: 3,
 };
 
 function keepNotDone(obj) { return obj && !obj.done; }
@@ -47,6 +48,8 @@ class Game {
     this.platforms = [];
     this.ropes = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.projectiles = [];
     this.hitLines = [];
     this.grenades = [];
@@ -155,6 +158,7 @@ class Game {
     this.transitionTimer = 0;
 
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     this.showWaveMessage(this._objectiveStartMessage());
     // Start phrase (character-specific)
@@ -1377,6 +1381,179 @@ class Game {
     }
   }
 
+  _elementAllyTypes(roomDef) {
+    const element = (roomDef && roomDef.element) || this.levelElement || null;
+    const byElement = {
+      fire: ['fire', 'earth'],
+      spiky: ['fire', 'earth'],
+      water: ['bubble', 'wind'],
+      crystal: ['crystal', 'earth'],
+      steel: ['earth', 'crystal'],
+      ghost: ['shadow', 'storm'],
+      lightning: ['storm', 'wind'],
+      wind: ['wind', 'bubble']
+    };
+    if (element && byElement[element]) return byElement[element];
+    const byArea = {
+      forest: ['wind', 'fire'],
+      mountain: ['crystal', 'earth'],
+      volcano: ['fire', 'earth'],
+      castle: ['shadow', 'crystal'],
+      skies: ['storm', 'wind']
+    };
+    return byArea[(roomDef && roomDef.area) || this.currentRoomArea] || ['fire', 'wind'];
+  }
+
+  _spawnLevelAllies(roomDef) {
+    this.allies = [];
+    this.friendlyTargets = [];
+    if (!roomDef || roomDef.kind === 'bridgeBoss') return;
+    const roll = this._hashText(roomDef.id + ':ally-ninjas') % 100;
+    if (roll >= 20) return;
+    const power = this._roomPowerLevel(roomDef);
+    const count = power >= 7 ? 2 : 1;
+    const types = this._elementAllyTypes(roomDef);
+    const baseX = this.levelType === 'tower' ? 330 : 170;
+    for (let i = 0; i < count; i++) {
+      const type = types[i % types.length] || types[0] || 'fire';
+      const anchor = this._objectiveAnchor(baseX + i * 58, 32, 32);
+      const ally = new AllyNinja(Math.round(anchor.x + 4), Math.round(anchor.y), type, power, i);
+      ally.patrolLeft = Math.max(0, ally.x - 160);
+      ally.patrolRight = Math.min(this.levelW, ally.x + 200);
+      this.allies.push(ally);
+      this.effects.push(new TextEffect(ally.x + ally.w / 2, ally.y - 12, type.toUpperCase() + ' ALLY', ally.type.accentColor));
+    }
+  }
+
+  _friendlyAlive(entity) {
+    if (!entity || entity.dead) return false;
+    if (entity === this.player) return entity.hp > 0 && (!entity.deathTimer || entity.deathTimer <= 0);
+    return entity.hp === undefined || entity.hp > 0;
+  }
+
+  _refreshFriendlyTargets() {
+    const targets = [];
+    if (this._friendlyAlive(this.player)) targets.push(this.player);
+    if (this.allies) {
+      for (const ally of this.allies) {
+        if (this._friendlyAlive(ally)) targets.push(ally);
+      }
+    }
+    if (this._friendlyAlive(this.samurai)) targets.push(this.samurai);
+    this.friendlyTargets = targets;
+    return targets;
+  }
+
+  _entityHurtbox(entity) {
+    return entity && entity.getHurtbox ? entity.getHurtbox() : entity;
+  }
+
+  _entityCenterX(entity) {
+    const box = this._entityHurtbox(entity);
+    return box ? box.x + box.w / 2 : 0;
+  }
+
+  _entityCenterY(entity) {
+    const box = this._entityHurtbox(entity);
+    return box ? box.y + box.h / 2 : 0;
+  }
+
+  _chooseEnemyTarget(source) {
+    let targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    if (!targets.length) return this.player;
+    if (targets.length === 1) return targets[0] === source ? this.player : targets[0];
+    if (source && source._allyTargetLock > 0 && this._friendlyAlive(source._allyTargetRef) && source._allyTargetRef !== source) {
+      source._allyTargetLock--;
+      return source._allyTargetRef;
+    }
+    if (source && source._allyTargetSeed === undefined) {
+      source._allyTargetSeed = this._hashText((source.type || source.bossType || 'enemy') + ':' + Math.round(source.x) + ':' + Math.round(source.y));
+    }
+    const seed = source ? source._allyTargetSeed || 0 : 0;
+    const sx = source ? source.x + source.w / 2 : this.player.x + this.player.w / 2;
+    const sy = source ? source.y + source.h / 2 : this.player.y + this.player.h / 2;
+    let best = null;
+    let bestScore = Infinity;
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const tx = this._entityCenterX(target);
+      const ty = this._entityCenterY(target);
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const spread = 0.78 + (((seed + i * 53 + Math.floor(this.tick / 90) * 17) % 100) / 100) * 0.46;
+      const playerDogpilePenalty = target === this.player ? 1.12 : 1;
+      const score = (dx * dx + dy * dy * 0.8) * spread * playerDogpilePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = target;
+      }
+    }
+    best = best || this.player;
+    if (source) {
+      source._allyTargetRef = best;
+      source._allyTargetLock = 45 + (seed % 65);
+    }
+    return best;
+  }
+
+  _firstOverlappingFriendly(rect, source) {
+    const targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    for (const target of targets) {
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const box = this._entityHurtbox(target);
+      if (box && rectOverlap(rect, box)) return target;
+    }
+    return null;
+  }
+
+  _nearestFriendlyInRadius(cx, cy, radius, source) {
+    const targets = this.friendlyTargets && this.friendlyTargets.length ? this.friendlyTargets : this._refreshFriendlyTargets();
+    let best = null;
+    let bestDist = radius * radius;
+    for (const target of targets) {
+      if (!this._friendlyAlive(target) || target === source) continue;
+      const dx = this._entityCenterX(target) - cx;
+      const dy = this._entityCenterY(target) - cy;
+      const d = dx * dx + dy * dy;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = target;
+      }
+    }
+    return best;
+  }
+
+  _damageFriendlyTarget(target, amount, element, killerInfo) {
+    if (!this._friendlyAlive(target) || !target.takeDamage) return false;
+    if (target.friendly && target.objectiveAlly) {
+      if ((target._friendlyHitTimer || 0) > 0) return false;
+      const dmg = Math.max(1, Math.round(amount || 1));
+      target.hp = Math.max(0, target.hp - dmg);
+      target.flashTimer = 12;
+      target._friendlyHitTimer = 24;
+      this.effects.push(new DamageNumber(target.x + target.w / 2, target.y, dmg, element || null));
+      this.effects.push(new Effect(target.x + target.w / 2, target.y + target.h / 2, '#fff', 5, 2, 8));
+      if (target.hp <= 0) {
+        target.dead = true;
+        this.bossOrbCharge = 0;
+        this.effects.push(new TextEffect(target.x + target.w / 2, target.y - 16, 'RONIN FALLEN!', '#f44'));
+        triggerScreenShake(6, 15);
+        SFX.enemyDie();
+      }
+      return true;
+    }
+    target.takeDamage(amount, this, element || null, killerInfo || { type: 'enemy', element: element || null, isBoss: false });
+    return true;
+  }
+
+  _applyFriendlyKnockback(target, source, kbX, kbY, timer) {
+    if (!target || (target.invincibleTimer || 0) > 0) return;
+    target.vx = kbX;
+    target.vy = kbY;
+    if (target.knockbackTimer !== undefined) target.knockbackTimer = timer || 10;
+  }
+
   _initObjective() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
@@ -1795,11 +1972,14 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
     this.fireTrails = [];
     const oldLevelType = this.levelType;
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     this.player.x = this.levelType === 'tower' ? 380 : 100;
     this.player.y = this.levelType === 'tower' ? 400 : 300;
@@ -1831,6 +2011,8 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
     this.fireTrails = [];
@@ -1922,6 +2104,8 @@ class Game {
     this.boss = null;
     this.bossActive = false;
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     this.projectiles = [];
     this.hitLines = [];
   }
@@ -2280,6 +2464,8 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
     // Boss kill phrase
     const isLastBoss = this.wave > TOTAL_WAVES;
     if (!isLastBoss && !this.gameOverDelay) {
@@ -2292,6 +2478,7 @@ class Game {
     }
     const oldLevelType = this.levelType;
     this.buildLevel();
+    this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
     // Only reposition player if level type changed
     if (this.levelType !== oldLevelType) {
@@ -2703,6 +2890,8 @@ class Game {
       return; // Skip all other updates during cutscene
     }
 
+    for (const ally of this.allies) ally.update(this);
+    this._refreshFriendlyTargets();
     for (const e of this.enemies) e.update(this);
     if (this.boss && !this.boss.dead) this.boss.update(this);
     for (const p of this.projectiles) p.update(this);
@@ -2778,25 +2967,7 @@ class Game {
       // Friendly Ronin update (defend objective)
       if (this.samurai && !this.samurai.dead) {
         if (this.samurai.flashTimer > 0) this.samurai.flashTimer--;
-        // Hostile enemies nearby damage the ally.
-        for (const e of this.enemies) {
-          if (e.dead || e === this.samurai || e.friendly) continue;
-          const sdx = Math.abs(e.x + e.w / 2 - (this.samurai.x + this.samurai.w / 2));
-          const sdy = Math.abs(e.y + e.h / 2 - (this.samurai.y + this.samurai.h / 2));
-          if (sdx < 28 && sdy < 36 && this.tick % 30 === 0) {
-            this.samurai.hp -= 1;
-            this.samurai.flashTimer = 12;
-            if (this.samurai.hp <= 0) {
-              this.samurai.hp = 0;
-              this.samurai.dead = true;
-              this.bossOrbCharge = 0; // charge lost when the ally falls
-              this.effects.push(new TextEffect(this.samurai.x + this.samurai.w / 2, this.samurai.y - 16, 'RONIN FALLEN!', '#f44'));
-              triggerScreenShake(6, 15);
-              SFX.enemyDie();
-            }
-            break;
-          }
-        }
+        if (this.samurai._friendlyHitTimer > 0) this.samurai._friendlyHitTimer--;
       }
       // ── Boss Summon Orb logic ──
       if (!this.bossActive && !this.boss) {
@@ -2931,6 +3102,8 @@ class Game {
     }
 
     // Cleanup
+    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
+    this._refreshFriendlyTargets();
     compactLiveArray(this.enemies, keepEnemyAlive);
     compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
     compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
@@ -4052,6 +4225,7 @@ class Game {
 
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
+    for (const ally of this.allies) ally.render(ctx, cam, this);
     this._renderRoninAllyMarker(ctx, cam);
 
     // Hunt objective: draw target marker over matching enemies
