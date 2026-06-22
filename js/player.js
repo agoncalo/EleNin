@@ -1291,7 +1291,6 @@ class Player {
     if (!holdingDown) this.dropThroughSlamLock = false;
     if (holdingDown && !this.grounded && !this.slamming && !this.dropThroughSlamLock) {
       const slamCost = Math.max(1, Math.floor(this.hp * 0.20));
-      this.hp = Math.max(1, this.hp - slamCost);
       this.slamming = true;
       this.vx = 0;
     }

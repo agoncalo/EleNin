@@ -555,7 +555,7 @@ class Orb {
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
-    let attracted = dist < magnetRange;
+    let attracted = true;
     if (!attracted) {
       // Chain strikes auto-grab
       if (pl.chainStriking || pl.stormChaining) {
@@ -585,10 +585,10 @@ class Orb {
     }
 
     if (attracted) {
-      const attractStrength = 0.7;
+      const attractStrength = 1.5;
       this.vx += (dx / dist) * attractStrength;
       this.vy += (dy / dist) * attractStrength * 0.5;
-      const maxSpeed = 6;
+      const maxSpeed = 10;
       const speed = Math.sqrt(this.vx ** 2 + this.vy ** 2);
       if (speed > maxSpeed) {
         this.vx = this.vx * maxSpeed / speed;

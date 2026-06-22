@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-22 16:31 UTC
-console.log("EleNin build: 2026-06-22 16:31 UTC");
+// BUILD TIMESTAMP: 2026-06-22 17:57 UTC
+console.log("EleNin build: 2026-06-22 17:57 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -3852,7 +3852,7 @@ class Orb {
 
     // Collectors: chain strikes, golems, trimerangs, bubbles attract orbs to player
     const magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
-    let attracted = dist < magnetRange;
+    let attracted = true;
     if (!attracted) {
       // Chain strikes auto-grab
       if (pl.chainStriking || pl.stormChaining) {
@@ -3882,10 +3882,10 @@ class Orb {
     }
 
     if (attracted) {
-      const attractStrength = 0.7;
+      const attractStrength = 1.5;
       this.vx += (dx / dist) * attractStrength;
       this.vy += (dy / dist) * attractStrength * 0.5;
-      const maxSpeed = 6;
+      const maxSpeed = 10;
       const speed = Math.sqrt(this.vx ** 2 + this.vy ** 2);
       if (speed > maxSpeed) {
         this.vx = this.vx * maxSpeed / speed;
@@ -6849,7 +6849,7 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     for (const triOff of [0.25, -0.25]) {
       const tProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color: isLastKunai ? '#f66' : color,
-        damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
+        damage: dmg, owner: 'player', width: 8, height: 6, facing: 0,
         piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!tProj) continue;
@@ -8332,7 +8332,6 @@ class Player {
     if (!holdingDown) this.dropThroughSlamLock = false;
     if (holdingDown && !this.grounded && !this.slamming && !this.dropThroughSlamLock) {
       const slamCost = Math.max(1, Math.floor(this.hp * 0.20));
-      this.hp = Math.max(1, this.hp - slamCost);
       this.slamming = true;
       this.vx = 0;
     }

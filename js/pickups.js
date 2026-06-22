@@ -118,7 +118,7 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     for (const triOff of [0.25, -0.25]) {
       const tProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color: isLastKunai ? '#f66' : color,
-        damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
+        damage: dmg, owner: 'player', width: 8, height: 6, facing: 0,
         piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!tProj) continue;
