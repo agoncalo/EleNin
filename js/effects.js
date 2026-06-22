@@ -443,15 +443,10 @@ class KanjiEffect {
 class TextEffect {
   constructor(x, y, text, color) {
     this.x = x; this.y = y; this.text = text; this.color = color;
-    this.life = 40; this.done = false;
+    this.life = 0; this.done = true;
   }
-  update() { this.y -= 1.2; this.life--; if (this.life <= 0) this.done = true; }
+  update() {}
   render(ctx, cam) {
-    ctx.globalAlpha = Math.min(1, this.life / 15);
-    ctx.fillStyle = this.color;
-    ctx.font = 'bold 14px monospace';
-    ctx.fillText(this.text, this.x - cam.x, this.y - cam.y);
-    ctx.globalAlpha = 1;
   }
 }
 

@@ -2169,6 +2169,8 @@ class Game {
     this.player.specialRechargeTimer = 0;
     this.player.attackFocus = 1;
     this.player._attackDamageMult = 1;
+    this.player.hp = this.player.maxHp;
+    this.player.displayHp = this.player.hp;
     this.camera.x = 0;
     this.camera.y = 0;
     this.spawnTimer = -120;
@@ -2815,7 +2817,7 @@ class Game {
     ctx.globalAlpha = 1;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-    ctx.fillStyle = hpPct > 0.5 ? '#4f4' : (hpPct > 0.25 ? '#fa0' : '#f44');
+    ctx.fillStyle = '#f44';
     ctx.fillRect(bx, by, Math.round(bw * hpPct), bh);
     ctx.strokeStyle = '#ddd';
     ctx.lineWidth = 1;
@@ -3018,8 +3020,8 @@ class Game {
     ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
-    ctx.fillText(label, px, py - 58 - pulse * 4);
+    //const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
+    //ctx.fillText(label, px, py - 58 - pulse * 4);
     ctx.restore();
   }
 
@@ -4862,7 +4864,7 @@ class Game {
       if (g.hp < g.maxHp) {
         ctx.fillStyle = '#400';
         ctx.fillRect(headX, headY - 26, headW, 6);
-        ctx.fillStyle = '#4a7a3a';
+        ctx.fillStyle = '#f44';
         ctx.fillRect(headX, headY - 26, headW * (g.hp / g.maxHp), 6);
       }
     }
@@ -5373,80 +5375,22 @@ class Game {
     const ninjaBarY = 4;
 
     // ── Bottom HUD ──
-    const manaColors = { fire: '#f93', earth: '#8b5e3c', bubble: '#6af', shadow: '#a4e', crystal: '#0ff', wind: '#8d8', storm: '#48f' };
-    const manaColor = manaColors[pl.ninjaType] || '#aaa';
-
     // Y anchors (all measured from bottom)
     const barH = 26;
     const barY   = CANVAS_H - barH - 6;  // 508
-    const ultY   = CANVAS_H - 46;        // 494
-    const buffY  = CANVAS_H - 50;        // 490
     const pipY   = CANVAS_H - 92;        // 448
 
     // Attack and magic charges recharge independently.
 
     // ── Buff icons ──
-    const buffItems = [];
     const attrColors = {
       mind: (ITEM_ATTRIBUTES.mind && ITEM_ATTRIBUTES.mind.color) || '#b45cff',
       vigor: (ITEM_ATTRIBUTES.vigor && ITEM_ATTRIBUTES.vigor.color) || '#ff6a3d',
       dexterity: (ITEM_ATTRIBUTES.dexterity && ITEM_ATTRIBUTES.dexterity.color) || '#39d98a',
     };
-    const baseAtk = pl.type.attackDamage;
-    const totalAtk = baseAtk + pl.bonusDamage;
-    buffItems.push({ icon: '\u2694', value: totalAtk, color: attrColors.vigor, hasBonus: pl.bonusDamage > 0, bonusVal: pl.bonusDamage });
-    const totalEle = baseAtk + pl.bonusElemental;
-    buffItems.push({ icon: '\u2737', value: totalEle, color: attrColors.mind, hasBonus: pl.bonusElemental > 0, bonusVal: pl.bonusElemental });
-    buffItems.push({ icon: '\u00bb', value: pl.bonusSpeed, color: attrColors.dexterity });
-    buffItems.push({ icon: '\u2194', value: pl.bonusReach, color: attrColors.dexterity });
-    buffItems.push({ icon: '\u26CA', value: pl.bonusArmor, color: attrColors.vigor });
-    buffItems.push({ icon: '\u2665', value: this.lives, color: attrColors.vigor });
-    buffItems.push({ icon: '\u2726', value: pl.maxShurikens, color: attrColors.dexterity });
-    if (buffItems.length > 0) {
-      ctx.font = 'bold 14px monospace';
-      let totalBW = 0;
-      const itemWidths = [];
-      for (const b of buffItems) {
-        let iw = ctx.measureText(b.icon).width + 3 + ctx.measureText(String(b.value)).width;
-        if (b.hasBonus) {
-          ctx.font = '10px monospace';
-          iw += 2 + ctx.measureText(`+${b.bonusVal}`).width;
-          ctx.font = 'bold 14px monospace';
-        }
-        itemWidths.push(iw);
-        totalBW += iw;
-      }
-      totalBW += (buffItems.length - 1) * 14;
-      let bx = CANVAS_W / 2 - totalBW / 2;
-      for (let i = 0; i < buffItems.length; i++) {
-        const b = buffItems[i];
-        ctx.fillStyle = b.color;
-        ctx.fillText(b.icon, bx, buffY);
-        const iconW = ctx.measureText(b.icon).width;
-        ctx.fillStyle = b.color;
-        ctx.fillText(String(b.value), bx + iconW + 3, buffY);
-        if (b.hasBonus) {
-          const valW = ctx.measureText(String(b.value)).width;
-          ctx.font = '10px monospace';
-          ctx.fillStyle = b.color;
-          ctx.fillText(`+${b.bonusVal}`, bx + iconW + 3 + valW + 2, buffY);
-          ctx.font = 'bold 14px monospace';
-        }
-        bx += itemWidths[i] + 14;
-      }
-    }
 
     // ── HP bar — ninja-colored, ult charge shown as glow ──
-    const ninjaBarColors = {
-      fire:    { fill: '#f93', dark: '#421800', delay: '#fa8' },
-      earth:   { fill: '#a07040', dark: '#301808', delay: '#c09060' },
-      bubble:  { fill: '#4af', dark: '#013040', delay: '#8cf' },
-      shadow:  { fill: '#a04ec8', dark: '#200840', delay: '#c080e8' },
-      crystal: { fill: '#0ee', dark: '#005050', delay: '#7ff' },
-      wind:    { fill: '#6c6', dark: '#082008', delay: '#9e9' },
-      storm:   { fill: '#38e', dark: '#0a1428', delay: '#6af' },
-    };
-    const nbc = ninjaBarColors[pl.ninjaType] || { fill: '#e44', dark: '#400', delay: '#f84' };
+    const nbc = { fill: '#f44', dark: '#400', delay: '#f66' };
 
     const centerX = CANVAS_W / 2;
     const barTotalW = 440;
@@ -5482,8 +5426,8 @@ class Game {
     const chargeLabelW = 28;
     const chargeGap = 48;
     const chargeGroupW = chargeLabelW + 8 + chargePipW;
-    const attackFocusW = 112;
-    const attackFocusH = 12;
+    const attackFocusW = 128;
+    const attackFocusH = 14;
     const attackGroupW = 28 + 8 + attackFocusW;
     const chargeLeft = centerX - (attackGroupW + chargeGap + chargeGroupW) / 2;
     const focusX = chargeLeft + 28 + 8;
@@ -5494,17 +5438,44 @@ class Game {
     ctx.fillStyle = attrColors.vigor;
     ctx.fillText('ATK', focusX - 8, pipY + 9);
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(255,255,255,0.14)';
-    ctx.fillRect(focusX, pipY, attackFocusW, attackFocusH);
+    const swordX = focusX;
+    const swordY = pipY - 1;
+    const bladeX = swordX + 22;
+    const bladeY = swordY + 3;
+    const bladeW = attackFocusW - 22;
+    const bladeH = attackFocusH - 4;
+    const drawBladePath = () => {
+      ctx.beginPath();
+      ctx.moveTo(bladeX, bladeY);
+      ctx.lineTo(bladeX + bladeW - 13, bladeY);
+      ctx.lineTo(bladeX + bladeW, bladeY + bladeH / 2);
+      ctx.lineTo(bladeX + bladeW - 13, bladeY + bladeH);
+      ctx.lineTo(bladeX, bladeY + bladeH);
+      ctx.closePath();
+    };
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    drawBladePath();
+    ctx.fill();
+    ctx.save();
+    drawBladePath();
+    ctx.clip();
     ctx.fillStyle = attrColors.vigor;
-    ctx.fillRect(focusX, pipY, attackFocusW * focusPct, attackFocusH);
+    ctx.fillRect(bladeX, bladeY, bladeW * focusPct, bladeH);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(bladeX, bladeY + 1, bladeW * focusPct, 2);
+    ctx.restore();
     ctx.strokeStyle = attrColors.vigor;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(focusX, pipY, attackFocusW, attackFocusH);
-    ctx.fillStyle = '#ddd';
-    ctx.font = 'bold 9px monospace';
-    const focusLabel = Math.round(focusPct * 100) + '%';
-    ctx.fillText(focusLabel, focusX + attackFocusW + 6, pipY + 10);
+    ctx.lineWidth = 1.4;
+    drawBladePath();
+    ctx.stroke();
+    ctx.fillStyle = attrColors.vigor;
+    ctx.fillRect(swordX + 15, swordY, 5, attackFocusH + 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillRect(swordX + 18, swordY + 1, 1, attackFocusH);
+    ctx.fillStyle = '#6b3528';
+    ctx.fillRect(swordX + 4, swordY + 5, 13, 5);
+    ctx.fillStyle = attrColors.vigor;
+    ctx.fillRect(swordX, swordY + 4, 5, 7);
     ctx.restore();
     drawChargePips('MAG', pl.specialCharges, pl.specialRechargeTimer, chargeLeft + attackGroupW + chargeGap + chargeLabelW + 8, pipY, attrColors.mind);
     const hpRatio = pl.hp / pl.maxHp;
@@ -5545,16 +5516,6 @@ class Game {
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(barLeft, barY, barTotalW, barH);
-
-    // Label: show ult state inside bar
-    const hpLabel = 'HP ' + String(Math.round(pl.hp)) + ' / ' + String(pl.maxHp);
-    ctx.font = 'bold 18px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText(hpLabel, centerX + 1, barY + barH - 4);
-    ctx.fillStyle = (ultReady || ultActive) ? '#ffd700' : attrColors.vigor;
-    ctx.fillText(hpLabel, centerX, barY + barH - 5);
-    ctx.textAlign = 'left';
 
     // Bubble shield timer strip (directly below the HP bar)
     if (pl.bubbleShieldTimer > 0) {
@@ -5607,19 +5568,6 @@ class Game {
 
     // Boss Items display (left side, vertically centered)
     this.renderItemBar(pl);
-
-    // Room info panel (top right, below ninja bar)
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(CANVAS_W - 218, 36, 210, 36);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(CANVAS_W - 218, 36, 210, 36);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText(this._roomProgressLabel(), CANVAS_W - 210, 52);
-    ctx.font = '10px monospace';
-    ctx.fillStyle = '#ccc';
-    ctx.fillText(`Kills: ${this.totalKills}`, CANVAS_W - 210, 66);
 
     // ── Objective indicator (bottom-left of wave panel) ──
     if (false && this.currentObjective && !this.gameWon && !this.bossActive) {
@@ -5797,12 +5745,11 @@ class Game {
       ctx.fillRect(pbX, pbY, pbW, pbH);
       // Trailing damage bar
       if (displayRatio > hpRatio) {
-        ctx.fillStyle = '#f84';
+        ctx.fillStyle = '#f66';
         ctx.fillRect(pbX, pbY, pbW * displayRatio, pbH);
       }
       // HP fill
-      const bossElemAccent = (b.element && ELEMENT_COLORS[b.element]) ? ELEMENT_COLORS[b.element].accent : null;
-      ctx.fillStyle = bossElemAccent || (b.phase === 2 ? '#f22' : '#e44');
+      ctx.fillStyle = '#f44';
       ctx.fillRect(pbX, pbY, pbW * hpRatio, pbH);
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 1;

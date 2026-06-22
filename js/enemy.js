@@ -2495,7 +2495,7 @@ class Enemy {
       const displayRatio = this.displayHp / this.maxHp;
       const hpRatio = this.hp / this.maxHp;
       if (displayRatio > hpRatio) {
-        ctx.fillStyle = '#f84';
+        ctx.fillStyle = '#f66';
         ctx.fillRect(barX, barY, barW * displayRatio, 4);
       }
       ctx.fillStyle = '#f44';
@@ -4251,10 +4251,10 @@ class Boss extends Enemy {
       const displayRatio = this.displayHp / this.maxHp;
       const hpRatio = this.hp / this.maxHp;
       if (displayRatio > hpRatio) {
-        ctx.fillStyle = '#f84';
+        ctx.fillStyle = '#f66';
         ctx.fillRect(barX, barY, barW * displayRatio, barH);
       }
-      ctx.fillStyle = this.phase === 2 ? '#f22' : '#e44';
+      ctx.fillStyle = '#f44';
       ctx.fillRect(barX, barY, barW * hpRatio, barH);
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.lineWidth = 1;
