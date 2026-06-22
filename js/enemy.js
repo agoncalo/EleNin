@@ -13,6 +13,7 @@ class Enemy {
     this.hp = (big ? base.hp * 4 : base.hp) * healthScale;
     this.maxHp = this.hp;
     this.displayHp = this.hp;
+    this._initCombatBars(healthScale);
     // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
@@ -113,9 +114,101 @@ class Enemy {
     this.spikySpikeTimer = 0;
     this.spikySpikeCooldown = randInt(110, 210);
     this.juggleState = false;
-    // Stagger system
+    // Stance system
     this.staggerBar = 0;
     this.disableTimer = 0;
+    this.stanceRecoverDelay = 0;
+  }
+
+  _initCombatBars(healthScale) {
+    const normalHits = {
+      walker: 8, shooter: 8, jumper: 9, bouncer: 10, charger: 12,
+      shielded: 11, deflector: 14, protector: 16, attacker: 7,
+      flyer: 8, flyshooter: 9
+    };
+    const scale = 1 + Math.max(0, (this.wave || 1) - 1) * 0.12;
+    const mapScale = healthScale && healthScale !== this.wave ? Math.min(1.35, Math.max(1, Math.sqrt(healthScale))) : 1;
+    const hpHits = Math.ceil((normalHits[this.type] || 8) * (this.big ? 1.8 : 1) * scale * mapScale * 4);
+    this.hp = hpHits;
+    this.maxHp = hpHits;
+    this.displayHp = hpHits;
+    this.maxStance = Math.max(2, Math.ceil(this.maxHp / 4));
+    this.stance = this.maxStance;
+    this.displayStance = this.stance;
+    this.stanceRecoverDelay = 0;
+  }
+
+  _updateStance() {
+    if (this.maxStance === undefined) {
+      this.maxStance = Math.max(2, Math.ceil(this.maxHp / 4));
+      this.stance = this.maxStance;
+      this.displayStance = this.stance;
+    }
+    if (this.stanceRecoverDelay === undefined) this.stanceRecoverDelay = 0;
+    if (this.disableTimer > 0) {
+      this.disableTimer--;
+      this.stance = 0;
+      this.staggerBar = this.maxStance;
+    } else {
+      this.stanceRecoverDelay++;
+      if (this.stanceRecoverDelay > 120 && this.stance < this.maxStance) {
+        this.stance = Math.min(this.maxStance, this.stance + this.maxStance / 120);
+      }
+      this.staggerBar = Math.max(0, this.maxStance - this.stance);
+    }
+    this.displayStance = lerp(this.displayStance, this.stance, 0.18);
+  }
+
+  _damageProfile(amount, sourceType) {
+    if (amount >= 9999 || sourceType === 'chain') return { hp: amount, stance: 0 };
+    const hitPower = Math.max(1, Math.min(3, Math.ceil(amount / 2)));
+    if (sourceType === 'shuriken') return { hp: 1, stance: hitPower * 2.5 };
+    if (sourceType === 'sword') return { hp: 1, stance: hitPower };
+    if (sourceType === 'boulder') return { hp: hitPower, stance: hitPower * 1.5 };
+    return { hp: hitPower, stance: hitPower * 1.25 };
+  }
+
+  _applyStanceDamage(stanceDamage, game) {
+    if (!game || stanceDamage <= 0 || this.disableTimer > 0) return;
+    if (this.maxStance === undefined) this._initCombatBars(1);
+    this.stanceRecoverDelay = 0;
+    this.stance = Math.max(0, this.stance - stanceDamage);
+    this.staggerBar = Math.max(0, this.maxStance - this.stance);
+    if (this.stance <= 0) this._breakStance(game);
+  }
+
+  _breakStance(game) {
+    if (this.disableTimer > 0) return;
+    this.disableTimer = 600;
+    this.stunTimer = Math.max(this.stunTimer || 0, 600);
+    this.stance = 0;
+    this.staggerBar = this.maxStance || 0;
+    if (game) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BROKEN!', '#f4f0ff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 16, 5, 20));
+    }
+  }
+
+  _startStanceChain(game) {
+    if (!game || !game.player || game.player.staggerChaining) return false;
+    game.player.staggerChaining = true;
+    game.player.staggerChainTimer = 14;
+    game.player.staggerChainHit = new Set();
+    game.player.staggerChainHit.add(this);
+    game.player.staggerChainDmg = 1;
+    this._finishByStanceChain(game);
+    game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#f4f0ff'));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 16, 5, 20));
+    return true;
+  }
+
+  _finishByStanceChain(game) {
+    this.disableTimer = 0;
+    this.stance = this.maxStance || 0;
+    this.staggerBar = 0;
+    this.hp = 0;
+    this.dead = true;
+    this.onDeath(game);
   }
 
   _syncElementState() {
@@ -227,8 +320,7 @@ class Enemy {
     this._updateWindPhase(game);
     this._updateSpikySpikes(game);
     this._tryLightningTeleport(game);
-    if (this.disableTimer > 0) this.disableTimer--;
-    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
+    this._updateStance();
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.grounded) this.juggleState = false;
@@ -354,9 +446,9 @@ class Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
-      // Paralysis DOT — 15% maxHp every 30 ticks
+      // Paralysis DOT — noticeable, but not a percent-health boss killer.
       if (this.paralyseTimer % 30 === 0) {
-        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.05));
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
@@ -1334,17 +1426,7 @@ class Enemy {
             game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
             this.resistTimer = 30;
           }
-          // Stagger bar still fills despite elemental resistance
-          if (!hasActiveShield && sourceType !== 'chain') {
-            this.staggerBar += rawAmount;
-            if (this.staggerBar >= this.maxHp * 1.5) {
-              this.staggerBar = 0;
-              this.disableTimer = 300;
-              this.stunTimer = 300;
-              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-            }
-          }
+          if (!hasActiveShield) this._applyStanceDamage(this._damageProfile(rawAmount, sourceType).stance, game);
           return false;
         }
         if (result === 'heal') {
@@ -1385,33 +1467,18 @@ class Enemy {
     }
 
     // ── Chain strike: hitting a disabled enemy starts a player teleport chain ──
-    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
-      this.disableTimer = 0;
-      this.staggerBar = 0;
-      const base = game.player.type.attackDamage + game.player.bonusDamage;
-      game.player.staggerChaining = true;
-      game.player.staggerChainTimer = 4;
-      game.player.staggerChainHit = new Set();
-      game.player.staggerChainHit.add(this);
-      game.player.staggerChainDmg = Math.round(base * 5);
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
+      return this._startStanceChain(game);
     } else if (this.disableTimer > 0) {
       this.disableTimer = 0;
+      this.stance = this.maxStance;
       this.staggerBar = 0;
     }
 
     // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
-    if (!hasActiveShield && sourceType !== 'chain' && game) {
-      this.staggerBar += rawAmount;
-      if (this.staggerBar >= this.maxHp * 1.5) {
-        this.staggerBar = 0;
-        this.disableTimer = 300;
-        this.stunTimer = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-      }
-    }
+    const combatDamage = this._damageProfile(amount, sourceType);
+    if (!hasActiveShield) this._applyStanceDamage(combatDamage.stance, game);
+    amount = combatDamage.hp;
 
     // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
@@ -1434,6 +1501,7 @@ class Enemy {
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
+      this._applyStanceDamage(0.5, game);
     }
     if (this.juggleState) {
       amount = Math.ceil(amount * 1.5);
@@ -2433,6 +2501,19 @@ class Enemy {
       ctx.fillStyle = '#f44';
       ctx.fillRect(barX, barY, barW * hpRatio, 4);
     }
+    if (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0)) {
+      const barW = this.w + 6;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - (this.hp < this.maxHp ? 16 : 10);
+      const stanceRatio = this.disableTimer > 0 ? 0 : Math.max(0, this.displayStance / this.maxStance);
+      ctx.fillStyle = '#1c1630';
+      ctx.fillRect(barX, barY, barW, 3);
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillRect(barX, barY, barW * stanceRatio, 3);
+      ctx.strokeStyle = '#7a5cff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, 3);
+    }
 
     // Shield pips
     if ((this.type === 'shielded' || this.type === 'protector') && this.shieldMax > 0) {
@@ -2481,23 +2562,34 @@ class Enemy {
     }
     // Disabled / stagger glow
     if (this.disableTimer > 0) {
-      const dp = 0.45 + 0.35 * Math.sin((game ? game.tick : 0) * 0.18);
+      const tick = game ? game.tick : 0;
+      const dp = 0.55 + 0.35 * Math.sin(tick * 0.18);
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
       ctx.save();
       ctx.globalAlpha = dp;
       ctx.shadowColor = '#c04fff';
-      ctx.shadowBlur = 18;
-      ctx.strokeStyle = '#c04fff';
+      ctx.shadowBlur = 24;
+      ctx.strokeStyle = '#f4f0ff';
       ctx.lineWidth = 3;
       ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(this.w, this.h) * 0.78 + Math.sin(tick * 0.22) * 3, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
-      // Purple countdown bar above head
-      const pct = this.disableTimer / 300;
-      const dbW = this.w + 6;
-      const dbY = sy - (this.hp < this.maxHp ? 16 : 6);
-      ctx.fillStyle = '#300030';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 3);
-      ctx.fillStyle = '#c04fff';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 3);
+      ctx.save();
+      ctx.font = 'bold 24px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#f4f0ff';
+      ctx.shadowBlur = 20 + dp * 18;
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillText('\u2620', cx, sy - 24 + Math.sin(tick * 0.2) * 2);
+      ctx.font = 'bold 8px monospace';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#fff';
+      ctx.fillText('FINISH', cx, sy - 9);
+      ctx.restore();
     }
     if (spawning) ctx.restore();
   }
@@ -2515,6 +2607,18 @@ class Boss extends Enemy {
     this.hp = (ENEMY_STATS[bossType].bossBase || 200) * (hpScale || wave);
     this.maxHp = this.hp;
     this.displayHp = this.hp;
+    const bossHits = {
+      walker: 36, shooter: 36, jumper: 40, bouncer: 44, charger: 48,
+      shielded: 48, deflector: 52, protector: 60, attacker: 42,
+      flyer: 38, flyshooter: 42
+    };
+    const bossScale = 1 + Math.max(0, (wave || 1) - 1) * 0.10;
+    this.hp = Math.ceil((bossHits[bossType] || 40) * bossScale * 4);
+    this.maxHp = this.hp;
+    this.displayHp = this.hp;
+    this.maxStance = Math.max(8, Math.ceil(this.maxHp / 2));
+    this.stance = this.maxStance;
+    this.displayStance = this.stance;
     // Override contact damage — boss takes 3 hits to kill player
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(wave, 10)] || 21;
@@ -2575,8 +2679,7 @@ class Boss extends Enemy {
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
-    if (this.disableTimer > 0) this.disableTimer--;
-    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
+    this._updateStance();
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.shieldBump > 0) this.shieldBump--;
@@ -2663,9 +2766,9 @@ class Boss extends Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
-      // Paralysis DOT — 15% maxHp every 30 ticks
+      // Paralysis DOT — noticeable, but not a percent-health boss killer.
       if (this.paralyseTimer % 30 === 0) {
-        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.05));
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
@@ -3394,33 +3497,18 @@ class Boss extends Enemy {
     const rawAmount = amount;
 
     // ── Chain strike: hitting a disabled boss starts a player teleport chain ──
-    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
-      this.disableTimer = 0;
-      this.staggerBar = 0;
-      const base = game.player.type.attackDamage + game.player.bonusDamage;
-      game.player.staggerChaining = true;
-      game.player.staggerChainTimer = 4;
-      game.player.staggerChainHit = new Set();
-      game.player.staggerChainHit.add(this);
-      game.player.staggerChainDmg = Math.round(base * 5);
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
+      return this._startStanceChain(game);
     } else if (this.disableTimer > 0) {
       this.disableTimer = 0;
+      this.stance = this.maxStance;
       this.staggerBar = 0;
     }
 
     // ── Stagger bar ──
-    if (!hasActiveBossShield && sourceType !== 'chain' && game) {
-      this.staggerBar += rawAmount;
-      if (this.staggerBar >= this.maxHp * 1.5) {
-        this.staggerBar = 0;
-        this.disableTimer = 300;
-        this.stunTimer = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-      }
-    }
+    const combatDamage = this._damageProfile(amount, sourceType);
+    if (!hasActiveBossShield) this._applyStanceDamage(combatDamage.stance, game);
+    amount = combatDamage.hp;
 
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
@@ -3441,6 +3529,7 @@ class Boss extends Enemy {
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
+      this._applyStanceDamage(0.5, game);
     }
     this.hp -= amount;
     this.hp = Math.round(this.hp);
@@ -4171,6 +4260,20 @@ class Boss extends Enemy {
       ctx.lineWidth = 1;
       ctx.strokeRect(barX, barY, barW, barH);
     }
+    if (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0)) {
+      const barW = this.w + 20;
+      const barH = 4;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - 31;
+      const stanceRatio = this.disableTimer > 0 ? 0 : Math.max(0, this.displayStance / this.maxStance);
+      ctx.fillStyle = '#1c1630';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillRect(barX, barY, barW * stanceRatio, barH);
+      ctx.strokeStyle = '#7a5cff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, barH);
+    }
 
     // General stun stars (boulders, slams, meteors, etc.)
     if (this.stunTimer > 0) {
@@ -4187,22 +4290,33 @@ class Boss extends Enemy {
     }
     // Disabled / stagger glow
     if (this.disableTimer > 0) {
-      const dp = 0.45 + 0.35 * Math.sin(game.tick * 0.18);
+      const dp = 0.55 + 0.35 * Math.sin(game.tick * 0.18);
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
       ctx.save();
       ctx.globalAlpha = dp;
       ctx.shadowColor = '#c04fff';
-      ctx.shadowBlur = 22;
-      ctx.strokeStyle = '#c04fff';
+      ctx.shadowBlur = 30;
+      ctx.strokeStyle = '#f4f0ff';
       ctx.lineWidth = 4;
       ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(this.w, this.h) * 0.78 + Math.sin(game.tick * 0.22) * 4, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
-      const pct = this.disableTimer / 300;
-      const dbW = this.w + 8;
-      const dbY = sy - 18;
-      ctx.fillStyle = '#300030';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 4);
-      ctx.fillStyle = '#c04fff';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 4);
+      ctx.save();
+      ctx.font = 'bold 32px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#f4f0ff';
+      ctx.shadowBlur = 24 + dp * 20;
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillText('\u2620', cx, sy - 48 + Math.sin(game.tick * 0.2) * 2);
+      ctx.font = 'bold 9px monospace';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#fff';
+      ctx.fillText('FINISH', cx, sy - 27);
+      ctx.restore();
     }
     // Restore fade alpha
     if (_fading) ctx.restore();

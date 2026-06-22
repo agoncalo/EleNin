@@ -66,21 +66,29 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     const cy = pl.y + pl.h / 2;
     if (this.isObjectiveCache(game)) {
       this.collectObjectiveCache(game, cx, cy);
-      return;
     }
     this.fireShurikens(game, pl, cx, cy);
   }
 
   isObjectiveCache(game) {
+    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : game.bossOrbsRequired;
     return game.currentObjective && game.currentObjective.type === 'collect' &&
       !game.bossActive && !game.boss &&
-      game.bossOrbsCollected < game.bossOrbsRequired;
+      game.bossOrbsCollected < target;
   }
 
   collectObjectiveCache(game, cx, cy) {
-    game.bossOrbCharge = game.bossOrbChargeMax;
+    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : 15;
+    game.bossOrbsRequired = target;
+    game.bossOrbsCollected = Math.min(target, (game.bossOrbsCollected || 0) + 1);
+    game.bossOrbCharge = 0;
+    game.bossOrbCooldown = 0;
     game.effects.push(new Effect(cx, cy, '#ccc', 10, 4, 15));
-    game.effects.push(new TextEffect(cx, cy - 22, '\u2726 CACHE!', '#ccc'));
+    const txt = game.bossOrbsCollected >= target
+      ? '\u2726 BOSS SUMMONED!'
+      : '\u2726 ' + game.bossOrbsCollected + '/' + target;
+    game.effects.push(new TextEffect(cx, cy - 38, txt, '#ccc'));
+    if (game.bossOrbsCollected >= target) game.spawnBoss();
   }
 
   fireShurikens(game, pl, cx, cy) {
@@ -88,30 +96,33 @@ class ShurikenPickupOrb extends TimedPickupOrb {
       (pl.ninjaType === 'crystal') ? '#aff' :
       (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
     const dmg = pl.type.attackDamage + pl.shurikenLevel;
+    const chosenTargets = new Set();
     for (let i = 0; i < pl.maxShurikens; i++) {
       const isLastKunai = pl.items.theKunai && i === pl.maxShurikens - 1;
       const sProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8 + i * 1.5, color: isLastKunai ? '#f66' : color,
         damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-        piercing: true, preferBoss: true, ignoreLOS: true,
+        piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!sProj) continue;
+      if (sProj.initialTarget) chosenTargets.add(sProj.initialTarget);
       this.applyShurikenTraits(sProj, pl, dmg, isLastKunai);
-      if (pl.items.tripleShuriken) this.fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sProj);
+      if (pl.items.tripleShuriken) this.fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sProj, chosenTargets);
     }
     SFX.shuriken();
     game.effects.push(new Effect(cx, cy, '#ccc', 12, 5, 18));
     game.effects.push(new TextEffect(cx, cy - 22, '\u2726 SHURIKENS!', '#ccc'));
   }
 
-  fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sourceProjectile) {
+  fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sourceProjectile, chosenTargets) {
     for (const triOff of [0.25, -0.25]) {
       const tProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color: isLastKunai ? '#f66' : color,
         damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-        piercing: true, preferBoss: true, ignoreLOS: true,
+        piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!tProj) continue;
+      if (tProj.initialTarget) chosenTargets.add(tProj.initialTarget);
       this.applyShurikenTraits(tProj, pl, dmg, false);
       const ta = Math.atan2(sourceProjectile.vy, sourceProjectile.vx) + triOff;
       const tsp = Math.sqrt(sourceProjectile.vx * sourceProjectile.vx + sourceProjectile.vy * sourceProjectile.vy);
@@ -220,6 +231,78 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
     ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 4); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-4, -1); ctx.lineTo(4, -1); ctx.stroke();
     ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
+
+class HeartPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'heart', { life: 900, bobSpeed: 0.05, w: 22, h: 22 });
+  }
+
+  static spawnInterval() {
+    return 900;
+  }
+
+  static spawnPhase() {
+    return 300;
+  }
+
+  static maxOnScreen() {
+    return 1;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    if (!rectOverlap(pl, this) || pl.hp >= pl.maxHp) return;
+
+    this.done = true;
+    SFX.pickup();
+    const heal = Math.min(5, pl.maxHp - pl.hp);
+    pl.hp = Math.min(pl.maxHp, pl.hp + heal);
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new Effect(cx, cy, '#f44', 16, 5, 18));
+    game.effects.push(new Effect(cx, cy, '#fff', 7, 3, 12));
+    game.effects.push(new TextEffect(cx, cy - 22, '+' + heal + ' HP', '#f66'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    const cx = state.x + 11;
+    const cy = state.y + 11;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(cx, cy);
+    ctx.shadowColor = '#f44';
+    ctx.shadowBlur = 12;
+
+    ctx.fillStyle = 'rgba(255,60,90,0.22)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f44';
+    ctx.beginPath();
+    ctx.arc(-4, -4, 6, 0, Math.PI * 2);
+    ctx.arc(4, -4, 6, 0, Math.PI * 2);
+    ctx.moveTo(-10, -1);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(10, -1);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffd6dc';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('\u2665', 0, -1);
     ctx.restore();
   }
 }

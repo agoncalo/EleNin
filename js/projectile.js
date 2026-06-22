@@ -366,7 +366,8 @@ class Projectile {
     if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
     if (this.homing && (this.owner === 'player' || this.owner === 'ally')) {
-      const target = findNearestTarget(this.x, this.y, game, 0);
+      let target = this.homingTarget && !this.homingTarget.dead ? this.homingTarget : null;
+      if (!target) target = findNearestTarget(this.x, this.y, game, 0);
       if (target) {
         const tdx = (target.x + target.w / 2) - (this.x + this.w / 2);
         const tdy = (target.y + target.h / 2) - (this.y + this.h / 2);

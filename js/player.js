@@ -150,6 +150,8 @@ class Player {
     this.staggerChainTimer = 0;
     this.staggerChainHit = new Set();
     this.staggerChainDmg = 0;
+    this.staggerChainSegments = [];
+    this.staggerChainEchoes = [];
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -191,6 +193,7 @@ class Player {
 
     // Ground slam
     this.slamming = false;
+    this.dropThroughSlamLock = false;
 
     // Stop midair
     this.stopMidair = false;
@@ -597,6 +600,8 @@ class Player {
     this.stormAfterimages = [];
     this.staggerChaining = false;
     this.staggerChainHit = new Set();
+    this.staggerChainSegments = [];
+    this.staggerChainEchoes = [];
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
@@ -1213,7 +1218,7 @@ class Player {
       if (this.statusBurn > 0) {
         this.statusBurn--;
         if (this.statusBurn % 30 === 0 && this.statusBurn > 0) {
-          const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+          const burnDmg = Math.max(1, Math.round(this.maxHp * 0.03));
           this.hp -= burnDmg;
           if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'fire', killerInfo: { type: 'burn', element: 'fire', isBoss: false } }; }
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
@@ -1283,7 +1288,8 @@ class Player {
 
     // Ground slam
     const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
-    if (holdingDown && !this.grounded && !this.slamming) {
+    if (!holdingDown) this.dropThroughSlamLock = false;
+    if (holdingDown && !this.grounded && !this.slamming && !this.dropThroughSlamLock) {
       const slamCost = Math.max(1, Math.floor(this.hp * 0.20));
       this.hp = Math.max(1, this.hp - slamCost);
       this.slamming = true;
@@ -1332,8 +1338,13 @@ class Player {
     for (const p of game.platforms) {
       if (rectOverlap(this, p)) {
         this.jumpsLeft = maxJ;
-        if (p.thin) {
-          if (this.vy > 0 && !holdingDown && !this.slamming && this.y + this.h - this.vy <= p.y + 4) {
+        if (p.thin || p.playerDropThrough) {
+          const crossedTop = this.vy > 0 && this.y + this.h - this.vy <= p.y + 4;
+          if (holdingDown && wasGrounded && crossedTop) {
+            this.dropThroughSlamLock = true;
+          }
+          const airborneSlamHitsDropPlatform = p.playerDropThrough && this.slamming && !wasGrounded && crossedTop;
+          if (airborneSlamHitsDropPlatform || (crossedTop && !holdingDown && !this.slamming)) {
             this.y = p.y - this.h;
             this.vy = 0;
             this.grounded = true;
@@ -1661,7 +1672,7 @@ class Player {
     if (this.statusBurn > 0) {
       this.statusBurn--;
       if (this.statusBurn % 30 === 0) {
-        const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        const burnDmg = Math.max(1, Math.round(this.maxHp * 0.03));
         this.hp -= burnDmg;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         if (this.hp <= 0) {
@@ -1768,7 +1779,7 @@ class Player {
                 SFX.backstab();
                 if (this.backstabReady && !this.chainStriking) {
                   this.chainStriking = true;
-                  this.chainTimer = 6;
+                  this.chainTimer = 10;
                   this.chainLastHit = e;
                   this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
                   game.effects.push(this._spinScythe);
@@ -1834,7 +1845,7 @@ class Player {
             // Storm: hitting a soaked enemy starts lightning chain
             if (e.juggleState &&this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
               this.stormChaining = true;
-              this.stormChainTimer = 4;
+              this.stormChainTimer = 8;
               this.stormChainHit = new Set();
               this.stormChainHit.add(e);
               if (this.ultimateActive) {
@@ -1956,7 +1967,7 @@ class Player {
             dmg = 9999;
             if (!this.chainStriking) {
               this.chainStriking = true;
-              this.chainTimer = 6;
+              this.chainTimer = 10;
               this.chainLastHit = game.boss;
               this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
               game.effects.push(this._spinScythe);
@@ -2003,7 +2014,7 @@ class Player {
           // Storm: hitting soaked boss starts lightning chain
           if (this.ninjaType === 'storm' && game.boss.soakTimer > 0 && !this.stormChaining) {
             this.stormChaining = true;
-            this.stormChainTimer = 4;
+            this.stormChainTimer = 8;
             this.stormChainHit = new Set();
             this.stormChainHit.add(game.boss);
             if (this.ultimateActive) {
@@ -2030,7 +2041,7 @@ class Player {
       if (this.statusParalyse > 0) {
         this.statusStun = 30;
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
-        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.08));
         this.hp -= paraDmg;
         if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
@@ -2171,7 +2182,7 @@ class Player {
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.chainTimer = 6;
+          this.chainTimer = 10;
         } else if (!this.chainStriking) {
           // Already stopped by resist
         } else {
@@ -2256,7 +2267,7 @@ class Player {
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#8af', 8, 3, 10));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.stormChainTimer = 4;
+          this.stormChainTimer = 8;
           // Storm ult sheath tracking
           if (this.ultimateActive && this.stormSheathActive) {
             this.stormSheathHits++;
@@ -2334,7 +2345,7 @@ class Player {
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#8af', 8, 3, 10));
             triggerHitstop(3);
             this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-            this.stormChainTimer = 4;
+            this.stormChainTimer = 8;
             // Storm ult sheath tracking
             if (this.ultimateActive && this.stormSheathActive) {
               this.stormSheathHits++;
@@ -2373,38 +2384,78 @@ class Player {
       this.staggerChainTimer--;
       if (this.staggerChainTimer <= 0) {
         let nearest = null;
-        let nearDist = 250;
+        let nearDist = Infinity;
         const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        let skullTarget = false;
         for (const e of game.enemies) {
-          if (e.dead || this.staggerChainHit.has(e)) continue;
+          if (e.dead || this.staggerChainHit.has(e) || e.disableTimer <= 0) continue;
           const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearDist) { nearDist = d; nearest = e; }
+          if (d < nearDist) { nearDist = d; nearest = e; skullTarget = true; }
         }
-        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss) && game.boss.disableTimer > 0) {
           nearest = game.boss;
+          skullTarget = true;
+        }
+        if (!nearest) {
+          nearDist = Infinity;
+          const nonSkullRadius = 360;
+          for (const e of game.enemies) {
+            if (e.dead || this.staggerChainHit.has(e)) continue;
+            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < nonSkullRadius && d < nearDist) { nearDist = d; nearest = e; skullTarget = false; }
+          }
+          if (game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < nonSkullRadius && d < nearDist) { nearest = game.boss; skullTarget = false; }
+          }
         }
         if (nearest) {
+          const fromCx = cx;
+          const fromCy = cy;
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
           this.y = nearest.y + nearest.h / 2 - this.h / 2;
           this.facing = -behind;
           this.vx = 0; this.vy = 0;
-          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, staggerChain: true });
-          nearest.disableTimer = 0;
-          nearest.staggerBar = 0;
-          nearest.takeDamage(this.staggerChainDmg, game, this.x + this.w / 2, null, 'chain');
+          const toCx = this.x + this.w / 2;
+          const toCy = this.y + this.h / 2;
+          if (!this.staggerChainEchoes) this.staggerChainEchoes = [];
+          if (!this.staggerChainSegments) this.staggerChainSegments = [];
+          this.staggerChainEchoes.push({
+            x: fromCx - this.w / 2, y: fromCy - this.h / 2,
+            facing: this.facing, life: 90, maxLife: 90
+          });
+          this.staggerChainSegments.push({
+            x1: fromCx, y1: fromCy, x2: toCx, y2: toCy,
+            life: 90, maxLife: 90,
+            j1: (Math.random() - 0.5) * 18,
+            j2: (Math.random() - 0.5) * 18,
+            j3: (Math.random() - 0.5) * 18,
+            j4: (Math.random() - 0.5) * 18
+          });
+          if (skullTarget) nearest._finishByStanceChain(game);
+          else nearest.takeDamage(nearest === game.boss || nearest.bossType ? 3 : 2, game, this.x + this.w / 2, null, 'chain');
           this.staggerChainHit.add(nearest);
           this._spawnChainCut(nearest);
           SFX.chain();
-          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#c04fff', 12, 5, 18));
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, skullTarget ? '#c04fff' : '#f4f0ff', skullTarget ? 14 : 9, skullTarget ? 5 : 3, 18));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.staggerChainTimer = 4;
+          this.staggerChainTimer = skullTarget ? 14 : 9;
         } else {
           this.staggerChaining = false;
           this.staggerChainHit.clear();
-          for (const a of this.afterimages) { if (a.staggerChain) a.life = 20; }
+          if (!this.staggerChainEchoes) this.staggerChainEchoes = [];
+          this.staggerChainEchoes.push({
+            x: this.x, y: this.y,
+            facing: this.facing, life: 90, maxLife: 90, final: true
+          });
+          for (const a of this.afterimages) { if (a.staggerChain) a.life = 90; }
+          for (const e of this.staggerChainEchoes) e.life = Math.min(e.life, 90);
+          for (const s of this.staggerChainSegments) s.life = Math.min(s.life, 90);
         }
       }
     }
@@ -2415,6 +2466,16 @@ class Player {
       if (this.staggerChaining) return true; // persist while chaining
       a.life--;
       return a.life > 0;
+    });
+    this.staggerChainSegments = (this.staggerChainSegments || []).filter(s => {
+      if (this.staggerChaining) return true;
+      s.life--;
+      return s.life > 0;
+    });
+    this.staggerChainEchoes = (this.staggerChainEchoes || []).filter(e => {
+      if (this.staggerChaining) return true;
+      e.life--;
+      return e.life > 0;
     });
 
     // Shadow ninja: stealth accumulation
@@ -3329,53 +3390,79 @@ class Player {
     }
 
     // Stagger chain afterimages + lines (all ninja types, color-coded by ninja)
-    if (this.staggerChaining || this.afterimages.some(a => a.staggerChain)) {
+    if (this.staggerChaining || (this.staggerChainEchoes && this.staggerChainEchoes.length > 0) || (this.staggerChainSegments && this.staggerChainSegments.length > 0)) {
       const chainColor = this.type.accentColor;
-      const staggerImages = this.afterimages.filter(a => a.staggerChain);
-      if (staggerImages.length > 1) {
+      const staggerImages = this.staggerChainEchoes || [];
+      const chainSegments = this.staggerChainSegments || [];
+      if (chainSegments.length > 0) {
         ctx.save();
         ctx.strokeStyle = chainColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.shadowColor = chainColor;
-        ctx.shadowBlur = 8;
-        ctx.globalAlpha = this.staggerChaining ? 0.65 : 0.25;
-        for (let i = 1; i < staggerImages.length; i++) {
-          const prev = staggerImages[i - 1];
-          const curr = staggerImages[i];
-          const px1 = prev.x + this.w / 2 - cam.x, py1 = prev.y + this.h / 2 - cam.y;
-          const px2 = curr.x + this.w / 2 - cam.x, py2 = curr.y + this.h / 2 - cam.y;
-          const mx1 = px1 + (px2 - px1) * 0.33 + (Math.random() - 0.5) * 10;
-          const my1 = py1 + (py2 - py1) * 0.33 + (Math.random() - 0.5) * 10;
-          const mx2 = px1 + (px2 - px1) * 0.66 + (Math.random() - 0.5) * 10;
-          const my2 = py1 + (py2 - py1) * 0.66 + (Math.random() - 0.5) * 10;
+        ctx.shadowBlur = 18;
+        for (const seg of chainSegments) {
+          const fade = this.staggerChaining ? 1 : Math.max(0, seg.life / seg.maxLife);
+          const px1 = seg.x1 - cam.x, py1 = seg.y1 - cam.y;
+          const px2 = seg.x2 - cam.x, py2 = seg.y2 - cam.y;
+          const mx1 = px1 + (px2 - px1) * 0.33 + seg.j1;
+          const my1 = py1 + (py2 - py1) * 0.33 + seg.j2;
+          const mx2 = px1 + (px2 - px1) * 0.66 + seg.j3;
+          const my2 = py1 + (py2 - py1) * 0.66 + seg.j4;
+          ctx.globalAlpha = 0.75 * fade;
           ctx.beginPath();
           ctx.moveTo(px1, py1);
           ctx.lineTo(mx1, my1);
           ctx.lineTo(mx2, my2);
           ctx.lineTo(px2, py2);
           ctx.stroke();
-        }
-        if (this.staggerChaining) {
-          const last = staggerImages[staggerImages.length - 1];
+          ctx.globalAlpha = 0.95 * fade;
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#fff';
           ctx.beginPath();
-          ctx.moveTo(last.x + this.w / 2 - cam.x, last.y + this.h / 2 - cam.y);
+          ctx.moveTo(px1, py1);
+          ctx.lineTo(px2, py2);
+          ctx.stroke();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = chainColor;
+        }
+        if (this.staggerChaining && chainSegments.length > 0) {
+          const last = chainSegments[chainSegments.length - 1];
+          ctx.globalAlpha = 0.45;
+          ctx.setLineDash([8, 8]);
+          ctx.beginPath();
+          ctx.moveTo(last.x2 - cam.x, last.y2 - cam.y);
           ctx.lineTo(this.x + this.w / 2 - cam.x, this.y + this.h / 2 - cam.y);
           ctx.stroke();
+          ctx.setLineDash([]);
         }
         ctx.restore();
       }
       for (const a of staggerImages) {
-        const alpha = this.staggerChaining ? 0.5 : (a.life / 20) * 0.45;
+        const fade = this.staggerChaining ? 1 : Math.max(0, a.life / (a.maxLife || 90));
+        const alpha = 0.68 * fade;
+        const pulse = this.staggerChaining ? 0.9 + 0.1 * Math.sin((a.life || 0) * 0.4) : 1;
+        const aw = this.w * (a.final ? 1.15 : 1);
+        const ah = this.h * (a.final ? 1.15 : 1);
+        const ax = a.x + this.w / 2 - aw / 2;
+        const ay = a.y + this.h / 2 - ah / 2;
+        ctx.save();
         ctx.globalAlpha = alpha;
         ctx.fillStyle = chainColor;
         ctx.shadowColor = chainColor;
-        ctx.shadowBlur = 12;
-        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
-        ctx.shadowBlur = 0;
+        ctx.shadowBlur = 18;
+        ctx.fillRect(ax - cam.x, ay - cam.y, aw, ah);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.strokeRect(ax - cam.x - 1, ay - cam.y - 1, aw + 2, ah + 2);
         ctx.fillStyle = '#fff';
-        ctx.globalAlpha = alpha * 0.8;
-        const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
-        ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+        ctx.globalAlpha = alpha * pulse;
+        const aFacing = a.facing || this.facing;
+        const eyeX = aFacing > 0 ? ax + aw * 0.58 : ax + aw * 0.22;
+        ctx.fillRect(eyeX - cam.x, ay + ah * 0.25 - cam.y, 7, 4);
+        ctx.restore();
       }
       ctx.globalAlpha = 1;
     }

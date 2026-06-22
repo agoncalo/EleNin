@@ -59,6 +59,7 @@ class Game {
     this.orbs = [];
     this.shurikenPickups = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -196,6 +197,21 @@ class Game {
     return p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
   }
 
+  _objectiveTotalSeconds(type) {
+    if (type === 'zone') return 15;
+    if (type === 'defend') return 30;
+    if (type === 'survive') return 30 * Math.max(1, this.bossOrbsRequired || 1);
+    return 30 * Math.max(1, this.bossOrbsRequired || 1);
+  }
+
+  _objectiveSecondsPerOrb(type) {
+    return this._objectiveTotalSeconds(type) / Math.max(1, this.bossOrbsRequired || 1);
+  }
+
+  _objectiveCollectTarget() {
+    return 15;
+  }
+
   _objectiveProgressInfo() {
     const obj = this.currentObjective || { type: 'kills' };
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
@@ -208,11 +224,12 @@ class Game {
       return { current: Math.min(target, this.objectiveKills || 0), target, rawCurrent: this.objectiveKills || 0, rawTarget: target };
     }
     if (obj.type === 'collect') {
-      const target = Math.max(1, this.bossOrbsRequired || 1);
+      const target = this._objectiveCollectTarget();
       return { current: Math.min(target, this.bossOrbsCollected || 0), target, rawCurrent: this.bossOrbsCollected || 0, rawTarget: target };
     }
-    const secondsPerOrb = obj.type === 'survive' ? 30 : obj.type === 'zone' ? 25 : obj.type === 'defend' ? 20 : 30;
-    const targetFrames = Math.max(1, (this.bossOrbsRequired || 1) * secondsPerOrb * 60);
+    const totalSeconds = this._objectiveTotalSeconds(obj.type);
+    const secondsPerOrb = this._objectiveSecondsPerOrb(obj.type);
+    const targetFrames = Math.max(1, totalSeconds * 60);
     const currentFrames = (this.bossOrbsCollected || 0) * secondsPerOrb * 60
       + Math.min(1, (this.bossOrbCharge || 0) / Math.max(1, this.bossOrbChargeMax || 1)) * secondsPerOrb * 60;
     return {
@@ -462,13 +479,32 @@ class Game {
   buildWallMap(theme) {
     const rng = this._layoutRng('wall');
     const width = 1900 + Math.floor(rng() * 500);
-    const { P, c1, c2, groundY } = this._procHelpers(theme, width, 480);
+    const { P, R, c1, c2, groundY } = this._procHelpers(theme, width, 480);
     const wallCount = 6 + Math.floor(rng() * 4);
+    const walls = [];
     for (let i = 0; i < wallCount; i++) {
       const x = 220 + i * ((width - 440) / Math.max(1, wallCount - 1)) + (rng() * 70 - 35);
       const h = 150 + Math.floor(rng() * 230);
       const w = 18 + Math.floor(rng() * 18);
-      P(Math.max(120, Math.min(width - 150, x)), groundY - h, w, h, rng() < 0.5 ? c1 : c2);
+      const wx = Math.max(120, Math.min(width - 150, x));
+      P(wx, groundY - h, w, h, rng() < 0.5 ? c1 : c2);
+      walls.push({ x: wx, y: groundY - h, w, h });
+    }
+    walls.sort((a, b) => a.x - b.x);
+    const ropeTop = 8;
+    for (let i = 0; i < walls.length - 1; i++) {
+      const left = walls[i];
+      const right = walls[i + 1];
+      const gapCenter = (left.x + left.w + right.x) / 2 + (rng() * 44 - 22);
+      const h = Math.max(210, Math.min(410, groundY - ropeTop - 60 - Math.floor(rng() * 45)));
+      R(Math.max(70, Math.min(width - 95, gapCenter)), ropeTop, h);
+    }
+    for (let i = 0; i < walls.length; i += 2) {
+      const wall = walls[i];
+      const side = rng() < 0.5 ? -1 : 1;
+      const x = wall.x + (side < 0 ? -38 : wall.w + 14);
+      const h = 190 + Math.floor(rng() * 150);
+      R(Math.max(60, Math.min(width - 90, x)), ropeTop, h);
     }
   }
 
@@ -483,26 +519,27 @@ class Game {
       let x = 150 + rowOffset;
       let previous = null;
       while (x < width - 240) {
-        const w = 245 + Math.floor(rng() * 95);
-        const h = 22 + Math.floor(rng() * 8);
-        const thick = { x: Math.min(x, width - w - 90), y, w, h };
-        P(thick.x, thick.y, thick.w, thick.h, i % 2 === 0 ? c2 : c3);
+        const w = 360 + Math.floor(rng() * 160);
+        const thin = { x: Math.min(x, width - w - 90), y, w, h: 8 };
+        const lanePlatform = new Platform(thin.x, thin.y, thin.w, thin.h, i % 2 === 0 ? c2 : c3);
+        lanePlatform.playerDropThrough = true;
+        this.platforms.push(lanePlatform);
 
         if (previous) {
-          const gap = thick.x - (previous.x + previous.w);
-          if (gap > 190) {
-            const bridgeCount = gap > 340 ? 2 : 1;
+          const gap = thin.x - (previous.x + previous.w);
+          if (gap > 220) {
+            const bridgeCount = gap > 390 ? 2 : 1;
             for (let b = 1; b <= bridgeCount; b++) {
-              const bw = 86 + Math.floor(rng() * 28);
+              const bw = 110 + Math.floor(rng() * 34);
               const bx = previous.x + previous.w + (gap * b) / (bridgeCount + 1) - bw / 2;
               const by = y - 42 - Math.floor(rng() * 14);
-              TP(Math.max(previous.x + previous.w + 28, Math.min(thick.x - bw - 28, bx)), by, bw);
+              TP(Math.max(previous.x + previous.w + 28, Math.min(thin.x - bw - 28, bx)), by, bw);
             }
           }
         }
 
-        previous = thick;
-        x = thick.x + thick.w + 265 + Math.floor(rng() * 105);
+        previous = thin;
+        x = thin.x + thin.w + 145 + Math.floor(rng() * 90);
       }
     }
     this._addReachabilityThinPlatforms(TP, rng, { maxGap: 235, minGap: 120, maxY: 430 });
@@ -1370,6 +1407,13 @@ class Game {
       obj.label = 'Protect the Ronin';
       obj.desc = 'Keep the allied Ronin alive while the objective bar fills.';
     }
+    if (obj.type === 'collect') {
+      this.bossOrbsRequired = this._objectiveCollectTarget();
+      this.bossOrbCharge = 0;
+      this.bossOrbCooldown = 0;
+      obj.label = 'Collect Shurikens';
+      obj.desc = 'Collect 15 shurikens to charge the objective.';
+    }
     if (obj.type === 'zone') {
       this._setupZoneObjective();
     } else if (obj.type === 'defend') {
@@ -1631,6 +1675,7 @@ class Game {
       e.elementColors = ELEMENT_COLORS[e.element];
       e.color = e.elementColors.body;
     }
+    this._applyEnemyBalance(e, pick);
     if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
       this.spawnedMiniboss.add(pick.type);
     }
@@ -1645,6 +1690,7 @@ class Game {
 
   spawnBoss() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    const roomDef = MAP_ROOM_BY_ID[this.currentRoomId] || null;
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
     this.boss = new Boss(bx, by, waveDef.boss, 1, this._roomPowerLevel());
@@ -1659,6 +1705,7 @@ class Game {
       this.boss.elementColors = ELEMENT_COLORS[this.boss.element];
       this.boss.color = this.boss.elementColors.body;
     }
+    this._applyBossBalance(this.boss, roomDef);
     this.bossActive = true;
     this.bossMessage = 180;
     // ── Boss spawn dramatic effect ──
@@ -1794,6 +1841,134 @@ class Game {
     roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
     const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
     return Math.max(1, distance + 1);
+  }
+
+  _completedRoomCount() {
+    return Object.keys((this.mapState && this.mapState.completed) || {}).length;
+  }
+
+  _mapProgressRatio(roomDef) {
+    roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
+    const maxDistance = MAP_ROOM_DEFS.reduce((m, r) => Math.max(m, r.distance || 0), 1);
+    const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
+    return Math.max(0, Math.min(1, distance / Math.max(1, maxDistance)));
+  }
+
+  _recomputeRoomLevelBonuses() {
+    const pl = this.player;
+    const prev = pl._roomLevelApplied || { maxHp: 0, damage: 0, elemental: 0, armor: 0, speed: 0, reach: 0 };
+    pl.maxHp = Math.max(1, pl.maxHp - (prev.maxHp || 0));
+    pl.hp = Math.min(pl.hp, pl.maxHp);
+    pl.displayHp = Math.min(pl.displayHp || pl.hp, pl.maxHp);
+    pl.bonusDamage -= prev.damage || 0;
+    pl.bonusElemental -= prev.elemental || 0;
+    pl.bonusArmor -= prev.armor || 0;
+    pl.bonusSpeed -= prev.speed || 0;
+    pl.bonusReach -= prev.reach || 0;
+
+    const cleared = this._completedRoomCount();
+    const next = {
+      maxHp: Math.floor(cleared / 4),
+      damage: Math.floor(cleared / 12),
+      elemental: Math.floor(cleared / 10),
+      armor: Math.floor(cleared / 18),
+      speed: Math.floor(cleared / 16),
+      reach: Math.floor(cleared / 14),
+    };
+    pl._roomLevelApplied = next;
+    pl.maxHp += next.maxHp;
+    pl.hp = Math.min(pl.maxHp, pl.hp + Math.max(0, next.maxHp - (prev.maxHp || 0)));
+    pl.displayHp = Math.min(pl.maxHp, pl.displayHp || pl.hp);
+    pl.bonusDamage += next.damage;
+    pl.bonusElemental += next.elemental;
+    pl.bonusArmor += next.armor;
+    pl.bonusSpeed += next.speed;
+    pl.bonusReach += next.reach;
+  }
+
+  _balancedPlayerAttackDamage() {
+    const pl = this.player;
+    return Math.max(1, (pl.type ? pl.type.attackDamage : 1) + (pl.bonusDamage || 0));
+  }
+
+  _bossTargetHits(roomDef) {
+    if (roomDef && roomDef.kind === 'trueFinal') return 60;
+    if (roomDef && roomDef.kind === 'finalBoss') return 40;
+    const progress = this._mapProgressRatio(roomDef);
+    const kindBonus = roomDef && roomDef.kind === 'miniBoss' ? 5 : roomDef && roomDef.kind === 'bridgeBoss' ? 3 : 0;
+    return Math.round(10 + progress * 22 + kindBonus);
+  }
+
+  _bossTargetDeathHits(roomDef) {
+    if (roomDef && roomDef.kind === 'trueFinal') return 4;
+    if (roomDef && roomDef.kind === 'finalBoss') return 6;
+    return Math.max(6, Math.round(8 - this._mapProgressRatio(roomDef) * 2));
+  }
+
+  _rawDamageForDeathHits(targetHits, element) {
+    const pl = this.player;
+    const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
+    const armorOffset = bypassArmor ? 0 : (pl.bonusArmor || 0);
+    return Math.max(1, Math.ceil(pl.maxHp / Math.max(1, targetHits) + armorOffset));
+  }
+
+  _applyBossBalance(boss, roomDef) {
+    if (!boss) return;
+    const attackDamage = this._balancedPlayerAttackDamage();
+    const targetHits = this._bossTargetHits(roomDef);
+    const targetDeathHits = this._bossTargetDeathHits(roomDef);
+    if (boss._syncElementState) boss._syncElementState();
+    const armorTax = boss.elementArmorMax ? Math.ceil(boss.elementArmorMax * 0.6) : 0;
+    const targetHp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    boss.hp = Math.max(1, Math.round(targetHp));
+    boss.maxHp = boss.hp;
+    boss.displayHp = boss.hp;
+    boss.maxStance = Math.max(8, Math.ceil(boss.maxHp / 2));
+    boss.stance = boss.maxStance;
+    boss.displayStance = boss.stance;
+    boss.staggerBar = 0;
+    boss.stanceRecoverDelay = 0;
+    boss.contactDmg = this._rawDamageForDeathHits(targetDeathHits, boss.element);
+    boss._bossEhp = Math.max(6, boss.contactDmg * 4);
+    boss._bossArm = 0;
+    boss._targetHits = targetHits;
+    boss._targetDeathHits = targetDeathHits;
+  }
+
+  _enemyTargetHits(enemy, pick) {
+    const typeHits = {
+      walker: 3, shooter: 3, jumper: 4, bouncer: 4, charger: 4,
+      shielded: 5, deflector: 6, protector: 6, attacker: 3, flyer: 3, flyshooter: 4
+    };
+    let hits = typeHits[enemy.type] || 4;
+    if (pick && pick.big) hits += 4;
+    if (enemy.element === 'steel' || enemy.element === 'spiky') hits = Math.max(3, hits - 1);
+    return hits;
+  }
+
+  _applyEnemyBalance(enemy, pick) {
+    if (!enemy) return;
+    if (enemy._syncElementState) enemy._syncElementState();
+    const attackDamage = this._balancedPlayerAttackDamage();
+    const targetHits = this._enemyTargetHits(enemy, pick);
+    const armorTax = enemy.elementArmorMax ? Math.ceil(enemy.elementArmorMax * 0.5) : 0;
+    const hp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    enemy.hp = Math.max(1, Math.round(hp));
+    enemy.maxHp = enemy.hp;
+    enemy.displayHp = enemy.hp;
+    enemy.maxStance = Math.max(2, Math.ceil(enemy.maxHp / 4));
+    enemy.stance = enemy.maxStance;
+    enemy.displayStance = enemy.stance;
+    enemy.staggerBar = 0;
+    enemy.stanceRecoverDelay = 0;
+
+    const isBig = pick && pick.big;
+    const dangerHits = {
+      walker: 15, shooter: 14, jumper: 13, bouncer: 12, charger: 10,
+      shielded: 11, deflector: 10, protector: 11, attacker: 9, flyer: 13, flyshooter: 11
+    };
+    const deathHits = Math.max(7, (dangerHits[enemy.type] || 13) - (isBig ? 3 : 0));
+    enemy.contactDmg = this._rawDamageForDeathHits(deathHits, enemy.element);
   }
 
   _roomProgressLabel() {
@@ -1950,6 +2125,8 @@ class Game {
     this.currentRoomArea = cached.area || roomDef.area || null;
     this.currentRoomKind = cached.kind || roomDef.kind || 'stage';
     this.pendingObjective = null;
+    this._recomputeRoomLevelBonuses();
+    this._recomputeItemAttributeBonuses();
     this.wave = this._roomPowerLevel(roomDef);
     this._saveMapState();
     if (!opts.keepPlayer) this._prepareRoomStart();
@@ -1971,6 +2148,7 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -2015,6 +2193,7 @@ class Game {
     this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.heartPickups = [];
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
@@ -2074,6 +2253,7 @@ class Game {
       kills: Math.max(this.waveKills, previousClear ? previousClear.kills || 0 : 0),
       secondaryDone,
     };
+    this._recomputeRoomLevelBonuses();
     this.player.defeatedBossTypes.add(roomDef.bossType);
     if (rewardItem) {
       const previousChoice = this.mapState.itemRewardChoices && this.mapState.itemRewardChoices[roomDef.id];
@@ -2223,8 +2403,8 @@ class Game {
       { type: 'kills',   label: 'Kill Enemies',         desc: 'Defeat enemies to charge Boss Orbs.',                       icon: '⚔' },
       { type: 'hunt',    label: null,                   desc: null,                                                        icon: '◎' },
       { type: 'survive', label: 'Survive',              desc: 'Survival time charges Boss Orbs. Stay alive!',              icon: '♥' },
-      { type: 'zone',    label: 'Hold the Zone',        desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
-      { type: 'collect', label: 'Collect Shurikens',    desc: 'Shuriken caches spawn as Boss Orbs. Pick them up!',        icon: '✦' },
+      { type: 'zone',    label: 'Protect the Zone',     desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
+      { type: 'collect', label: 'Collect Shurikens',    desc: 'Collect 15 shurikens to charge the objective.',            icon: '✦' },
       { type: 'defend',  label: 'Protect the Ronin',     desc: 'Keep the allied Ronin alive — they charge Boss Orbs.',    icon: '⊕' },
     ];
     const pick = _pool[Math.floor(Math.random() * _pool.length)];
@@ -2463,6 +2643,7 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -2524,9 +2705,14 @@ class Game {
     this.bubbleShieldPickups = this._updatePickupArray(this.bubbleShieldPickups, BubbleShieldPickupOrb);
   }
 
+  _updateHeartPickups() {
+    this.heartPickups = this._updatePickupArray(this.heartPickups, HeartPickupOrb);
+  }
+
   _updateFieldPickups() {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
+    this._updateHeartPickups();
   }
 
   _mapAreaBounds() {
@@ -2638,6 +2824,202 @@ class Game {
     ctx.font = 'bold 9px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('ALLY RONIN', sx, sy - 32);
+    ctx.restore();
+  }
+
+  _renderZoneLady(ctx, cam) {
+    const z = this.objZone;
+    if (!z || this.bossActive || (this.currentObjective && this.currentObjective.type !== 'zone')) return;
+
+    const pl = this.player;
+    const inZone = pl.x + pl.w > z.x && pl.x < z.x + z.w &&
+                   pl.y + pl.h > z.y && pl.y < z.y + z.h;
+    const t = this.tick || 0;
+    const cx = z.x + z.w / 2 - cam.x;
+    const baseY = z.y + z.h - 8 - cam.y;
+    const bob = Math.sin(t * 0.08) * 1.5;
+    const glow = inZone ? '#68ffad' : '#9fbaff';
+
+    ctx.save();
+    ctx.translate(Math.round(cx) + 0.5, Math.round(baseY + bob) + 0.5);
+
+    ctx.globalAlpha = 0.38 + Math.sin(t * 0.09) * 0.08;
+    ctx.fillStyle = inZone ? 'rgba(92,255,174,0.42)' : 'rgba(150,184,255,0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, -19, 30, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 15, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffd7c2';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-9, -27);
+    ctx.lineTo(-18, -18);
+    ctx.moveTo(9, -27);
+    ctx.lineTo(18, -18);
+    ctx.stroke();
+
+    ctx.fillStyle = '#2f2334';
+    ctx.fillRect(-7, -15, 4, 15);
+    ctx.fillRect(3, -15, 4, 15);
+
+    ctx.fillStyle = inZone ? '#53d88f' : '#6688dd';
+    ctx.beginPath();
+    ctx.moveTo(0, -33);
+    ctx.lineTo(15, -3);
+    ctx.lineTo(-15, -3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#f7eef8';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffeff7';
+    ctx.fillRect(-4, -25, 8, 4);
+    ctx.fillStyle = '#ffd7c2';
+    ctx.fillRect(-6, -38, 12, 11);
+    ctx.fillRect(-3, -29, 6, 5);
+
+    ctx.fillStyle = '#3a2030';
+    ctx.fillRect(-8, -42, 16, 5);
+    ctx.fillRect(-9, -38, 4, 12);
+    ctx.fillRect(5, -38, 4, 10);
+
+    ctx.fillStyle = '#2b1b24';
+    ctx.fillRect(-3, -34, 2, 2);
+    ctx.fillRect(3, -34, 2, 2);
+    ctx.fillStyle = '#d75d7a';
+    ctx.fillRect(-2, -31, 4, 1);
+
+    ctx.fillStyle = '#f4d24c';
+    ctx.fillRect(5, -43, 3, 3);
+    ctx.fillRect(8, -42, 2, 2);
+
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(-18, -17);
+    ctx.quadraticCurveTo(0, -9 + Math.sin(t * 0.12) * 2, 18, -17);
+    ctx.stroke();
+
+    const heartY = -51 + Math.sin(t * 0.12) * 2;
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = inZone ? '#fff3f8' : '#ffe0ec';
+    ctx.beginPath();
+    ctx.arc(-3, heartY, 3, 0, Math.PI * 2);
+    ctx.arc(3, heartY, 3, 0, Math.PI * 2);
+    ctx.moveTo(-6, heartY + 1);
+    ctx.lineTo(0, heartY + 9);
+    ctx.lineTo(6, heartY + 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  _isPlayerChainSlowingWorld() {
+    const pl = this.player;
+    return !!(pl && (pl.chainStriking || pl.stormChaining || pl.staggerChaining));
+  }
+
+  _shouldUpdateChainSlowedWorld() {
+    if (!this._isPlayerChainSlowingWorld()) {
+      this._chainSlowFrame = 0;
+      return true;
+    }
+    this._chainSlowFrame = (this._chainSlowFrame || 0) + 1;
+    return this._chainSlowFrame % 4 === 0;
+  }
+
+  _cleanupLiveObjects() {
+    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
+    this._refreshFriendlyTargets();
+    compactLiveArray(this.enemies, keepEnemyAlive);
+    compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
+    compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
+    compactLiveArray(this.grenades, keepNotDone, GAME_OBJECT_LIMITS.grenades);
+    compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
+    compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
+    compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
+    compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
+    compactLiveArray(this.bossItems, keepNotDone);
+  }
+
+  _updateCameraFollow() {
+    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
+    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
+    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
+    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
+    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
+    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+  }
+
+  _renderChainFreezeOverlay(ctx, cam) {
+    if (!this._isPlayerChainSlowingWorld()) return;
+    const pl = this.player;
+    const t = this.tick;
+    const px = pl.x + pl.w / 2 - cam.x;
+    const py = pl.y + pl.h / 2 - cam.y;
+    const color = pl.stormChaining ? '#ffe96a' : (pl.chainStriking ? '#b56cff' : '#f4f0ff');
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.22);
+
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const grad = ctx.createRadialGradient(px, py, 20, px, py, 420);
+    grad.addColorStop(0, 'rgba(255,255,255,0.00)');
+    grad.addColorStop(0.45, 'rgba(90,40,150,0.06)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.35 + pulse * 0.25;
+    ctx.beginPath();
+    ctx.arc(px, py, 34 + pulse * 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.18 + pulse * 0.18;
+    ctx.beginPath();
+    ctx.arc(px, py, 78 + pulse * 18, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 12; i++) {
+      const a = t * 0.035 + i * Math.PI * 2 / 12;
+      const inner = 50 + (i % 3) * 10;
+      const outer = 160 + pulse * 40 + (i % 4) * 18;
+      ctx.globalAlpha = 0.10 + ((i + t) % 4 === 0 ? 0.18 : 0);
+      ctx.beginPath();
+      ctx.moveTo(px + Math.cos(a) * inner, py + Math.sin(a) * inner);
+      ctx.lineTo(px + Math.cos(a) * outer, py + Math.sin(a) * outer);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 0.9;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
+    ctx.fillText(label, px, py - 58 - pulse * 4);
     ctx.restore();
   }
 
@@ -2881,13 +3263,14 @@ class Game {
       for (const e of this.effects) e.update();
       compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
       // Camera still follows
-      const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
-      const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
-      this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
-      this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-      this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-      this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+      this._updateCameraFollow();
       return; // Skip all other updates during cutscene
+    }
+
+    if (!this._shouldUpdateChainSlowedWorld()) {
+      this._cleanupLiveObjects();
+      this._updateCameraFollow();
+      return;
     }
 
     for (const ally of this.allies) ally.update(this);
@@ -2983,15 +3366,15 @@ class Game {
             const _inZone = _pl.x + _pl.w > this.objZone.x && _pl.x < this.objZone.x + this.objZone.w &&
                             _pl.y + _pl.h > this.objZone.y && _pl.y < this.objZone.y + this.objZone.h;
             if (_inZone) {
-              // ~25 seconds of cumulative zone time per orb
-              this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1500);
+              const framesPerOrb = Math.max(1, this._objectiveSecondsPerOrb('zone') * 60);
+              this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / framesPerOrb);
             }
           } else if (_obj.type === 'defend' && this.samurai && !this.samurai.dead) {
-            // ~20 seconds of allied Ronin survival per orb
-            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1200);
+            const framesPerOrb = Math.max(1, this._objectiveSecondsPerOrb('defend') * 60);
+            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / framesPerOrb);
           }
           // 'kills' and 'hunt': progress comes from visible kill counts.
-          // 'collect': charge comes from shuriken pickup caches.
+          // 'collect': progress comes directly from shuriken pickups.
         }
         if (_obj && (_obj.type === 'kills' || _obj.type === 'hunt') && !this.bossActive && !this.boss) {
           const progress = this._objectiveProgressInfo();
@@ -3102,25 +3485,10 @@ class Game {
     }
 
     // Cleanup
-    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
-    this._refreshFriendlyTargets();
-    compactLiveArray(this.enemies, keepEnemyAlive);
-    compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
-    compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
-    compactLiveArray(this.grenades, keepNotDone, GAME_OBJECT_LIMITS.grenades);
-    compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
-    compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
-    compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
-    compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
-    compactLiveArray(this.bossItems, keepNotDone);
+    this._cleanupLiveObjects();
 
     // Camera follows player (smooth)
-    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
-    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
-    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
-    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+    this._updateCameraFollow();
   }
 
   renderMenu() {
@@ -4152,6 +4520,7 @@ class Game {
     for (const r of this.ropes || []) r.render(ctx, cam);
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
+    this._renderZoneLady(ctx, cam);
 
     // Fire trails
     for (const ft of this.fireTrails) {
@@ -4173,6 +4542,7 @@ class Game {
 
     for (const sp of this.shurikenPickups) sp.render(ctx, cam);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
+    for (const hp of this.heartPickups) hp.render(ctx, cam);
     for (const bo of this.bossOrbPickups) {
       if (bo.done) continue;
       const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
@@ -4254,6 +4624,8 @@ class Game {
         ctx.restore();
       }
     }
+
+    this._renderChainFreezeOverlay(ctx, cam);
 
     this.player.render(ctx, cam);
 
@@ -4757,8 +5129,6 @@ class Game {
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }
-
-
 
     for (const e of this.effects) e.render(ctx, cam);
 

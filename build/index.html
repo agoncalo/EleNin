@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-21 20:26 UTC
-console.log("EleNin build: 2026-06-21 20:26 UTC");
+// BUILD TIMESTAMP: 2026-06-22 12:20 UTC
+console.log("EleNin build: 2026-06-22 12:20 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -1653,14 +1653,15 @@ function damageInRadius(game, cx, cy, radius, damage, fromX) {
 }
 
 // Find nearest enemy or boss with line of sight from a point
-function findNearestTarget(x, y, game, facing, preferBoss = false, ignoreLOS = false) {
+function findNearestTarget(x, y, game, facing, preferBoss = false, ignoreLOS = false, excludeTargets = null) {
   // Boss priority: if preferBoss and boss is alive, always target boss
-  if (preferBoss && game.boss && !game.boss.dead) {
+  if (preferBoss && game.boss && !game.boss.dead && (!excludeTargets || !excludeTargets.has(game.boss))) {
     return game.boss;
   }
   let nearest = null, bestDist = Infinity;
   for (const e of game.enemies) {
     if (e.dead) continue;
+    if (excludeTargets && excludeTargets.has(e)) continue;
     if (e.friendly) continue; // Don't target friendly enemies
     if (!ignoreLOS && !hasLineOfSight(x, y, e.x + e.w / 2, e.y + e.h / 2, game)) continue;
     const dx = (e.x + e.w / 2) - x, dy = (e.y + e.h / 2) - y;
@@ -1669,7 +1670,7 @@ function findNearestTarget(x, y, game, facing, preferBoss = false, ignoreLOS = f
     const d = dx * dx + dy * dy;
     if (d < bestDist) { bestDist = d; nearest = e; }
   }
-  if (game.boss && !game.boss.dead) {
+  if (game.boss && !game.boss.dead && (!excludeTargets || !excludeTargets.has(game.boss))) {
     const losOk = ignoreLOS || hasLineOfSight(x, y, game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, game);
     if (losOk) {
       const dx = (game.boss.x + game.boss.w / 2) - x, dy = (game.boss.y + game.boss.h / 2) - y;
@@ -1684,9 +1685,9 @@ function findNearestTarget(x, y, game, facing, preferBoss = false, ignoreLOS = f
 
 // Fire a projectile at the nearest enemy or boss with line of sight
 function fireProjectileAtNearestEnemy({
-  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false, facing = 0, preferBoss = false, ignoreLOS = false
+  x, y, game, speed = 8, color = '#ccc', damage = 1, owner = 'player', width = 8, height = 6, piercing = false, bouncy = false, facing = 0, preferBoss = false, ignoreLOS = false, excludeTargets = null
 }) {
-  const nearest = findNearestTarget(x, y, game, facing, preferBoss, ignoreLOS);
+  const nearest = findNearestTarget(x, y, game, facing, preferBoss, ignoreLOS, excludeTargets);
   const fallbackDir = facing || 1;
   let vx = speed * fallbackDir, vy = 0;
   if (nearest) {
@@ -1701,6 +1702,8 @@ function fireProjectileAtNearestEnemy({
   proj.piercing = piercing;
   proj.bouncy = bouncy;
   game.projectiles.push(proj);
+  proj.initialTarget = nearest || null;
+  proj.homingTarget = nearest || null;
   return proj;
 }
 
@@ -5937,7 +5940,8 @@ class Projectile {
     if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
     if (this.homing && (this.owner === 'player' || this.owner === 'ally')) {
-      const target = findNearestTarget(this.x, this.y, game, 0);
+      let target = this.homingTarget && !this.homingTarget.dead ? this.homingTarget : null;
+      if (!target) target = findNearestTarget(this.x, this.y, game, 0);
       if (target) {
         const tdx = (target.x + target.w / 2) - (this.x + this.w / 2);
         const tdy = (target.y + target.h / 2) - (this.y + this.h / 2);
@@ -6798,21 +6802,29 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     const cy = pl.y + pl.h / 2;
     if (this.isObjectiveCache(game)) {
       this.collectObjectiveCache(game, cx, cy);
-      return;
     }
     this.fireShurikens(game, pl, cx, cy);
   }
 
   isObjectiveCache(game) {
+    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : game.bossOrbsRequired;
     return game.currentObjective && game.currentObjective.type === 'collect' &&
       !game.bossActive && !game.boss &&
-      game.bossOrbsCollected < game.bossOrbsRequired;
+      game.bossOrbsCollected < target;
   }
 
   collectObjectiveCache(game, cx, cy) {
-    game.bossOrbCharge = game.bossOrbChargeMax;
+    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : 15;
+    game.bossOrbsRequired = target;
+    game.bossOrbsCollected = Math.min(target, (game.bossOrbsCollected || 0) + 1);
+    game.bossOrbCharge = 0;
+    game.bossOrbCooldown = 0;
     game.effects.push(new Effect(cx, cy, '#ccc', 10, 4, 15));
-    game.effects.push(new TextEffect(cx, cy - 22, '\u2726 CACHE!', '#ccc'));
+    const txt = game.bossOrbsCollected >= target
+      ? '\u2726 BOSS SUMMONED!'
+      : '\u2726 ' + game.bossOrbsCollected + '/' + target;
+    game.effects.push(new TextEffect(cx, cy - 38, txt, '#ccc'));
+    if (game.bossOrbsCollected >= target) game.spawnBoss();
   }
 
   fireShurikens(game, pl, cx, cy) {
@@ -6820,30 +6832,33 @@ class ShurikenPickupOrb extends TimedPickupOrb {
       (pl.ninjaType === 'crystal') ? '#aff' :
       (pl.ninjaType === 'storm') ? '#48f' : '#ccc';
     const dmg = pl.type.attackDamage + pl.shurikenLevel;
+    const chosenTargets = new Set();
     for (let i = 0; i < pl.maxShurikens; i++) {
       const isLastKunai = pl.items.theKunai && i === pl.maxShurikens - 1;
       const sProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8 + i * 1.5, color: isLastKunai ? '#f66' : color,
         damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-        piercing: true, preferBoss: true, ignoreLOS: true,
+        piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!sProj) continue;
+      if (sProj.initialTarget) chosenTargets.add(sProj.initialTarget);
       this.applyShurikenTraits(sProj, pl, dmg, isLastKunai);
-      if (pl.items.tripleShuriken) this.fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sProj);
+      if (pl.items.tripleShuriken) this.fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sProj, chosenTargets);
     }
     SFX.shuriken();
     game.effects.push(new Effect(cx, cy, '#ccc', 12, 5, 18));
     game.effects.push(new TextEffect(cx, cy - 22, '\u2726 SHURIKENS!', '#ccc'));
   }
 
-  fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sourceProjectile) {
+  fireTripleShurikens(game, pl, cx, cy, color, dmg, isLastKunai, sourceProjectile, chosenTargets) {
     for (const triOff of [0.25, -0.25]) {
       const tProj = fireProjectileAtNearestEnemy({
         x: cx, y: cy, game, speed: 8, color: isLastKunai ? '#f66' : color,
         damage: dmg, owner: 'player', width: 8, height: 6, facing: pl.facing,
-        piercing: true, preferBoss: true, ignoreLOS: true,
+        piercing: true, preferBoss: false, ignoreLOS: true, excludeTargets: chosenTargets,
       });
       if (!tProj) continue;
+      if (tProj.initialTarget) chosenTargets.add(tProj.initialTarget);
       this.applyShurikenTraits(tProj, pl, dmg, false);
       const ta = Math.atan2(sourceProjectile.vy, sourceProjectile.vx) + triOff;
       const tsp = Math.sqrt(sourceProjectile.vx * sourceProjectile.vx + sourceProjectile.vy * sourceProjectile.vy);
@@ -6952,6 +6967,78 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
     ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 4); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-4, -1); ctx.lineTo(4, -1); ctx.stroke();
     ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
+
+class HeartPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'heart', { life: 900, bobSpeed: 0.05, w: 22, h: 22 });
+  }
+
+  static spawnInterval() {
+    return 900;
+  }
+
+  static spawnPhase() {
+    return 300;
+  }
+
+  static maxOnScreen() {
+    return 1;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    if (!rectOverlap(pl, this) || pl.hp >= pl.maxHp) return;
+
+    this.done = true;
+    SFX.pickup();
+    const heal = Math.min(5, pl.maxHp - pl.hp);
+    pl.hp = Math.min(pl.maxHp, pl.hp + heal);
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new Effect(cx, cy, '#f44', 16, 5, 18));
+    game.effects.push(new Effect(cx, cy, '#fff', 7, 3, 12));
+    game.effects.push(new TextEffect(cx, cy - 22, '+' + heal + ' HP', '#f66'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    const cx = state.x + 11;
+    const cy = state.y + 11;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(cx, cy);
+    ctx.shadowColor = '#f44';
+    ctx.shadowBlur = 12;
+
+    ctx.fillStyle = 'rgba(255,60,90,0.22)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f44';
+    ctx.beginPath();
+    ctx.arc(-4, -4, 6, 0, Math.PI * 2);
+    ctx.arc(4, -4, 6, 0, Math.PI * 2);
+    ctx.moveTo(-10, -1);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(10, -1);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffd6dc';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('\u2665', 0, -1);
     ctx.restore();
   }
 }
@@ -7109,6 +7196,8 @@ class Player {
     this.staggerChainTimer = 0;
     this.staggerChainHit = new Set();
     this.staggerChainDmg = 0;
+    this.staggerChainSegments = [];
+    this.staggerChainEchoes = [];
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -7150,6 +7239,7 @@ class Player {
 
     // Ground slam
     this.slamming = false;
+    this.dropThroughSlamLock = false;
 
     // Stop midair
     this.stopMidair = false;
@@ -7556,6 +7646,8 @@ class Player {
     this.stormAfterimages = [];
     this.staggerChaining = false;
     this.staggerChainHit = new Set();
+    this.staggerChainSegments = [];
+    this.staggerChainEchoes = [];
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
@@ -8172,7 +8264,7 @@ class Player {
       if (this.statusBurn > 0) {
         this.statusBurn--;
         if (this.statusBurn % 30 === 0 && this.statusBurn > 0) {
-          const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+          const burnDmg = Math.max(1, Math.round(this.maxHp * 0.03));
           this.hp -= burnDmg;
           if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'fire', killerInfo: { type: 'burn', element: 'fire', isBoss: false } }; }
           game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
@@ -8242,7 +8334,8 @@ class Player {
 
     // Ground slam
     const holdingDown = keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.buttons[GP_SLAM] || gpState.axes[1] > 0.7;
-    if (holdingDown && !this.grounded && !this.slamming) {
+    if (!holdingDown) this.dropThroughSlamLock = false;
+    if (holdingDown && !this.grounded && !this.slamming && !this.dropThroughSlamLock) {
       const slamCost = Math.max(1, Math.floor(this.hp * 0.20));
       this.hp = Math.max(1, this.hp - slamCost);
       this.slamming = true;
@@ -8291,8 +8384,13 @@ class Player {
     for (const p of game.platforms) {
       if (rectOverlap(this, p)) {
         this.jumpsLeft = maxJ;
-        if (p.thin) {
-          if (this.vy > 0 && !holdingDown && !this.slamming && this.y + this.h - this.vy <= p.y + 4) {
+        if (p.thin || p.playerDropThrough) {
+          const crossedTop = this.vy > 0 && this.y + this.h - this.vy <= p.y + 4;
+          if (holdingDown && wasGrounded && crossedTop) {
+            this.dropThroughSlamLock = true;
+          }
+          const airborneSlamHitsDropPlatform = p.playerDropThrough && this.slamming && !wasGrounded && crossedTop;
+          if (airborneSlamHitsDropPlatform || (crossedTop && !holdingDown && !this.slamming)) {
             this.y = p.y - this.h;
             this.vy = 0;
             this.grounded = true;
@@ -8620,7 +8718,7 @@ class Player {
     if (this.statusBurn > 0) {
       this.statusBurn--;
       if (this.statusBurn % 30 === 0) {
-        const burnDmg = Math.max(1, Math.round(this.maxHp * 0.05));
+        const burnDmg = Math.max(1, Math.round(this.maxHp * 0.03));
         this.hp -= burnDmg;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 5, 2, 8));
         if (this.hp <= 0) {
@@ -8727,7 +8825,7 @@ class Player {
                 SFX.backstab();
                 if (this.backstabReady && !this.chainStriking) {
                   this.chainStriking = true;
-                  this.chainTimer = 6;
+                  this.chainTimer = 10;
                   this.chainLastHit = e;
                   this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
                   game.effects.push(this._spinScythe);
@@ -8793,7 +8891,7 @@ class Player {
             // Storm: hitting a soaked enemy starts lightning chain
             if (e.juggleState &&this.ninjaType === 'storm' && e.soakTimer > 0 && !this.stormChaining) {
               this.stormChaining = true;
-              this.stormChainTimer = 4;
+              this.stormChainTimer = 8;
               this.stormChainHit = new Set();
               this.stormChainHit.add(e);
               if (this.ultimateActive) {
@@ -8915,7 +9013,7 @@ class Player {
             dmg = 9999;
             if (!this.chainStriking) {
               this.chainStriking = true;
-              this.chainTimer = 6;
+              this.chainTimer = 10;
               this.chainLastHit = game.boss;
               this._spinScythe = new SpinningScythe(this, this.shadowUltBuff, game);
               game.effects.push(this._spinScythe);
@@ -8962,7 +9060,7 @@ class Player {
           // Storm: hitting soaked boss starts lightning chain
           if (this.ninjaType === 'storm' && game.boss.soakTimer > 0 && !this.stormChaining) {
             this.stormChaining = true;
-            this.stormChainTimer = 4;
+            this.stormChainTimer = 8;
             this.stormChainHit = new Set();
             this.stormChainHit.add(game.boss);
             if (this.ultimateActive) {
@@ -8989,7 +9087,7 @@ class Player {
       if (this.statusParalyse > 0) {
         this.statusStun = 30;
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
-        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const paraDmg = Math.max(1, Math.round(this.maxHp * 0.08));
         this.hp -= paraDmg;
         if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
@@ -9130,7 +9228,7 @@ class Player {
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.chainTimer = 6;
+          this.chainTimer = 10;
         } else if (!this.chainStriking) {
           // Already stopped by resist
         } else {
@@ -9215,7 +9313,7 @@ class Player {
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#8af', 8, 3, 10));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.stormChainTimer = 4;
+          this.stormChainTimer = 8;
           // Storm ult sheath tracking
           if (this.ultimateActive && this.stormSheathActive) {
             this.stormSheathHits++;
@@ -9293,7 +9391,7 @@ class Player {
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#8af', 8, 3, 10));
             triggerHitstop(3);
             this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-            this.stormChainTimer = 4;
+            this.stormChainTimer = 8;
             // Storm ult sheath tracking
             if (this.ultimateActive && this.stormSheathActive) {
               this.stormSheathHits++;
@@ -9332,38 +9430,78 @@ class Player {
       this.staggerChainTimer--;
       if (this.staggerChainTimer <= 0) {
         let nearest = null;
-        let nearDist = 250;
+        let nearDist = Infinity;
         const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+        let skullTarget = false;
         for (const e of game.enemies) {
-          if (e.dead || this.staggerChainHit.has(e)) continue;
+          if (e.dead || this.staggerChainHit.has(e) || e.disableTimer <= 0) continue;
           const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearDist) { nearDist = d; nearest = e; }
+          if (d < nearDist) { nearDist = d; nearest = e; skullTarget = true; }
         }
-        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss) && game.boss.disableTimer > 0) {
           nearest = game.boss;
+          skullTarget = true;
+        }
+        if (!nearest) {
+          nearDist = Infinity;
+          const nonSkullRadius = 360;
+          for (const e of game.enemies) {
+            if (e.dead || this.staggerChainHit.has(e)) continue;
+            const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < nonSkullRadius && d < nearDist) { nearDist = d; nearest = e; skullTarget = false; }
+          }
+          if (game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
+            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < nonSkullRadius && d < nearDist) { nearest = game.boss; skullTarget = false; }
+          }
         }
         if (nearest) {
+          const fromCx = cx;
+          const fromCy = cy;
           const behind = (nearest.x + nearest.w / 2) > cx ? -1 : 1;
           this.x = nearest.x + (behind > 0 ? nearest.w + 4 : -this.w - 4);
           this.y = nearest.y + nearest.h / 2 - this.h / 2;
           this.facing = -behind;
           this.vx = 0; this.vy = 0;
-          this.afterimages.push({ x: cx - this.w / 2, y: cy - this.h / 2, life: 12, staggerChain: true });
-          nearest.disableTimer = 0;
-          nearest.staggerBar = 0;
-          nearest.takeDamage(this.staggerChainDmg, game, this.x + this.w / 2, null, 'chain');
+          const toCx = this.x + this.w / 2;
+          const toCy = this.y + this.h / 2;
+          if (!this.staggerChainEchoes) this.staggerChainEchoes = [];
+          if (!this.staggerChainSegments) this.staggerChainSegments = [];
+          this.staggerChainEchoes.push({
+            x: fromCx - this.w / 2, y: fromCy - this.h / 2,
+            facing: this.facing, life: 90, maxLife: 90
+          });
+          this.staggerChainSegments.push({
+            x1: fromCx, y1: fromCy, x2: toCx, y2: toCy,
+            life: 90, maxLife: 90,
+            j1: (Math.random() - 0.5) * 18,
+            j2: (Math.random() - 0.5) * 18,
+            j3: (Math.random() - 0.5) * 18,
+            j4: (Math.random() - 0.5) * 18
+          });
+          if (skullTarget) nearest._finishByStanceChain(game);
+          else nearest.takeDamage(nearest === game.boss || nearest.bossType ? 3 : 2, game, this.x + this.w / 2, null, 'chain');
           this.staggerChainHit.add(nearest);
           this._spawnChainCut(nearest);
           SFX.chain();
-          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#c04fff', 12, 5, 18));
+          game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, skullTarget ? '#c04fff' : '#f4f0ff', skullTarget ? 14 : 9, skullTarget ? 5 : 3, 18));
           triggerHitstop(3);
           this.invincibleTimer = Math.max(this.invincibleTimer, 8);
-          this.staggerChainTimer = 4;
+          this.staggerChainTimer = skullTarget ? 14 : 9;
         } else {
           this.staggerChaining = false;
           this.staggerChainHit.clear();
-          for (const a of this.afterimages) { if (a.staggerChain) a.life = 20; }
+          if (!this.staggerChainEchoes) this.staggerChainEchoes = [];
+          this.staggerChainEchoes.push({
+            x: this.x, y: this.y,
+            facing: this.facing, life: 90, maxLife: 90, final: true
+          });
+          for (const a of this.afterimages) { if (a.staggerChain) a.life = 90; }
+          for (const e of this.staggerChainEchoes) e.life = Math.min(e.life, 90);
+          for (const s of this.staggerChainSegments) s.life = Math.min(s.life, 90);
         }
       }
     }
@@ -9374,6 +9512,16 @@ class Player {
       if (this.staggerChaining) return true; // persist while chaining
       a.life--;
       return a.life > 0;
+    });
+    this.staggerChainSegments = (this.staggerChainSegments || []).filter(s => {
+      if (this.staggerChaining) return true;
+      s.life--;
+      return s.life > 0;
+    });
+    this.staggerChainEchoes = (this.staggerChainEchoes || []).filter(e => {
+      if (this.staggerChaining) return true;
+      e.life--;
+      return e.life > 0;
     });
 
     // Shadow ninja: stealth accumulation
@@ -10288,53 +10436,79 @@ class Player {
     }
 
     // Stagger chain afterimages + lines (all ninja types, color-coded by ninja)
-    if (this.staggerChaining || this.afterimages.some(a => a.staggerChain)) {
+    if (this.staggerChaining || (this.staggerChainEchoes && this.staggerChainEchoes.length > 0) || (this.staggerChainSegments && this.staggerChainSegments.length > 0)) {
       const chainColor = this.type.accentColor;
-      const staggerImages = this.afterimages.filter(a => a.staggerChain);
-      if (staggerImages.length > 1) {
+      const staggerImages = this.staggerChainEchoes || [];
+      const chainSegments = this.staggerChainSegments || [];
+      if (chainSegments.length > 0) {
         ctx.save();
         ctx.strokeStyle = chainColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.shadowColor = chainColor;
-        ctx.shadowBlur = 8;
-        ctx.globalAlpha = this.staggerChaining ? 0.65 : 0.25;
-        for (let i = 1; i < staggerImages.length; i++) {
-          const prev = staggerImages[i - 1];
-          const curr = staggerImages[i];
-          const px1 = prev.x + this.w / 2 - cam.x, py1 = prev.y + this.h / 2 - cam.y;
-          const px2 = curr.x + this.w / 2 - cam.x, py2 = curr.y + this.h / 2 - cam.y;
-          const mx1 = px1 + (px2 - px1) * 0.33 + (Math.random() - 0.5) * 10;
-          const my1 = py1 + (py2 - py1) * 0.33 + (Math.random() - 0.5) * 10;
-          const mx2 = px1 + (px2 - px1) * 0.66 + (Math.random() - 0.5) * 10;
-          const my2 = py1 + (py2 - py1) * 0.66 + (Math.random() - 0.5) * 10;
+        ctx.shadowBlur = 18;
+        for (const seg of chainSegments) {
+          const fade = this.staggerChaining ? 1 : Math.max(0, seg.life / seg.maxLife);
+          const px1 = seg.x1 - cam.x, py1 = seg.y1 - cam.y;
+          const px2 = seg.x2 - cam.x, py2 = seg.y2 - cam.y;
+          const mx1 = px1 + (px2 - px1) * 0.33 + seg.j1;
+          const my1 = py1 + (py2 - py1) * 0.33 + seg.j2;
+          const mx2 = px1 + (px2 - px1) * 0.66 + seg.j3;
+          const my2 = py1 + (py2 - py1) * 0.66 + seg.j4;
+          ctx.globalAlpha = 0.75 * fade;
           ctx.beginPath();
           ctx.moveTo(px1, py1);
           ctx.lineTo(mx1, my1);
           ctx.lineTo(mx2, my2);
           ctx.lineTo(px2, py2);
           ctx.stroke();
-        }
-        if (this.staggerChaining) {
-          const last = staggerImages[staggerImages.length - 1];
+          ctx.globalAlpha = 0.95 * fade;
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#fff';
           ctx.beginPath();
-          ctx.moveTo(last.x + this.w / 2 - cam.x, last.y + this.h / 2 - cam.y);
+          ctx.moveTo(px1, py1);
+          ctx.lineTo(px2, py2);
+          ctx.stroke();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = chainColor;
+        }
+        if (this.staggerChaining && chainSegments.length > 0) {
+          const last = chainSegments[chainSegments.length - 1];
+          ctx.globalAlpha = 0.45;
+          ctx.setLineDash([8, 8]);
+          ctx.beginPath();
+          ctx.moveTo(last.x2 - cam.x, last.y2 - cam.y);
           ctx.lineTo(this.x + this.w / 2 - cam.x, this.y + this.h / 2 - cam.y);
           ctx.stroke();
+          ctx.setLineDash([]);
         }
         ctx.restore();
       }
       for (const a of staggerImages) {
-        const alpha = this.staggerChaining ? 0.5 : (a.life / 20) * 0.45;
+        const fade = this.staggerChaining ? 1 : Math.max(0, a.life / (a.maxLife || 90));
+        const alpha = 0.68 * fade;
+        const pulse = this.staggerChaining ? 0.9 + 0.1 * Math.sin((a.life || 0) * 0.4) : 1;
+        const aw = this.w * (a.final ? 1.15 : 1);
+        const ah = this.h * (a.final ? 1.15 : 1);
+        const ax = a.x + this.w / 2 - aw / 2;
+        const ay = a.y + this.h / 2 - ah / 2;
+        ctx.save();
         ctx.globalAlpha = alpha;
         ctx.fillStyle = chainColor;
         ctx.shadowColor = chainColor;
-        ctx.shadowBlur = 12;
-        ctx.fillRect(a.x - cam.x, a.y - cam.y, this.w, this.h);
-        ctx.shadowBlur = 0;
+        ctx.shadowBlur = 18;
+        ctx.fillRect(ax - cam.x, ay - cam.y, aw, ah);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.strokeRect(ax - cam.x - 1, ay - cam.y - 1, aw + 2, ah + 2);
         ctx.fillStyle = '#fff';
-        ctx.globalAlpha = alpha * 0.8;
-        const eyeX = this.facing > 0 ? a.x + 14 : a.x + 4;
-        ctx.fillRect(eyeX - cam.x, a.y + 8 - cam.y, 6, 4);
+        ctx.globalAlpha = alpha * pulse;
+        const aFacing = a.facing || this.facing;
+        const eyeX = aFacing > 0 ? ax + aw * 0.58 : ax + aw * 0.22;
+        ctx.fillRect(eyeX - cam.x, ay + ah * 0.25 - cam.y, 7, 4);
+        ctx.restore();
       }
       ctx.globalAlpha = 1;
     }
@@ -12760,6 +12934,7 @@ class Enemy {
     this.hp = (big ? base.hp * 4 : base.hp) * healthScale;
     this.maxHp = this.hp;
     this.displayHp = this.hp;
+    this._initCombatBars(healthScale);
     // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
@@ -12860,9 +13035,101 @@ class Enemy {
     this.spikySpikeTimer = 0;
     this.spikySpikeCooldown = randInt(110, 210);
     this.juggleState = false;
-    // Stagger system
+    // Stance system
     this.staggerBar = 0;
     this.disableTimer = 0;
+    this.stanceRecoverDelay = 0;
+  }
+
+  _initCombatBars(healthScale) {
+    const normalHits = {
+      walker: 8, shooter: 8, jumper: 9, bouncer: 10, charger: 12,
+      shielded: 11, deflector: 14, protector: 16, attacker: 7,
+      flyer: 8, flyshooter: 9
+    };
+    const scale = 1 + Math.max(0, (this.wave || 1) - 1) * 0.12;
+    const mapScale = healthScale && healthScale !== this.wave ? Math.min(1.35, Math.max(1, Math.sqrt(healthScale))) : 1;
+    const hpHits = Math.ceil((normalHits[this.type] || 8) * (this.big ? 1.8 : 1) * scale * mapScale * 4);
+    this.hp = hpHits;
+    this.maxHp = hpHits;
+    this.displayHp = hpHits;
+    this.maxStance = Math.max(2, Math.ceil(this.maxHp / 4));
+    this.stance = this.maxStance;
+    this.displayStance = this.stance;
+    this.stanceRecoverDelay = 0;
+  }
+
+  _updateStance() {
+    if (this.maxStance === undefined) {
+      this.maxStance = Math.max(2, Math.ceil(this.maxHp / 4));
+      this.stance = this.maxStance;
+      this.displayStance = this.stance;
+    }
+    if (this.stanceRecoverDelay === undefined) this.stanceRecoverDelay = 0;
+    if (this.disableTimer > 0) {
+      this.disableTimer--;
+      this.stance = 0;
+      this.staggerBar = this.maxStance;
+    } else {
+      this.stanceRecoverDelay++;
+      if (this.stanceRecoverDelay > 120 && this.stance < this.maxStance) {
+        this.stance = Math.min(this.maxStance, this.stance + this.maxStance / 120);
+      }
+      this.staggerBar = Math.max(0, this.maxStance - this.stance);
+    }
+    this.displayStance = lerp(this.displayStance, this.stance, 0.18);
+  }
+
+  _damageProfile(amount, sourceType) {
+    if (amount >= 9999 || sourceType === 'chain') return { hp: amount, stance: 0 };
+    const hitPower = Math.max(1, Math.min(3, Math.ceil(amount / 2)));
+    if (sourceType === 'shuriken') return { hp: 1, stance: hitPower * 2.5 };
+    if (sourceType === 'sword') return { hp: 1, stance: hitPower };
+    if (sourceType === 'boulder') return { hp: hitPower, stance: hitPower * 1.5 };
+    return { hp: hitPower, stance: hitPower * 1.25 };
+  }
+
+  _applyStanceDamage(stanceDamage, game) {
+    if (!game || stanceDamage <= 0 || this.disableTimer > 0) return;
+    if (this.maxStance === undefined) this._initCombatBars(1);
+    this.stanceRecoverDelay = 0;
+    this.stance = Math.max(0, this.stance - stanceDamage);
+    this.staggerBar = Math.max(0, this.maxStance - this.stance);
+    if (this.stance <= 0) this._breakStance(game);
+  }
+
+  _breakStance(game) {
+    if (this.disableTimer > 0) return;
+    this.disableTimer = 600;
+    this.stunTimer = Math.max(this.stunTimer || 0, 600);
+    this.stance = 0;
+    this.staggerBar = this.maxStance || 0;
+    if (game) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BROKEN!', '#f4f0ff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 16, 5, 20));
+    }
+  }
+
+  _startStanceChain(game) {
+    if (!game || !game.player || game.player.staggerChaining) return false;
+    game.player.staggerChaining = true;
+    game.player.staggerChainTimer = 14;
+    game.player.staggerChainHit = new Set();
+    game.player.staggerChainHit.add(this);
+    game.player.staggerChainDmg = 1;
+    this._finishByStanceChain(game);
+    game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#f4f0ff'));
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 16, 5, 20));
+    return true;
+  }
+
+  _finishByStanceChain(game) {
+    this.disableTimer = 0;
+    this.stance = this.maxStance || 0;
+    this.staggerBar = 0;
+    this.hp = 0;
+    this.dead = true;
+    this.onDeath(game);
   }
 
   _syncElementState() {
@@ -12974,8 +13241,7 @@ class Enemy {
     this._updateWindPhase(game);
     this._updateSpikySpikes(game);
     this._tryLightningTeleport(game);
-    if (this.disableTimer > 0) this.disableTimer--;
-    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
+    this._updateStance();
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.grounded) this.juggleState = false;
@@ -13101,9 +13367,9 @@ class Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
-      // Paralysis DOT — 15% maxHp every 30 ticks
+      // Paralysis DOT — noticeable, but not a percent-health boss killer.
       if (this.paralyseTimer % 30 === 0) {
-        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.05));
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
@@ -14081,17 +14347,7 @@ class Enemy {
             game.effects.push(new TextEffect(this.x + this.w / 2 - 16, this.y - 10, 'RESIST', col));
             this.resistTimer = 30;
           }
-          // Stagger bar still fills despite elemental resistance
-          if (!hasActiveShield && sourceType !== 'chain') {
-            this.staggerBar += rawAmount;
-            if (this.staggerBar >= this.maxHp * 1.5) {
-              this.staggerBar = 0;
-              this.disableTimer = 300;
-              this.stunTimer = 300;
-              game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-              game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-            }
-          }
+          if (!hasActiveShield) this._applyStanceDamage(this._damageProfile(rawAmount, sourceType).stance, game);
           return false;
         }
         if (result === 'heal') {
@@ -14132,33 +14388,18 @@ class Enemy {
     }
 
     // ── Chain strike: hitting a disabled enemy starts a player teleport chain ──
-    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
-      this.disableTimer = 0;
-      this.staggerBar = 0;
-      const base = game.player.type.attackDamage + game.player.bonusDamage;
-      game.player.staggerChaining = true;
-      game.player.staggerChainTimer = 4;
-      game.player.staggerChainHit = new Set();
-      game.player.staggerChainHit.add(this);
-      game.player.staggerChainDmg = Math.round(base * 5);
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
+      return this._startStanceChain(game);
     } else if (this.disableTimer > 0) {
       this.disableTimer = 0;
+      this.stance = this.maxStance;
       this.staggerBar = 0;
     }
 
     // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
-    if (!hasActiveShield && sourceType !== 'chain' && game) {
-      this.staggerBar += rawAmount;
-      if (this.staggerBar >= this.maxHp * 1.5) {
-        this.staggerBar = 0;
-        this.disableTimer = 300;
-        this.stunTimer = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-      }
-    }
+    const combatDamage = this._damageProfile(amount, sourceType);
+    if (!hasActiveShield) this._applyStanceDamage(combatDamage.stance, game);
+    amount = combatDamage.hp;
 
     // Shielded / Protector: swords and boulders remove shield pips
     let shieldBlocked = false;
@@ -14181,6 +14422,7 @@ class Enemy {
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
+      this._applyStanceDamage(0.5, game);
     }
     if (this.juggleState) {
       amount = Math.ceil(amount * 1.5);
@@ -15180,6 +15422,19 @@ class Enemy {
       ctx.fillStyle = '#f44';
       ctx.fillRect(barX, barY, barW * hpRatio, 4);
     }
+    if (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0)) {
+      const barW = this.w + 6;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - (this.hp < this.maxHp ? 16 : 10);
+      const stanceRatio = this.disableTimer > 0 ? 0 : Math.max(0, this.displayStance / this.maxStance);
+      ctx.fillStyle = '#1c1630';
+      ctx.fillRect(barX, barY, barW, 3);
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillRect(barX, barY, barW * stanceRatio, 3);
+      ctx.strokeStyle = '#7a5cff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, 3);
+    }
 
     // Shield pips
     if ((this.type === 'shielded' || this.type === 'protector') && this.shieldMax > 0) {
@@ -15228,23 +15483,34 @@ class Enemy {
     }
     // Disabled / stagger glow
     if (this.disableTimer > 0) {
-      const dp = 0.45 + 0.35 * Math.sin((game ? game.tick : 0) * 0.18);
+      const tick = game ? game.tick : 0;
+      const dp = 0.55 + 0.35 * Math.sin(tick * 0.18);
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
       ctx.save();
       ctx.globalAlpha = dp;
       ctx.shadowColor = '#c04fff';
-      ctx.shadowBlur = 18;
-      ctx.strokeStyle = '#c04fff';
+      ctx.shadowBlur = 24;
+      ctx.strokeStyle = '#f4f0ff';
       ctx.lineWidth = 3;
       ctx.strokeRect(sx - 3, sy - 3, this.w + 6, this.h + 6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(this.w, this.h) * 0.78 + Math.sin(tick * 0.22) * 3, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
-      // Purple countdown bar above head
-      const pct = this.disableTimer / 300;
-      const dbW = this.w + 6;
-      const dbY = sy - (this.hp < this.maxHp ? 16 : 6);
-      ctx.fillStyle = '#300030';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 3);
-      ctx.fillStyle = '#c04fff';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 3);
+      ctx.save();
+      ctx.font = 'bold 24px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#f4f0ff';
+      ctx.shadowBlur = 20 + dp * 18;
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillText('\u2620', cx, sy - 24 + Math.sin(tick * 0.2) * 2);
+      ctx.font = 'bold 8px monospace';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#fff';
+      ctx.fillText('FINISH', cx, sy - 9);
+      ctx.restore();
     }
     if (spawning) ctx.restore();
   }
@@ -15262,6 +15528,18 @@ class Boss extends Enemy {
     this.hp = (ENEMY_STATS[bossType].bossBase || 200) * (hpScale || wave);
     this.maxHp = this.hp;
     this.displayHp = this.hp;
+    const bossHits = {
+      walker: 36, shooter: 36, jumper: 40, bouncer: 44, charger: 48,
+      shielded: 48, deflector: 52, protector: 60, attacker: 42,
+      flyer: 38, flyshooter: 42
+    };
+    const bossScale = 1 + Math.max(0, (wave || 1) - 1) * 0.10;
+    this.hp = Math.ceil((bossHits[bossType] || 40) * bossScale * 4);
+    this.maxHp = this.hp;
+    this.displayHp = this.hp;
+    this.maxStance = Math.max(8, Math.ceil(this.maxHp / 2));
+    this.stance = this.maxStance;
+    this.displayStance = this.stance;
     // Override contact damage — boss takes 3 hits to kill player
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(wave, 10)] || 21;
@@ -15322,8 +15600,7 @@ class Boss extends Enemy {
     if (this.flashTimer > 0) this.flashTimer--;
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
-    if (this.disableTimer > 0) this.disableTimer--;
-    if (this.staggerBar > 0) this.staggerBar = Math.max(0, this.staggerBar - 0.5);
+    this._updateStance();
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.shieldBump > 0) this.shieldBump--;
@@ -15410,9 +15687,9 @@ class Boss extends Enemy {
         const sy = this.y + Math.random() * this.h;
         game.effects.push(new Effect(sx, sy, Math.random() < 0.5 ? '#ff0' : '#fff', 2, 1.5, 8));
       }
-      // Paralysis DOT — 15% maxHp every 30 ticks
+      // Paralysis DOT — noticeable, but not a percent-health boss killer.
       if (this.paralyseTimer % 30 === 0) {
-        const pdmg = Math.max(1, Math.round(this.maxHp * 0.15));
+        const pdmg = Math.max(1, Math.round(this.maxHp * 0.05));
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
@@ -16141,33 +16418,18 @@ class Boss extends Enemy {
     const rawAmount = amount;
 
     // ── Chain strike: hitting a disabled boss starts a player teleport chain ──
-    if (this.disableTimer > 0 && (sourceType === undefined || sourceType === 'sword') && game && game.player && !game.player.staggerChaining) {
-      this.disableTimer = 0;
-      this.staggerBar = 0;
-      const base = game.player.type.attackDamage + game.player.bonusDamage;
-      game.player.staggerChaining = true;
-      game.player.staggerChainTimer = 4;
-      game.player.staggerChainHit = new Set();
-      game.player.staggerChainHit.add(this);
-      game.player.staggerChainDmg = Math.round(base * 5);
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'CHAIN STRIKE!', '#c04fff'));
-      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
+    if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
+      return this._startStanceChain(game);
     } else if (this.disableTimer > 0) {
       this.disableTimer = 0;
+      this.stance = this.maxStance;
       this.staggerBar = 0;
     }
 
     // ── Stagger bar ──
-    if (!hasActiveBossShield && sourceType !== 'chain' && game) {
-      this.staggerBar += rawAmount;
-      if (this.staggerBar >= this.maxHp * 1.5) {
-        this.staggerBar = 0;
-        this.disableTimer = 300;
-        this.stunTimer = 300;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STAGGERED!', '#c04fff'));
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 18));
-      }
-    }
+    const combatDamage = this._damageProfile(amount, sourceType);
+    if (!hasActiveBossShield) this._applyStanceDamage(combatDamage.stance, game);
+    amount = combatDamage.hp;
 
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
@@ -16188,6 +16450,7 @@ class Boss extends Enemy {
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
       }
       amount = Math.max(1, Math.round(amount * 0.25));
+      this._applyStanceDamage(0.5, game);
     }
     this.hp -= amount;
     this.hp = Math.round(this.hp);
@@ -16918,6 +17181,20 @@ class Boss extends Enemy {
       ctx.lineWidth = 1;
       ctx.strokeRect(barX, barY, barW, barH);
     }
+    if (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0)) {
+      const barW = this.w + 20;
+      const barH = 4;
+      const barX = sx + this.w / 2 - barW / 2;
+      const barY = sy - 31;
+      const stanceRatio = this.disableTimer > 0 ? 0 : Math.max(0, this.displayStance / this.maxStance);
+      ctx.fillStyle = '#1c1630';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillRect(barX, barY, barW * stanceRatio, barH);
+      ctx.strokeStyle = '#7a5cff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, barH);
+    }
 
     // General stun stars (boulders, slams, meteors, etc.)
     if (this.stunTimer > 0) {
@@ -16934,22 +17211,33 @@ class Boss extends Enemy {
     }
     // Disabled / stagger glow
     if (this.disableTimer > 0) {
-      const dp = 0.45 + 0.35 * Math.sin(game.tick * 0.18);
+      const dp = 0.55 + 0.35 * Math.sin(game.tick * 0.18);
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
       ctx.save();
       ctx.globalAlpha = dp;
       ctx.shadowColor = '#c04fff';
-      ctx.shadowBlur = 22;
-      ctx.strokeStyle = '#c04fff';
+      ctx.shadowBlur = 30;
+      ctx.strokeStyle = '#f4f0ff';
       ctx.lineWidth = 4;
       ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(this.w, this.h) * 0.78 + Math.sin(game.tick * 0.22) * 4, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
-      const pct = this.disableTimer / 300;
-      const dbW = this.w + 8;
-      const dbY = sy - 18;
-      ctx.fillStyle = '#300030';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW, 4);
-      ctx.fillStyle = '#c04fff';
-      ctx.fillRect(sx + this.w / 2 - dbW / 2, dbY, dbW * pct, 4);
+      ctx.save();
+      ctx.font = 'bold 32px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#f4f0ff';
+      ctx.shadowBlur = 24 + dp * 20;
+      ctx.fillStyle = '#f4f0ff';
+      ctx.fillText('\u2620', cx, sy - 48 + Math.sin(game.tick * 0.2) * 2);
+      ctx.font = 'bold 9px monospace';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#fff';
+      ctx.fillText('FINISH', cx, sy - 27);
+      ctx.restore();
     }
     // Restore fade alpha
     if (_fading) ctx.restore();
@@ -18455,6 +18743,7 @@ class Game {
     this.orbs = [];
     this.shurikenPickups = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -18592,6 +18881,21 @@ class Game {
     return p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
   }
 
+  _objectiveTotalSeconds(type) {
+    if (type === 'zone') return 15;
+    if (type === 'defend') return 30;
+    if (type === 'survive') return 30 * Math.max(1, this.bossOrbsRequired || 1);
+    return 30 * Math.max(1, this.bossOrbsRequired || 1);
+  }
+
+  _objectiveSecondsPerOrb(type) {
+    return this._objectiveTotalSeconds(type) / Math.max(1, this.bossOrbsRequired || 1);
+  }
+
+  _objectiveCollectTarget() {
+    return 15;
+  }
+
   _objectiveProgressInfo() {
     const obj = this.currentObjective || { type: 'kills' };
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
@@ -18604,11 +18908,12 @@ class Game {
       return { current: Math.min(target, this.objectiveKills || 0), target, rawCurrent: this.objectiveKills || 0, rawTarget: target };
     }
     if (obj.type === 'collect') {
-      const target = Math.max(1, this.bossOrbsRequired || 1);
+      const target = this._objectiveCollectTarget();
       return { current: Math.min(target, this.bossOrbsCollected || 0), target, rawCurrent: this.bossOrbsCollected || 0, rawTarget: target };
     }
-    const secondsPerOrb = obj.type === 'survive' ? 30 : obj.type === 'zone' ? 25 : obj.type === 'defend' ? 20 : 30;
-    const targetFrames = Math.max(1, (this.bossOrbsRequired || 1) * secondsPerOrb * 60);
+    const totalSeconds = this._objectiveTotalSeconds(obj.type);
+    const secondsPerOrb = this._objectiveSecondsPerOrb(obj.type);
+    const targetFrames = Math.max(1, totalSeconds * 60);
     const currentFrames = (this.bossOrbsCollected || 0) * secondsPerOrb * 60
       + Math.min(1, (this.bossOrbCharge || 0) / Math.max(1, this.bossOrbChargeMax || 1)) * secondsPerOrb * 60;
     return {
@@ -18858,13 +19163,32 @@ class Game {
   buildWallMap(theme) {
     const rng = this._layoutRng('wall');
     const width = 1900 + Math.floor(rng() * 500);
-    const { P, c1, c2, groundY } = this._procHelpers(theme, width, 480);
+    const { P, R, c1, c2, groundY } = this._procHelpers(theme, width, 480);
     const wallCount = 6 + Math.floor(rng() * 4);
+    const walls = [];
     for (let i = 0; i < wallCount; i++) {
       const x = 220 + i * ((width - 440) / Math.max(1, wallCount - 1)) + (rng() * 70 - 35);
       const h = 150 + Math.floor(rng() * 230);
       const w = 18 + Math.floor(rng() * 18);
-      P(Math.max(120, Math.min(width - 150, x)), groundY - h, w, h, rng() < 0.5 ? c1 : c2);
+      const wx = Math.max(120, Math.min(width - 150, x));
+      P(wx, groundY - h, w, h, rng() < 0.5 ? c1 : c2);
+      walls.push({ x: wx, y: groundY - h, w, h });
+    }
+    walls.sort((a, b) => a.x - b.x);
+    const ropeTop = 8;
+    for (let i = 0; i < walls.length - 1; i++) {
+      const left = walls[i];
+      const right = walls[i + 1];
+      const gapCenter = (left.x + left.w + right.x) / 2 + (rng() * 44 - 22);
+      const h = Math.max(210, Math.min(410, groundY - ropeTop - 60 - Math.floor(rng() * 45)));
+      R(Math.max(70, Math.min(width - 95, gapCenter)), ropeTop, h);
+    }
+    for (let i = 0; i < walls.length; i += 2) {
+      const wall = walls[i];
+      const side = rng() < 0.5 ? -1 : 1;
+      const x = wall.x + (side < 0 ? -38 : wall.w + 14);
+      const h = 190 + Math.floor(rng() * 150);
+      R(Math.max(60, Math.min(width - 90, x)), ropeTop, h);
     }
   }
 
@@ -18879,26 +19203,27 @@ class Game {
       let x = 150 + rowOffset;
       let previous = null;
       while (x < width - 240) {
-        const w = 245 + Math.floor(rng() * 95);
-        const h = 22 + Math.floor(rng() * 8);
-        const thick = { x: Math.min(x, width - w - 90), y, w, h };
-        P(thick.x, thick.y, thick.w, thick.h, i % 2 === 0 ? c2 : c3);
+        const w = 360 + Math.floor(rng() * 160);
+        const thin = { x: Math.min(x, width - w - 90), y, w, h: 8 };
+        const lanePlatform = new Platform(thin.x, thin.y, thin.w, thin.h, i % 2 === 0 ? c2 : c3);
+        lanePlatform.playerDropThrough = true;
+        this.platforms.push(lanePlatform);
 
         if (previous) {
-          const gap = thick.x - (previous.x + previous.w);
-          if (gap > 190) {
-            const bridgeCount = gap > 340 ? 2 : 1;
+          const gap = thin.x - (previous.x + previous.w);
+          if (gap > 220) {
+            const bridgeCount = gap > 390 ? 2 : 1;
             for (let b = 1; b <= bridgeCount; b++) {
-              const bw = 86 + Math.floor(rng() * 28);
+              const bw = 110 + Math.floor(rng() * 34);
               const bx = previous.x + previous.w + (gap * b) / (bridgeCount + 1) - bw / 2;
               const by = y - 42 - Math.floor(rng() * 14);
-              TP(Math.max(previous.x + previous.w + 28, Math.min(thick.x - bw - 28, bx)), by, bw);
+              TP(Math.max(previous.x + previous.w + 28, Math.min(thin.x - bw - 28, bx)), by, bw);
             }
           }
         }
 
-        previous = thick;
-        x = thick.x + thick.w + 265 + Math.floor(rng() * 105);
+        previous = thin;
+        x = thin.x + thin.w + 145 + Math.floor(rng() * 90);
       }
     }
     this._addReachabilityThinPlatforms(TP, rng, { maxGap: 235, minGap: 120, maxY: 430 });
@@ -19766,6 +20091,13 @@ class Game {
       obj.label = 'Protect the Ronin';
       obj.desc = 'Keep the allied Ronin alive while the objective bar fills.';
     }
+    if (obj.type === 'collect') {
+      this.bossOrbsRequired = this._objectiveCollectTarget();
+      this.bossOrbCharge = 0;
+      this.bossOrbCooldown = 0;
+      obj.label = 'Collect Shurikens';
+      obj.desc = 'Collect 15 shurikens to charge the objective.';
+    }
     if (obj.type === 'zone') {
       this._setupZoneObjective();
     } else if (obj.type === 'defend') {
@@ -20027,6 +20359,7 @@ class Game {
       e.elementColors = ELEMENT_COLORS[e.element];
       e.color = e.elementColors.body;
     }
+    this._applyEnemyBalance(e, pick);
     if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
       this.spawnedMiniboss.add(pick.type);
     }
@@ -20041,6 +20374,7 @@ class Game {
 
   spawnBoss() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
+    const roomDef = MAP_ROOM_BY_ID[this.currentRoomId] || null;
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
     this.boss = new Boss(bx, by, waveDef.boss, 1, this._roomPowerLevel());
@@ -20055,6 +20389,7 @@ class Game {
       this.boss.elementColors = ELEMENT_COLORS[this.boss.element];
       this.boss.color = this.boss.elementColors.body;
     }
+    this._applyBossBalance(this.boss, roomDef);
     this.bossActive = true;
     this.bossMessage = 180;
     // ── Boss spawn dramatic effect ──
@@ -20190,6 +20525,134 @@ class Game {
     roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
     const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
     return Math.max(1, distance + 1);
+  }
+
+  _completedRoomCount() {
+    return Object.keys((this.mapState && this.mapState.completed) || {}).length;
+  }
+
+  _mapProgressRatio(roomDef) {
+    roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
+    const maxDistance = MAP_ROOM_DEFS.reduce((m, r) => Math.max(m, r.distance || 0), 1);
+    const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
+    return Math.max(0, Math.min(1, distance / Math.max(1, maxDistance)));
+  }
+
+  _recomputeRoomLevelBonuses() {
+    const pl = this.player;
+    const prev = pl._roomLevelApplied || { maxHp: 0, damage: 0, elemental: 0, armor: 0, speed: 0, reach: 0 };
+    pl.maxHp = Math.max(1, pl.maxHp - (prev.maxHp || 0));
+    pl.hp = Math.min(pl.hp, pl.maxHp);
+    pl.displayHp = Math.min(pl.displayHp || pl.hp, pl.maxHp);
+    pl.bonusDamage -= prev.damage || 0;
+    pl.bonusElemental -= prev.elemental || 0;
+    pl.bonusArmor -= prev.armor || 0;
+    pl.bonusSpeed -= prev.speed || 0;
+    pl.bonusReach -= prev.reach || 0;
+
+    const cleared = this._completedRoomCount();
+    const next = {
+      maxHp: Math.floor(cleared / 4),
+      damage: Math.floor(cleared / 12),
+      elemental: Math.floor(cleared / 10),
+      armor: Math.floor(cleared / 18),
+      speed: Math.floor(cleared / 16),
+      reach: Math.floor(cleared / 14),
+    };
+    pl._roomLevelApplied = next;
+    pl.maxHp += next.maxHp;
+    pl.hp = Math.min(pl.maxHp, pl.hp + Math.max(0, next.maxHp - (prev.maxHp || 0)));
+    pl.displayHp = Math.min(pl.maxHp, pl.displayHp || pl.hp);
+    pl.bonusDamage += next.damage;
+    pl.bonusElemental += next.elemental;
+    pl.bonusArmor += next.armor;
+    pl.bonusSpeed += next.speed;
+    pl.bonusReach += next.reach;
+  }
+
+  _balancedPlayerAttackDamage() {
+    const pl = this.player;
+    return Math.max(1, (pl.type ? pl.type.attackDamage : 1) + (pl.bonusDamage || 0));
+  }
+
+  _bossTargetHits(roomDef) {
+    if (roomDef && roomDef.kind === 'trueFinal') return 60;
+    if (roomDef && roomDef.kind === 'finalBoss') return 40;
+    const progress = this._mapProgressRatio(roomDef);
+    const kindBonus = roomDef && roomDef.kind === 'miniBoss' ? 5 : roomDef && roomDef.kind === 'bridgeBoss' ? 3 : 0;
+    return Math.round(10 + progress * 22 + kindBonus);
+  }
+
+  _bossTargetDeathHits(roomDef) {
+    if (roomDef && roomDef.kind === 'trueFinal') return 4;
+    if (roomDef && roomDef.kind === 'finalBoss') return 6;
+    return Math.max(6, Math.round(8 - this._mapProgressRatio(roomDef) * 2));
+  }
+
+  _rawDamageForDeathHits(targetHits, element) {
+    const pl = this.player;
+    const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
+    const armorOffset = bypassArmor ? 0 : (pl.bonusArmor || 0);
+    return Math.max(1, Math.ceil(pl.maxHp / Math.max(1, targetHits) + armorOffset));
+  }
+
+  _applyBossBalance(boss, roomDef) {
+    if (!boss) return;
+    const attackDamage = this._balancedPlayerAttackDamage();
+    const targetHits = this._bossTargetHits(roomDef);
+    const targetDeathHits = this._bossTargetDeathHits(roomDef);
+    if (boss._syncElementState) boss._syncElementState();
+    const armorTax = boss.elementArmorMax ? Math.ceil(boss.elementArmorMax * 0.6) : 0;
+    const targetHp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    boss.hp = Math.max(1, Math.round(targetHp));
+    boss.maxHp = boss.hp;
+    boss.displayHp = boss.hp;
+    boss.maxStance = Math.max(8, Math.ceil(boss.maxHp / 2));
+    boss.stance = boss.maxStance;
+    boss.displayStance = boss.stance;
+    boss.staggerBar = 0;
+    boss.stanceRecoverDelay = 0;
+    boss.contactDmg = this._rawDamageForDeathHits(targetDeathHits, boss.element);
+    boss._bossEhp = Math.max(6, boss.contactDmg * 4);
+    boss._bossArm = 0;
+    boss._targetHits = targetHits;
+    boss._targetDeathHits = targetDeathHits;
+  }
+
+  _enemyTargetHits(enemy, pick) {
+    const typeHits = {
+      walker: 3, shooter: 3, jumper: 4, bouncer: 4, charger: 4,
+      shielded: 5, deflector: 6, protector: 6, attacker: 3, flyer: 3, flyshooter: 4
+    };
+    let hits = typeHits[enemy.type] || 4;
+    if (pick && pick.big) hits += 4;
+    if (enemy.element === 'steel' || enemy.element === 'spiky') hits = Math.max(3, hits - 1);
+    return hits;
+  }
+
+  _applyEnemyBalance(enemy, pick) {
+    if (!enemy) return;
+    if (enemy._syncElementState) enemy._syncElementState();
+    const attackDamage = this._balancedPlayerAttackDamage();
+    const targetHits = this._enemyTargetHits(enemy, pick);
+    const armorTax = enemy.elementArmorMax ? Math.ceil(enemy.elementArmorMax * 0.5) : 0;
+    const hp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    enemy.hp = Math.max(1, Math.round(hp));
+    enemy.maxHp = enemy.hp;
+    enemy.displayHp = enemy.hp;
+    enemy.maxStance = Math.max(2, Math.ceil(enemy.maxHp / 4));
+    enemy.stance = enemy.maxStance;
+    enemy.displayStance = enemy.stance;
+    enemy.staggerBar = 0;
+    enemy.stanceRecoverDelay = 0;
+
+    const isBig = pick && pick.big;
+    const dangerHits = {
+      walker: 15, shooter: 14, jumper: 13, bouncer: 12, charger: 10,
+      shielded: 11, deflector: 10, protector: 11, attacker: 9, flyer: 13, flyshooter: 11
+    };
+    const deathHits = Math.max(7, (dangerHits[enemy.type] || 13) - (isBig ? 3 : 0));
+    enemy.contactDmg = this._rawDamageForDeathHits(deathHits, enemy.element);
   }
 
   _roomProgressLabel() {
@@ -20346,6 +20809,8 @@ class Game {
     this.currentRoomArea = cached.area || roomDef.area || null;
     this.currentRoomKind = cached.kind || roomDef.kind || 'stage';
     this.pendingObjective = null;
+    this._recomputeRoomLevelBonuses();
+    this._recomputeItemAttributeBonuses();
     this.wave = this._roomPowerLevel(roomDef);
     this._saveMapState();
     if (!opts.keepPlayer) this._prepareRoomStart();
@@ -20367,6 +20832,7 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -20411,6 +20877,7 @@ class Game {
     this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.heartPickups = [];
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
@@ -20470,6 +20937,7 @@ class Game {
       kills: Math.max(this.waveKills, previousClear ? previousClear.kills || 0 : 0),
       secondaryDone,
     };
+    this._recomputeRoomLevelBonuses();
     this.player.defeatedBossTypes.add(roomDef.bossType);
     if (rewardItem) {
       const previousChoice = this.mapState.itemRewardChoices && this.mapState.itemRewardChoices[roomDef.id];
@@ -20619,8 +21087,8 @@ class Game {
       { type: 'kills',   label: 'Kill Enemies',         desc: 'Defeat enemies to charge Boss Orbs.',                       icon: '⚔' },
       { type: 'hunt',    label: null,                   desc: null,                                                        icon: '◎' },
       { type: 'survive', label: 'Survive',              desc: 'Survival time charges Boss Orbs. Stay alive!',              icon: '♥' },
-      { type: 'zone',    label: 'Hold the Zone',        desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
-      { type: 'collect', label: 'Collect Shurikens',    desc: 'Shuriken caches spawn as Boss Orbs. Pick them up!',        icon: '✦' },
+      { type: 'zone',    label: 'Protect the Zone',     desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
+      { type: 'collect', label: 'Collect Shurikens',    desc: 'Collect 15 shurikens to charge the objective.',            icon: '✦' },
       { type: 'defend',  label: 'Protect the Ronin',     desc: 'Keep the allied Ronin alive — they charge Boss Orbs.',    icon: '⊕' },
     ];
     const pick = _pool[Math.floor(Math.random() * _pool.length)];
@@ -20859,6 +21327,7 @@ class Game {
     this.hitLines = [];
     this.grenades = [];
     this.bubbleShieldPickups = [];
+    this.heartPickups = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -20920,9 +21389,14 @@ class Game {
     this.bubbleShieldPickups = this._updatePickupArray(this.bubbleShieldPickups, BubbleShieldPickupOrb);
   }
 
+  _updateHeartPickups() {
+    this.heartPickups = this._updatePickupArray(this.heartPickups, HeartPickupOrb);
+  }
+
   _updateFieldPickups() {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
+    this._updateHeartPickups();
   }
 
   _mapAreaBounds() {
@@ -21034,6 +21508,202 @@ class Game {
     ctx.font = 'bold 9px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('ALLY RONIN', sx, sy - 32);
+    ctx.restore();
+  }
+
+  _renderZoneLady(ctx, cam) {
+    const z = this.objZone;
+    if (!z || this.bossActive || (this.currentObjective && this.currentObjective.type !== 'zone')) return;
+
+    const pl = this.player;
+    const inZone = pl.x + pl.w > z.x && pl.x < z.x + z.w &&
+                   pl.y + pl.h > z.y && pl.y < z.y + z.h;
+    const t = this.tick || 0;
+    const cx = z.x + z.w / 2 - cam.x;
+    const baseY = z.y + z.h - 8 - cam.y;
+    const bob = Math.sin(t * 0.08) * 1.5;
+    const glow = inZone ? '#68ffad' : '#9fbaff';
+
+    ctx.save();
+    ctx.translate(Math.round(cx) + 0.5, Math.round(baseY + bob) + 0.5);
+
+    ctx.globalAlpha = 0.38 + Math.sin(t * 0.09) * 0.08;
+    ctx.fillStyle = inZone ? 'rgba(92,255,174,0.42)' : 'rgba(150,184,255,0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, -19, 30, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 15, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffd7c2';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-9, -27);
+    ctx.lineTo(-18, -18);
+    ctx.moveTo(9, -27);
+    ctx.lineTo(18, -18);
+    ctx.stroke();
+
+    ctx.fillStyle = '#2f2334';
+    ctx.fillRect(-7, -15, 4, 15);
+    ctx.fillRect(3, -15, 4, 15);
+
+    ctx.fillStyle = inZone ? '#53d88f' : '#6688dd';
+    ctx.beginPath();
+    ctx.moveTo(0, -33);
+    ctx.lineTo(15, -3);
+    ctx.lineTo(-15, -3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#f7eef8';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffeff7';
+    ctx.fillRect(-4, -25, 8, 4);
+    ctx.fillStyle = '#ffd7c2';
+    ctx.fillRect(-6, -38, 12, 11);
+    ctx.fillRect(-3, -29, 6, 5);
+
+    ctx.fillStyle = '#3a2030';
+    ctx.fillRect(-8, -42, 16, 5);
+    ctx.fillRect(-9, -38, 4, 12);
+    ctx.fillRect(5, -38, 4, 10);
+
+    ctx.fillStyle = '#2b1b24';
+    ctx.fillRect(-3, -34, 2, 2);
+    ctx.fillRect(3, -34, 2, 2);
+    ctx.fillStyle = '#d75d7a';
+    ctx.fillRect(-2, -31, 4, 1);
+
+    ctx.fillStyle = '#f4d24c';
+    ctx.fillRect(5, -43, 3, 3);
+    ctx.fillRect(8, -42, 2, 2);
+
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(-18, -17);
+    ctx.quadraticCurveTo(0, -9 + Math.sin(t * 0.12) * 2, 18, -17);
+    ctx.stroke();
+
+    const heartY = -51 + Math.sin(t * 0.12) * 2;
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = inZone ? '#fff3f8' : '#ffe0ec';
+    ctx.beginPath();
+    ctx.arc(-3, heartY, 3, 0, Math.PI * 2);
+    ctx.arc(3, heartY, 3, 0, Math.PI * 2);
+    ctx.moveTo(-6, heartY + 1);
+    ctx.lineTo(0, heartY + 9);
+    ctx.lineTo(6, heartY + 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  _isPlayerChainSlowingWorld() {
+    const pl = this.player;
+    return !!(pl && (pl.chainStriking || pl.stormChaining || pl.staggerChaining));
+  }
+
+  _shouldUpdateChainSlowedWorld() {
+    if (!this._isPlayerChainSlowingWorld()) {
+      this._chainSlowFrame = 0;
+      return true;
+    }
+    this._chainSlowFrame = (this._chainSlowFrame || 0) + 1;
+    return this._chainSlowFrame % 4 === 0;
+  }
+
+  _cleanupLiveObjects() {
+    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
+    this._refreshFriendlyTargets();
+    compactLiveArray(this.enemies, keepEnemyAlive);
+    compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
+    compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
+    compactLiveArray(this.grenades, keepNotDone, GAME_OBJECT_LIMITS.grenades);
+    compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
+    compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
+    compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
+    compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
+    compactLiveArray(this.bossItems, keepNotDone);
+  }
+
+  _updateCameraFollow() {
+    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
+    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
+    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
+    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
+    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
+    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+  }
+
+  _renderChainFreezeOverlay(ctx, cam) {
+    if (!this._isPlayerChainSlowingWorld()) return;
+    const pl = this.player;
+    const t = this.tick;
+    const px = pl.x + pl.w / 2 - cam.x;
+    const py = pl.y + pl.h / 2 - cam.y;
+    const color = pl.stormChaining ? '#ffe96a' : (pl.chainStriking ? '#b56cff' : '#f4f0ff');
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.22);
+
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const grad = ctx.createRadialGradient(px, py, 20, px, py, 420);
+    grad.addColorStop(0, 'rgba(255,255,255,0.00)');
+    grad.addColorStop(0.45, 'rgba(90,40,150,0.06)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.35 + pulse * 0.25;
+    ctx.beginPath();
+    ctx.arc(px, py, 34 + pulse * 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.18 + pulse * 0.18;
+    ctx.beginPath();
+    ctx.arc(px, py, 78 + pulse * 18, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 12; i++) {
+      const a = t * 0.035 + i * Math.PI * 2 / 12;
+      const inner = 50 + (i % 3) * 10;
+      const outer = 160 + pulse * 40 + (i % 4) * 18;
+      ctx.globalAlpha = 0.10 + ((i + t) % 4 === 0 ? 0.18 : 0);
+      ctx.beginPath();
+      ctx.moveTo(px + Math.cos(a) * inner, py + Math.sin(a) * inner);
+      ctx.lineTo(px + Math.cos(a) * outer, py + Math.sin(a) * outer);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 0.9;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
+    ctx.fillText(label, px, py - 58 - pulse * 4);
     ctx.restore();
   }
 
@@ -21277,13 +21947,14 @@ class Game {
       for (const e of this.effects) e.update();
       compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
       // Camera still follows
-      const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
-      const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
-      this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
-      this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-      this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-      this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+      this._updateCameraFollow();
       return; // Skip all other updates during cutscene
+    }
+
+    if (!this._shouldUpdateChainSlowedWorld()) {
+      this._cleanupLiveObjects();
+      this._updateCameraFollow();
+      return;
     }
 
     for (const ally of this.allies) ally.update(this);
@@ -21379,15 +22050,15 @@ class Game {
             const _inZone = _pl.x + _pl.w > this.objZone.x && _pl.x < this.objZone.x + this.objZone.w &&
                             _pl.y + _pl.h > this.objZone.y && _pl.y < this.objZone.y + this.objZone.h;
             if (_inZone) {
-              // ~25 seconds of cumulative zone time per orb
-              this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1500);
+              const framesPerOrb = Math.max(1, this._objectiveSecondsPerOrb('zone') * 60);
+              this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / framesPerOrb);
             }
           } else if (_obj.type === 'defend' && this.samurai && !this.samurai.dead) {
-            // ~20 seconds of allied Ronin survival per orb
-            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / 1200);
+            const framesPerOrb = Math.max(1, this._objectiveSecondsPerOrb('defend') * 60);
+            this.bossOrbCharge = Math.min(this.bossOrbChargeMax, this.bossOrbCharge + this.bossOrbChargeMax / framesPerOrb);
           }
           // 'kills' and 'hunt': progress comes from visible kill counts.
-          // 'collect': charge comes from shuriken pickup caches.
+          // 'collect': progress comes directly from shuriken pickups.
         }
         if (_obj && (_obj.type === 'kills' || _obj.type === 'hunt') && !this.bossActive && !this.boss) {
           const progress = this._objectiveProgressInfo();
@@ -21498,25 +22169,10 @@ class Game {
     }
 
     // Cleanup
-    compactLiveArray(this.allies, keepEnemyAlive, GAME_OBJECT_LIMITS.allies);
-    this._refreshFriendlyTargets();
-    compactLiveArray(this.enemies, keepEnemyAlive);
-    compactLiveArray(this.projectiles, keepNotDone, GAME_OBJECT_LIMITS.projectiles);
-    compactLiveArray(this.hitLines, keepNotDone, GAME_OBJECT_LIMITS.hitLines);
-    compactLiveArray(this.grenades, keepNotDone, GAME_OBJECT_LIMITS.grenades);
-    compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
-    compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
-    compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
-    compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
-    compactLiveArray(this.bossItems, keepNotDone);
+    this._cleanupLiveObjects();
 
     // Camera follows player (smooth)
-    const targetCamX = this.player.x + this.player.w / 2 - CANVAS_W / 2;
-    const targetCamY = this.player.y + this.player.h / 2 - CANVAS_H / 2;
-    this.camera.x = lerp(this.camera.x, targetCamX, 0.08);
-    this.camera.y = lerp(this.camera.y, targetCamY, 0.08);
-    this.camera.x = Math.max(0, Math.min(this.camera.x, this.levelW - CANVAS_W));
-    this.camera.y = Math.max(this.levelType === 'tower' ? -600 : -100, Math.min(this.camera.y, 540 - CANVAS_H));
+    this._updateCameraFollow();
   }
 
   renderMenu() {
@@ -22548,6 +23204,7 @@ class Game {
     for (const r of this.ropes || []) r.render(ctx, cam);
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
+    this._renderZoneLady(ctx, cam);
 
     // Fire trails
     for (const ft of this.fireTrails) {
@@ -22569,6 +23226,7 @@ class Game {
 
     for (const sp of this.shurikenPickups) sp.render(ctx, cam);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
+    for (const hp of this.heartPickups) hp.render(ctx, cam);
     for (const bo of this.bossOrbPickups) {
       if (bo.done) continue;
       const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
@@ -22650,6 +23308,8 @@ class Game {
         ctx.restore();
       }
     }
+
+    this._renderChainFreezeOverlay(ctx, cam);
 
     this.player.render(ctx, cam);
 
@@ -23153,8 +23813,6 @@ class Game {
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
     }
-
-
 
     for (const e of this.effects) e.render(ctx, cam);
 
