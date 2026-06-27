@@ -32,14 +32,14 @@ class Bubble {
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
       if (!e.dead && (e._contactDmgCd || 0) <= 0 && rectOverlap(this, e)) {
-        e.takeDamage(this.dmg, game);
+        e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
         e._contactDmgCd = 10;
         if (this.soaking) e.soakTimer = Math.max(e.soakTimer || 0, 300);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && (game.boss._contactDmgCd || 0) <= 0 && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(this.dmg, game);
+      game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
       game.boss._contactDmgCd = 10;
       if (this.soaking) game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 200);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
@@ -52,7 +52,7 @@ class Bubble {
       if (!b.done) damage += 1;
     }
     game.effects.push(new Effect(this.x + 16, this.y + 16, '#6af', 8, 3, 15));
-    damageInRadius(game, this.x + 16, this.y + 16, 80, this.dmg);
+    damageInRadius(game, this.x + 16, this.y + 16, 80, this.dmg, this.x + 16, 'water', 'bubble');
     // Fire projectile at nearest target
     const cx = this.x + 16, cy = this.y + 16;
     const nearest = findNearestTarget(cx, cy, game);
@@ -109,13 +109,13 @@ class SmallBubble extends Bubble {
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
       if (!e.dead && rectOverlap(this, e)) {
-        e.takeDamage(this.dmg, game);
+        e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
         this.done = true;
         game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 6, 2, 8));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(this.dmg, game);
+      game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
       this.done = true;
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 8, 2, 10));
     }

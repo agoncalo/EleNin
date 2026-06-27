@@ -51,20 +51,20 @@ function hasLineOfSight(x0, y0, x1, y1, game) {
 // ── Shared combat helpers ────────────────────────────────────
 
 // Damage all enemies/boss within a radius from a point
-function damageInRadius(game, cx, cy, radius, damage, fromX) {
+function damageInRadius(game, cx, cy, radius, damage, fromX, attackElement, sourceType, sourceActor) {
   for (const e of game.enemies) {
     if (e.dead) continue;
     const dx = (e.x + e.w / 2) - cx;
     const dy = (e.y + e.h / 2) - cy;
     if (Math.sqrt(dx * dx + dy * dy) < radius) {
-      e.takeDamage(damage, game, fromX !== undefined ? fromX : cx);
+      e.takeDamage(damage, game, fromX !== undefined ? fromX : cx, attackElement, sourceType, sourceActor);
     }
   }
   if (game.boss && !game.boss.dead) {
     const dx = (game.boss.x + game.boss.w / 2) - cx;
     const dy = (game.boss.y + game.boss.h / 2) - cy;
     if (Math.sqrt(dx * dx + dy * dy) < radius) {
-      game.boss.takeDamage(damage, game, fromX !== undefined ? fromX : cx);
+      game.boss.takeDamage(damage, game, fromX !== undefined ? fromX : cx, attackElement, sourceType, sourceActor);
     }
   }
 }

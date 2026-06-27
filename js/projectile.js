@@ -867,6 +867,7 @@ class HitLine {
     this.timer = 0; // reuse timer for flash countdown
     const angles = this._angles();
     const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    let hitFriendly = false;
     for (const pl of targets) {
       if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
       const box = pl.getHurtbox ? pl.getHurtbox() : pl;
@@ -881,12 +882,13 @@ class HitLine {
           const closestY = this.y + dirY * tDot;
           const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
           if (dist < threshold) {
-            game._damageFriendlyTarget(pl, this.damage, this.element || null,
+            const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null,
               { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
-            this.hitPlayer = true;
+            hitFriendly = !!damaged;
+            this.hitPlayer = pl === game.player && damaged;
             // Extra impact on top of normal takeDamage feedback
-            triggerHitstop(10);
-            triggerScreenShake(7, 14);
+            if (this.hitPlayer) triggerHitstop(10);
+            triggerScreenShake(this.hitPlayer ? 7 : 3, this.hitPlayer ? 14 : 8);
             game.effects.push(new ScreenFlash(this.color, 0.38, 16));
             // Burst of particles at player position
             game.effects.push(new Effect(pcx, pcy, this.color, 14, 5, 16));
@@ -895,10 +897,10 @@ class HitLine {
           }
         }
       }
-      if (this.hitPlayer) break;
+      if (hitFriendly) break;
     }
     // Miss feedback: origin burst + light shake so the player reads the timing
-    if (!this.hitPlayer) {
+    if (!hitFriendly) {
       triggerHitstop(3);
       triggerScreenShake(3, 8);
       game.effects.push(new Effect(this.x, this.y, this.color, 8, 4, 12));
@@ -1068,6 +1070,7 @@ class Grenade {
 
     if (this.owner === 'enemy' || this.owner === 'boss') {
       const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+      let hitPlayer = false;
       for (const pl of targets) {
         if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
         const px = game._entityCenterX ? game._entityCenterX(pl) : (pl.x + pl.w / 2);
@@ -1075,10 +1078,12 @@ class Grenade {
         const pdx = px - cx;
         const pdy = py - cy;
         if (Math.sqrt(pdx * pdx + pdy * pdy) <= r) {
-          game._damageFriendlyTarget(pl, this.damage, this.element || null,
+          const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null,
             { type: 'bouncer', element: this.element, isBoss: (this.owner === 'boss') });
+          if (pl === game.player && damaged) hitPlayer = true;
         }
       }
+      if (hitPlayer && typeof triggerHitstop === 'function') triggerHitstop(5);
     } else {
       // Damage enemies
       const dmgEnemy = (e) => {
@@ -1100,7 +1105,7 @@ class Grenade {
         this.color, 12, 3, 12
       ));
     }
-    if (typeof triggerHitstop === 'function') triggerHitstop(5);
+    if (!(this.owner === 'enemy' || this.owner === 'boss') && typeof triggerHitstop === 'function') triggerHitstop(5);
     this.done = true;
   }
   render(ctx, cam) {

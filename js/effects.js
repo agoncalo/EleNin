@@ -316,6 +316,239 @@ class Effect {
 }
 
 // ── ScreenFlash — full-screen color overlay (screen-space) ──
+class BloodSpill {
+  constructor(x, y, fromX, scale) {
+    this.x = x;
+    this.y = y;
+    this.dir = Math.sign(x - (fromX !== undefined ? fromX : x - 1)) || 1;
+    this.life = 58;
+    this.maxLife = 58;
+    this.done = false;
+    this.scale = scale || 1;
+    this.drops = [];
+    const count = 12 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < count; i++) {
+      const spd = (2.0 + Math.random() * 5.2) * this.scale;
+      const a = -0.65 + (Math.random() - 0.5) * 0.9;
+      this.drops.push({
+        x, y, lastX: x, lastY: y,
+        vx: this.dir * Math.cos(a) * spd,
+        vy: Math.sin(a) * spd - 1.2 - Math.random() * 1.6,
+        r: 1.5 + Math.random() * 3.8 * this.scale,
+        life: this.life - Math.random() * 18
+      });
+    }
+  }
+  _leaveStain(game, x, y, kind, size) {
+    if (!game || !game.bloodStains) return;
+    game.bloodStains.push(new BloodStain(x, y, Math.max(0.45, size || 1), kind));
+    if (typeof GAME_OBJECT_LIMITS !== 'undefined' && game.bloodStains.length > GAME_OBJECT_LIMITS.bloodStains) {
+      game.bloodStains.splice(0, game.bloodStains.length - GAME_OBJECT_LIMITS.bloodStains);
+    }
+  }
+  _hitSurface(game, d) {
+    if (!game || !game.platforms) return false;
+    for (const p of game.platforms) {
+      if (p.thin) continue;
+      if (d.x >= p.x - 2 && d.x <= p.x + p.w + 2 && d.lastY <= p.y && d.y >= p.y && d.vy >= 0) {
+        this._leaveStain(game, Math.max(p.x + 4, Math.min(p.x + p.w - 4, d.x)), p.y - 2, 'floor', d.r * 0.42);
+        return true;
+      }
+      if (d.y >= p.y - 4 && d.y <= p.y + p.h + 4) {
+        if (d.lastX <= p.x && d.x >= p.x) {
+          this._leaveStain(game, p.x - 2, Math.max(p.y + 5, Math.min(p.y + p.h - 5, d.y)), 'wall', d.r * 0.38);
+          return true;
+        }
+        if (d.lastX >= p.x + p.w && d.x <= p.x + p.w) {
+          this._leaveStain(game, p.x + p.w + 2, Math.max(p.y + 5, Math.min(p.y + p.h - 5, d.y)), 'wall', d.r * 0.38);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  update(game) {
+    let alive = 0;
+    for (const d of this.drops) {
+      d.lastX = d.x;
+      d.lastY = d.y;
+      d.x += d.vx;
+      d.y += d.vy;
+      d.vy += 0.28;
+      d.vx *= 0.96;
+      d.life--;
+      if (d.life > 0 && this._hitSurface(game, d)) d.life = 0;
+      if (d.life > 0) alive++;
+    }
+    this.life--;
+    if (this.life <= 0 && alive <= 0) this.done = true;
+  }
+  render(ctx, cam) {
+    ctx.save();
+    for (const d of this.drops) {
+      if (d.life <= 0) continue;
+      const fade = Math.min(1, d.life / 14);
+      ctx.globalAlpha = 0.75 * fade;
+      ctx.fillStyle = Math.random() < 0.18 ? '#d22' : '#780909';
+      ctx.beginPath();
+      ctx.ellipse(d.x - cam.x, d.y - cam.y, d.r * 1.7, d.r, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+class BloodStain {
+  constructor(x, y, scale, kind) {
+    this.x = x;
+    this.y = y;
+    this.scale = scale || 1;
+    this.kind = kind || 'wall';
+    this.done = false;
+    this.life = 999999;
+    this.angle = (Math.random() - 0.5) * 0.45;
+    this.r = 2.2 + Math.random() * 4.2 * this.scale;
+    this.color = Math.random() < 0.18 ? '#d22' : '#780909';
+  }
+  update() {}
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(this.angle);
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, this.r * 1.7, this.r, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+class AngledDeathFade {
+  constructor(x, y, w, h, color, opts) {
+    opts = opts || {};
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.color = color || '#833';
+    this.type = opts.type || 'walker';
+    this.life = opts.life || (opts.boss ? 72 : 44);
+    this.maxLife = this.life;
+    this.done = false;
+    this.boss = !!opts.boss;
+    this.angle = opts.angle !== undefined ? opts.angle : ((Math.random() < 0.5 ? -1 : 1) * (0.16 + Math.random() * 0.22));
+    this.vx = (Math.random() < 0.5 ? -1 : 1) * (this.boss ? 0.45 : 0.25);
+    this.vy = this.boss ? -0.18 : -0.08;
+    this.parts = [];
+    const count = this.boss ? 8 : 5;
+    for (let i = 0; i < count; i++) {
+      this.parts.push({
+        ox: (Math.random() - 0.5) * w * 0.55,
+        oy: (Math.random() - 0.5) * h * 0.65,
+        rw: (0.16 + Math.random() * 0.28) * w,
+        rh: (0.12 + Math.random() * 0.24) * h,
+        drift: (Math.random() - 0.5) * 0.8,
+        a: (Math.random() - 0.5) * 0.7
+      });
+    }
+  }
+  update() {
+    this.life--;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.angle += 0.012 * Math.sign(this.angle || 1);
+    if (this.life <= 0) this.done = true;
+  }
+  _drawSilhouette(ctx) {
+    const w = this.w;
+    const h = this.h;
+    const cx = 0;
+    const cy = 0;
+    const x = -w / 2;
+    const y = -h / 2;
+    ctx.beginPath();
+    if (this.type === 'flyer') {
+      ctx.ellipse(cx, cy, w * 0.56, h * 0.44, 0, 0, Math.PI * 2);
+    } else if (this.type === 'flyshooter') {
+      ctx.ellipse(cx, cy + h * 0.02, w * 0.64, h * 0.30, 0, 0, Math.PI * 2);
+    } else if (this.type === 'attacker') {
+      ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
+    } else if (this.type === 'shooter') {
+      ctx.moveTo(x + w * 0.18, y + h * 0.22);
+      ctx.quadraticCurveTo(cx, y - h * 0.02, x + w * 0.82, y + h * 0.22);
+      ctx.lineTo(x + w * 0.90, y + h * 0.78);
+      ctx.quadraticCurveTo(cx, y + h * 0.98, x + w * 0.10, y + h * 0.78);
+      ctx.closePath();
+    } else if (this.type === 'shielded' || this.type === 'protector' || this.type === 'charger') {
+      ctx.moveTo(x + w * 0.24, y + h * 0.06);
+      ctx.quadraticCurveTo(cx, y - h * 0.06, x + w * 0.76, y + h * 0.06);
+      ctx.lineTo(x + w * 0.92, y + h * 0.72);
+      ctx.quadraticCurveTo(cx, y + h * 1.02, x + w * 0.08, y + h * 0.72);
+      ctx.closePath();
+    } else if (this.type === 'bouncer') {
+      ctx.moveTo(x + w * 0.28, y + h * 0.10);
+      ctx.quadraticCurveTo(cx, y - h * 0.04, x + w * 0.72, y + h * 0.10);
+      ctx.quadraticCurveTo(x + w * 0.98, y + h * 0.44, x + w * 0.78, y + h * 0.84);
+      ctx.quadraticCurveTo(cx, y + h * 1.05, x + w * 0.22, y + h * 0.84);
+      ctx.quadraticCurveTo(x + w * 0.02, y + h * 0.44, x + w * 0.28, y + h * 0.10);
+    } else if (this.type === 'jumper') {
+      ctx.moveTo(x + w * 0.34, y + h * 0.08);
+      ctx.quadraticCurveTo(cx, y - h * 0.05, x + w * 0.66, y + h * 0.08);
+      ctx.lineTo(x + w * 0.82, y + h * 0.60);
+      ctx.lineTo(x + w * 0.98, y + h * 0.96);
+      ctx.lineTo(x + w * 0.58, y + h * 0.82);
+      ctx.lineTo(x + w * 0.42, y + h * 0.82);
+      ctx.lineTo(x + w * 0.02, y + h * 0.96);
+      ctx.lineTo(x + w * 0.18, y + h * 0.60);
+      ctx.closePath();
+    } else {
+      ctx.moveTo(x + w * 0.30, y + h * 0.08);
+      ctx.quadraticCurveTo(cx, y - h * 0.06, x + w * 0.74, y + h * 0.13);
+      ctx.lineTo(x + w * 0.88, y + h * 0.72);
+      ctx.quadraticCurveTo(x + w * 0.66, y + h * 1.00, x + w * 0.46, y + h * 0.88);
+      ctx.quadraticCurveTo(x + w * 0.26, y + h * 1.00, x + w * 0.12, y + h * 0.70);
+      ctx.lineTo(x + w * 0.18, y + h * 0.26);
+      ctx.closePath();
+    }
+  }
+  render(ctx, cam) {
+    const fade = Math.max(0, this.life / this.maxLife);
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    ctx.save();
+    ctx.translate(sx + this.w / 2, sy + this.h / 2);
+    ctx.rotate(this.angle);
+    ctx.globalAlpha = 0.78 * fade;
+    ctx.fillStyle = this.color;
+    this._drawSilhouette(ctx);
+    ctx.fill();
+    ctx.globalAlpha = 0.32 * fade;
+    ctx.fillStyle = '#12080a';
+    this._drawSilhouette(ctx);
+    ctx.fill();
+    for (const p of this.parts) {
+      ctx.save();
+      ctx.translate(p.ox + p.drift * (this.maxLife - this.life), p.oy);
+      ctx.rotate(p.a);
+      ctx.globalAlpha = 0.48 * fade;
+      ctx.fillStyle = this.boss ? '#260306' : '#170707';
+      ctx.fillRect(-p.rw / 2, -p.rh / 2, p.rw, p.rh);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 0.82 * fade;
+    ctx.strokeStyle = '#f4f0ff';
+    ctx.lineWidth = this.boss ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(-this.w * 0.65, -this.h * 0.15);
+    ctx.lineTo(this.w * 0.72, -this.h * 0.28);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 class ScreenFlash {
   constructor(color, maxAlpha, duration) {
     this.color = color;

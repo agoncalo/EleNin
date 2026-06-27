@@ -188,17 +188,17 @@ const NINJA_TYPES = {
 // ── Enemy tier system ────────────────────────────────────────
 const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
-  walker:     { color: '#a55', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
-  shooter:    { color: '#aa5', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
-  jumper:     { color: '#a8a', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
-  bouncer:    { color: '#a5a', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
-  charger:    { color: '#b75', hp: 7,  dmg: 5,  bossBase: 195, name: 'Charger' },
-  shielded:   { color: '#5a8', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
-  deflector:  { color: '#88a', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
-  protector:  { color: '#4a6', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
-  attacker:   { color: '#a44', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
-  flyer:      { color: '#8c5', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
-  flyshooter: { color: '#c85', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
+  walker:     { color: '#3c4035', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
+  shooter:    { color: '#202837', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
+  jumper:     { color: '#302231', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
+  bouncer:    { color: '#393923', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  charger:    { color: '#241716', hp: 7,  dmg: 5,  bossBase: 195, name: 'Charger' },
+  shielded:   { color: '#3b4a35', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
+  deflector:  { color: '#222635', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
+  protector:  { color: '#8a6416', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
+  attacker:   { color: '#4a1f24', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
+  flyer:      { color: '#312032', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
+  flyshooter: { color: '#242a35', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
 };
 
 function getTierInfo(tierIdx) {

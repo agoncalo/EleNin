@@ -14,6 +14,9 @@ const GAME_OBJECT_LIMITS = {
   flamePools: 36,
   fireTrails: 90,
   weatherParticles: 96,
+  stageProps: 90,
+  stageLanterns: 20,
+  bloodStains: 90,
   allies: 3,
 };
 
@@ -66,6 +69,10 @@ class Game {
     this.trimerangs = [];
     this.diamondShards = [];
     this.flamePools = [];
+    this.stagePropsBack = [];
+    this.stagePropsFront = [];
+    this.stageLanterns = [];
+    this.bloodStains = [];
     this.crystalCastle = null;
     this.deaths = 0;
     this.lives = 1;
@@ -86,6 +93,7 @@ class Game {
     this.spawnInterval = 50;
     this.boss = null;
     this.bossActive = false;
+    this.bossDeathRewardDelay = 0;
     this.bossMessage = 0;
     this.waveMessage = '';
     this.waveMessageTimer = 0;
@@ -309,6 +317,10 @@ class Game {
     this.platforms = [];
     this.spikes = [];
     this.ropes = [];
+    this.stagePropsBack = [];
+    this.stagePropsFront = [];
+    this.stageLanterns = [];
+    this.bloodStains = [];
     this.levelHazards = [];
     this.weatherParticles = [];
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
@@ -323,6 +335,7 @@ class Game {
       case 'normal':
       default:      this.buildNormalMap(theme); break;
     }
+    this._decorateStage(theme);
   }
 
   _layoutRng(salt) {
@@ -423,6 +436,78 @@ class Game {
       if (gap < minGap) return true;
     }
     return false;
+  }
+
+  _surfaceForDecor(rng, minWidth, groundOnly) {
+    const groundY = this.platforms.reduce((m, p) => Math.max(m, p.y), 0);
+    const surfaces = this.platforms.filter(p => {
+      if (p.w < (minWidth || 70) || p.y <= -500 || p.y >= this.levelH + 40) return false;
+      if (groundOnly && p.y < groundY - 30) return false;
+      return true;
+    });
+    if (!surfaces.length) return null;
+    return surfaces[Math.floor(rng() * surfaces.length)];
+  }
+
+  _wallForDecor(rng) {
+    const walls = this.platforms.filter(p => p.h >= 60 && p.h > p.w * 1.7 && p.y > -520 && p.y < this.levelH + 40);
+    if (!walls.length) return null;
+    return walls[Math.floor(rng() * walls.length)];
+  }
+
+  _decorateStage(theme) {
+    const rng = this._layoutRng('decor');
+    const destructible = ['bamboo', 'vase', 'lamp', 'crate', 'barrel', 'banner', 'sign'];
+    const solid = ['chair', 'tree', 'rock', 'statue', 'well', 'cart', 'shrine', 'bush', 'stool'];
+    const addProp = (front, destruct) => {
+      const list = destruct ? destructible : solid;
+      const p = this._surfaceForDecor(rng, destruct ? 90 : 120, !destruct);
+      if (!p) return;
+      const type = list[Math.floor(rng() * list.length)];
+      const scale = 0.82 + rng() * 0.38;
+      const temp = new StageProp(0, 0, type, front, destruct, scale);
+      const x = p.x + 18 + rng() * Math.max(1, p.w - temp.w - 36);
+      temp.x = Math.round(x);
+      temp.y = Math.round(p.y - temp.h);
+      if (temp.y < -520 || temp.y > this.levelH + 20) return;
+      (front ? this.stagePropsFront : this.stagePropsBack).push(temp);
+    };
+
+    const propCount = 12 + Math.floor(rng() * 10) + (this.levelType === 'plain' ? 4 : 0);
+    for (let i = 0; i < propCount; i++) addProp(rng() < 0.38, rng() < 0.55);
+
+    const wallTypes = ['banner', 'sign', 'lamp'];
+    const wallCount = 4 + Math.floor(rng() * 5);
+    for (let i = 0; i < wallCount; i++) {
+      const wall = this._wallForDecor(rng);
+      if (!wall) break;
+      const type = wallTypes[Math.floor(rng() * wallTypes.length)];
+      const scale = 0.72 + rng() * 0.28;
+      const temp = new StageProp(0, 0, type, rng() < 0.45, type === 'lamp', scale);
+      const leftSide = rng() < 0.5;
+      temp.x = Math.round(wall.x + (leftSide ? -temp.w + 2 : wall.w - 2));
+      temp.y = Math.round(wall.y + 18 + rng() * Math.max(1, wall.h - temp.h - 36));
+      temp.wallMounted = true;
+      if (temp.y >= -520 && temp.y <= this.levelH + 20) {
+        (temp.front ? this.stagePropsFront : this.stagePropsBack).push(temp);
+      }
+    }
+
+    const cableCount = 2 + Math.floor(rng() * 4);
+    for (let i = 0; i < cableCount; i++) {
+      const x = 160 + rng() * Math.max(1, this.levelW - 320);
+      const y = 72 + rng() * 190;
+      this.stageLanterns.push(new StageLantern(Math.round(x), Math.round(y), 'cable', 0));
+    }
+    if (rng() < 0.75) {
+      const flyCount = 1 + Math.floor(rng() * 3);
+      for (let i = 0; i < flyCount; i++) {
+        const dir = rng() < 0.5 ? 1 : -1;
+        const x = dir > 0 ? -80 - i * 120 : this.levelW + 80 + i * 120;
+        const y = 95 + rng() * 190;
+        this.stageLanterns.push(new StageLantern(Math.round(x), Math.round(y), 'flyby', dir * (0.35 + rng() * 0.45)));
+      }
+    }
   }
 
   buildNormalMap(theme) {
@@ -798,9 +883,9 @@ class Game {
   _drawBossPreview(ctx, bossType, element, cx, cy) {
     ctx.save();
     const baseColors = {
-      walker: '#c33', shooter: '#cc5', jumper: '#c8c', bouncer: '#c5c',
-      shielded: '#5cc', deflector: '#88a', protector: '#4a6',
-      attacker: '#a44', flyer: '#8c5', flyshooter: '#c85',
+      walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
+      shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
+      attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35',
     };
     const bodyColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].body : (baseColors[bossType] || '#c33');
     const accentColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].accent : '#fff';
@@ -1314,9 +1399,19 @@ class Game {
     return true;
   }
 
+  _aliveHostileTypeCount(type) {
+    let count = 0;
+    for (const e of this.enemies) {
+      if (!e || e.dead || e.friendly || e.type !== type) continue;
+      count++;
+    }
+    return count;
+  }
+
   _spawnHuntTarget(filter) {
     if (!filter) return;
     const typeToSpawn = filter.enemyType || 'walker';
+    if (this._aliveHostileTypeCount(typeToSpawn) >= 6) return;
     const isBig = !!filter.big;
     const side = Math.random() < 0.5 ? -1 : 1;
     const spawnDist = this.levelW < 1000 ? randInt(150, 300) : randInt(350, 550);
@@ -1633,11 +1728,13 @@ class Game {
     const spawnPool = roomTypes
       ? roomTypes.map((type, idx) => ({ type, weight: Math.max(1, 4 - idx) }))
       : waveDef.pool;
+    const cappedPool = spawnPool.filter(entry => this._aliveHostileTypeCount(entry.type) < 6);
+    if (!cappedPool.length) return;
     let totalW = 0;
-    for (const e of spawnPool) totalW += e.weight;
+    for (const e of cappedPool) totalW += e.weight;
     let r = Math.random() * totalW;
-    let pick = spawnPool[0];
-    for (const e of spawnPool) {
+    let pick = cappedPool[0];
+    for (const e of cappedPool) {
       r -= e.weight;
       if (r <= 0) { pick = e; break; }
     }
@@ -1707,6 +1804,7 @@ class Game {
     }
     this._applyBossBalance(this.boss, roomDef);
     this.bossActive = true;
+    this.bossDeathRewardDelay = 0;
     this.bossMessage = 180;
     // ── Boss spawn dramatic effect ──
     const bCX = this.boss.x + 28, bCY = this.boss.y + 28;
@@ -1900,9 +1998,11 @@ class Game {
   }
 
   _bossTargetDeathHits(roomDef) {
-    if (roomDef && roomDef.kind === 'trueFinal') return 4;
-    if (roomDef && roomDef.kind === 'finalBoss') return 6;
-    return Math.max(6, Math.round(8 - this._mapProgressRatio(roomDef) * 2));
+    if (roomDef && roomDef.kind === 'trueFinal') return 3;
+    if (roomDef && roomDef.kind === 'finalBoss') return 4;
+    if (roomDef && roomDef.kind === 'bridgeBoss') return 4;
+    if (roomDef && roomDef.kind === 'miniBoss') return 5;
+    return Math.max(3, Math.round(5 - this._mapProgressRatio(roomDef) * 1.5));
   }
 
   _rawDamageForDeathHits(targetHits, element) {
@@ -1919,17 +2019,17 @@ class Game {
     const targetDeathHits = this._bossTargetDeathHits(roomDef);
     if (boss._syncElementState) boss._syncElementState();
     const armorTax = boss.elementArmorMax ? Math.ceil(boss.elementArmorMax * 0.6) : 0;
-    const targetHp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    const targetHp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 8;
     boss.hp = Math.max(1, Math.round(targetHp));
     boss.maxHp = boss.hp;
     boss.displayHp = boss.hp;
-    boss.maxStance = Math.max(8, Math.ceil(boss.maxHp / 2));
+    boss.maxStance = Math.max(16, Math.ceil(boss.maxHp / 2));
     boss.stance = boss.maxStance;
     boss.displayStance = boss.stance;
     boss.staggerBar = 0;
     boss.stanceRecoverDelay = 0;
-    boss.contactDmg = this._rawDamageForDeathHits(targetDeathHits, boss.element);
-    boss._bossEhp = Math.max(6, boss.contactDmg * 4);
+    boss.contactDmg = Math.max(2, Math.round(this._rawDamageForDeathHits(targetDeathHits, boss.element) * 1.25));
+    boss._bossEhp = Math.max(8, boss.contactDmg * 5);
     boss._bossArm = 0;
     boss._targetHits = targetHits;
     boss._targetDeathHits = targetDeathHits;
@@ -1952,11 +2052,11 @@ class Game {
     const attackDamage = this._balancedPlayerAttackDamage();
     const targetHits = this._enemyTargetHits(enemy, pick);
     const armorTax = enemy.elementArmorMax ? Math.ceil(enemy.elementArmorMax * 0.5) : 0;
-    const hp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 4;
+    const hp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 8;
     enemy.hp = Math.max(1, Math.round(hp));
     enemy.maxHp = enemy.hp;
     enemy.displayHp = enemy.hp;
-    enemy.maxStance = Math.max(2, Math.ceil(enemy.maxHp / 4));
+    enemy.maxStance = Math.max(4, Math.ceil(enemy.maxHp / 4));
     enemy.stance = enemy.maxStance;
     enemy.displayStance = enemy.stance;
     enemy.staggerBar = 0;
@@ -2941,7 +3041,7 @@ class Game {
       return true;
     }
     this._chainSlowFrame = (this._chainSlowFrame || 0) + 1;
-    return this._chainSlowFrame % 4 === 0;
+    return this._chainSlowFrame % 6 === 0;
   }
 
   _cleanupLiveObjects() {
@@ -2954,6 +3054,10 @@ class Game {
     compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
     compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
     compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
+    compactLiveArray(this.stagePropsBack, keepNotDone, GAME_OBJECT_LIMITS.stageProps);
+    compactLiveArray(this.stagePropsFront, keepNotDone, GAME_OBJECT_LIMITS.stageProps);
+    compactLiveArray(this.stageLanterns, keepNotDone, GAME_OBJECT_LIMITS.stageLanterns);
+    compactLiveArray(this.bloodStains, keepNotDone, GAME_OBJECT_LIMITS.bloodStains);
     compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
     compactLiveArray(this.bossItems, keepNotDone);
   }
@@ -3022,6 +3126,45 @@ class Game {
     ctx.textBaseline = 'middle';
     //const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
     //ctx.fillText(label, px, py - 58 - pulse * 4);
+    ctx.restore();
+  }
+
+  _renderSomberShaderLayer(ctx) {
+    const t = this.tick || 0;
+    ctx.save();
+
+    const tint = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
+    tint.addColorStop(0, 'rgba(4,8,18,0.18)');
+    tint.addColorStop(0.52, 'rgba(12,5,10,0.08)');
+    tint.addColorStop(1, 'rgba(0,0,0,0.24)');
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const vignette = ctx.createRadialGradient(
+      CANVAS_W * 0.50, CANVAS_H * 0.46, CANVAS_H * 0.18,
+      CANVAS_W * 0.50, CANVAS_H * 0.50, CANVAS_H * 0.82
+    );
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(0.58, 'rgba(0,0,0,0.08)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.48)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#000';
+    for (let y = (t % 4); y < CANVAS_H; y += 4) {
+      ctx.fillRect(0, y, CANVAS_W, 1);
+    }
+
+    ctx.globalAlpha = 0.08;
+    for (let i = 0; i < 90; i++) {
+      const seed = (i * 197 + t * 37) % 997;
+      const x = (seed * 53 + i * 29) % CANVAS_W;
+      const y = (seed * 31 + i * 71) % CANVAS_H;
+      ctx.fillStyle = (seed % 3 === 0) ? '#fff' : '#000';
+      ctx.fillRect(x, y, 1 + (seed % 2), 1);
+    }
+
     ctx.restore();
   }
 
@@ -3262,7 +3405,7 @@ class Game {
 
     // During ultimate cutscene, freeze everything except effects
     if (this.player.ultCutscene) {
-      for (const e of this.effects) e.update();
+      for (const e of this.effects) e.update(this);
       compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
       // Camera still follows
       this._updateCameraFollow();
@@ -3296,9 +3439,12 @@ class Game {
       this.crystalCastle.update(this);
       if (this.crystalCastle.done) this.crystalCastle = null;
     }
-    for (const e of this.effects) e.update();
+    for (const e of this.effects) e.update(this);
     for (const b of this.stoneBlocks) b.update(this);
     for (const b of this.bubbles) b.update(this);
+    for (const p of this.stagePropsBack) p.update(this);
+    for (const p of this.stagePropsFront) p.update(this);
+    for (const l of this.stageLanterns) l.update(this);
     for (const o of this.orbs) o.update(this);
     for (const bi of this.bossItems) bi.update(this);
 
@@ -3457,7 +3603,8 @@ class Game {
         }
         compactLiveArray(this.bossOrbPickups, keepNotDone);
       }
-      if (this.boss && this.boss.dead && !this.orbBucketChoice && !this.pathChoiceScreen) {
+      if (this.bossDeathRewardDelay > 0) this.bossDeathRewardDelay--;
+      if (this.boss && this.boss.dead && this.bossDeathRewardDelay <= 0 && !this.orbBucketChoice && !this.pathChoiceScreen) {
         this._completeCurrentMapRoom();
       }
     }
@@ -4522,7 +4669,10 @@ class Game {
     for (const r of this.ropes || []) r.render(ctx, cam);
     for (const p of this.platforms) p.render(ctx, cam);
     for (const s of this.spikes) s.render(ctx, cam);
+    for (const b of this.bloodStains || []) b.render(ctx, cam);
     this._renderZoneLady(ctx, cam);
+    for (const p of this.stagePropsBack || []) p.render(ctx, cam);
+    for (const l of this.stageLanterns || []) l.render(ctx, cam);
 
     // Fire trails
     for (const ft of this.fireTrails) {
@@ -4597,6 +4747,14 @@ class Game {
 
     for (const e of this.enemies) e.render(ctx, cam, this);
     if (this.boss && !this.boss.dead) this.boss.render(ctx, cam, this);
+    for (const p of this.stagePropsFront || []) p.render(ctx, cam);
+
+    ctx.save();
+    ctx.globalAlpha = 0.30;
+    ctx.fillStyle = '#020305';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.restore();
+
     for (const ally of this.allies) ally.render(ctx, cam, this);
     this._renderRoninAllyMarker(ctx, cam);
 
@@ -5173,9 +5331,26 @@ class Game {
     }
     if (pl.statusCurse > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.05 + 0.03 * Math.sin(pl.statusCurse * 0.12);
-      ctx.fillStyle = '#928';
+      const px = pl.x + pl.w / 2 - cam.x;
+      const py = pl.y + pl.h / 2 - cam.y;
+      const pulse = Math.sin(pl.statusCurse * 0.12);
+      const r = 76 + pulse * 8;
+      ctx.fillStyle = 'rgba(4,0,8,0.82)';
+      ctx.beginPath();
+      ctx.rect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill('evenodd');
+      const grad = ctx.createRadialGradient(px, py, r * 0.72, px, py, r * 1.28);
+      grad.addColorStop(0, 'rgba(4,0,8,0)');
+      grad.addColorStop(1, 'rgba(4,0,8,0.70)');
+      ctx.fillStyle = grad;
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.globalAlpha = 0.22 + 0.08 * pulse;
+      ctx.strokeStyle = '#b47cff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     }
     if (pl.statusBleed > 0) {
@@ -5350,6 +5525,7 @@ class Game {
 
     // Weather overlay (on top of everything except UI — fog handled in background)
     this._renderWeather(ctx, cam, false);
+    this._renderSomberShaderLayer(ctx);
   }
 
   renderUI() {
