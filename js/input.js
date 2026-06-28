@@ -3,6 +3,7 @@ const keys = {};
 const justPressed = {};
 window.addEventListener('keydown', e => {
   e.preventDefault();
+  ensureAudio();
   if (!keys[e.code]) justPressed[e.code] = true;
   keys[e.code] = true;
 });

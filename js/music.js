@@ -694,8 +694,9 @@ const Music = {
   current: null,
   step: 0,
   master: null,
+  compressor: null,
   timer: null,
-  vol: 0.18,
+  vol: 0.38,
   muted: false,
 
   _ntof(n) { return 440 * Math.pow(2, (n - 69) / 12); },
@@ -707,8 +708,16 @@ const Music = {
     this.master.connect(audioCtx.destination);
   },
 
-  _osc(freq, type, dur, vol, slide) {
+  _setMasterGain(value, ramp = 0.2) {
+    if (!this.master) return;
     const t = audioCtx.currentTime;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setValueAtTime(this.master.gain.value, t);
+    this.master.gain.linearRampToValueAtTime(value, t + ramp);
+  },
+
+  _osc(freq, type, dur, vol, slide, when) {
+    const t = Math.max(audioCtx.currentTime, when || audioCtx.currentTime);
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.type = type;
@@ -724,8 +733,8 @@ const Music = {
     o.onended = () => { o.disconnect(); g.disconnect(); };
   },
 
-  _noise(dur, vol) {
-    const t = audioCtx.currentTime;
+  _noise(dur, vol, when) {
+    const t = Math.max(audioCtx.currentTime, when || audioCtx.currentTime);
     const len = Math.max(1, audioCtx.sampleRate * dur | 0);
     const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
     const d = buf.getChannelData(0);
@@ -742,8 +751,8 @@ const Music = {
     s.onended = () => { s.disconnect(); g.disconnect(); };
   },
 
-  _kick(vol) {
-    const t = audioCtx.currentTime;
+  _kick(vol, when) {
+    const t = Math.max(audioCtx.currentTime, when || audioCtx.currentTime);
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.type = 'sine';
@@ -758,13 +767,44 @@ const Music = {
     o.onended = () => { o.disconnect(); g.disconnect(); };
   },
 
-  _snare(vol) {
-    this._noise(0.1, vol);
-    this._osc(180, 'triangle', 0.06, vol * 0.4, -80);
+  _snare(vol, when) {
+    this._noise(0.1, vol, when);
+    this._osc(180, 'triangle', 0.06, vol * 0.4, -80, when);
+  },
+
+  _playStep(track, when) {
+    if (!track || audioCtx.state === 'suspended' || this.muted) return;
+    const s = this.step % track.len;
+    const stepDur = 60 / track.bpm / 4;
+    for (const ch of track.ch) {
+      const val = ch.p[s % ch.p.length];
+      if (!val) continue;
+      if (ch.t === 'k') this._kick(ch.v || 0.1, when);
+      else if (ch.t === 'h') this._noise(0.03, ch.v || 0.03, when);
+      else if (ch.t === 's') this._snare(ch.v || 0.05, when);
+      else this._osc(this._ntof(val), ch.w || 'triangle', ch.d || stepDur * 2, ch.v || 0.06, ch.s || 0, when);
+    }
+    this.step++;
+  },
+
+  _wake() {
+    if (!this.playing || !this.current) return;
+    const track = MUSIC_TRACKS[this.current];
+    if (!track) return;
+    this._init();
+    this._setMasterGain(this.muted ? 0 : this.vol, 0.2);
+    if (!this.timer) {
+      const interval = (60 / track.bpm / 4) * 1000;
+      this.timer = setInterval(() => this._playStep(track), interval);
+    }
+    this._playStep(track);
   },
 
   play(name) {
-    if (this.current === name && this.playing) return;
+    if (this.current === name && this.playing && this.timer) {
+      if (this.master && !this.muted && audioCtx.state === 'running' && this.master.gain.value < this.vol * 0.25) this._setMasterGain(this.vol, 0.15);
+      return;
+    }
     const track = MUSIC_TRACKS[name];
     if (!track) return;
     this._init();
@@ -775,36 +815,17 @@ const Music = {
     this.playing = true;
     this.step = 0;
 
-    const t = audioCtx.currentTime;
-    this.master.gain.cancelScheduledValues(t);
-    this.master.gain.setValueAtTime(this.master.gain.value, t);
-    this.master.gain.linearRampToValueAtTime(this.muted ? 0 : this.vol, t + 0.6);
+    this._setMasterGain(this.muted ? 0 : this.vol, 0.6);
 
     const interval = (60 / track.bpm / 4) * 1000;
-    this.timer = setInterval(() => {
-      if (audioCtx.state === 'suspended') return;
-      if (this.muted) return;
-      const s = this.step % track.len;
-      const stepDur = 60 / track.bpm / 4;
-      for (const ch of track.ch) {
-        const val = ch.p[s % ch.p.length];
-        if (!val) continue;
-        if (ch.t === 'k') this._kick(ch.v || 0.1);
-        else if (ch.t === 'h') this._noise(0.03, ch.v || 0.03);
-        else if (ch.t === 's') this._snare(ch.v || 0.05);
-        else this._osc(this._ntof(val), ch.w || 'triangle', ch.d || stepDur * 2, ch.v || 0.06, ch.s || 0);
-      }
-      this.step++;
-    }, interval);
+    this.timer = setInterval(() => this._playStep(track), interval);
+    this._playStep(track);
   },
 
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     if (this.master) {
-      const t = audioCtx.currentTime;
-      this.master.gain.cancelScheduledValues(t);
-      this.master.gain.setValueAtTime(this.master.gain.value, t);
-      this.master.gain.linearRampToValueAtTime(0, t + 0.5);
+      this._setMasterGain(0, 0.5);
     }
     this.playing = false;
     this.current = null;
@@ -813,10 +834,8 @@ const Music = {
   setMuted(m) {
     this.muted = m;
     if (this.master) {
-      const t = audioCtx.currentTime;
-      this.master.gain.cancelScheduledValues(t);
-      this.master.gain.setValueAtTime(this.master.gain.value, t);
-      this.master.gain.linearRampToValueAtTime(m ? 0 : this.vol, t + 0.3);
+      this._setMasterGain(m ? 0 : this.vol, 0.3);
     }
+    if (!m) this._wake();
   },
 };

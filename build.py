@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bundle all JS source files into build/index.html for itch.io deployment."""
 import os
+import shutil
 from datetime import datetime, timezone
 
 JS_ORDER = [
@@ -33,6 +34,8 @@ FOOTER = '''</script>
 '''
 
 os.makedirs('build', exist_ok=True)
+if os.path.isdir('assets'):
+    shutil.copytree('assets', os.path.join('build', 'assets'), dirs_exist_ok=True)
 build_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 with open('build/index.html', 'w', encoding='utf-8') as out:
     out.write(HEADER)

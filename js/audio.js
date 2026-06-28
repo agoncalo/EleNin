@@ -1,6 +1,16 @@
 // ── Sound System (Web Audio API) ─────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function ensureAudio() { if (audioCtx.state === 'suspended') audioCtx.resume(); }
+function ensureAudio() {
+  if (audioCtx.state === 'suspended') {
+    const resume = audioCtx.resume();
+    if (resume && resume.then) resume.then(() => {
+      if (typeof Music !== 'undefined' && Music._wake) Music._wake();
+    });
+  } else if (typeof Music !== 'undefined' && Music._wake) {
+    Music._wake();
+  }
+  if (typeof SFX !== 'undefined' && SFX.loadSamples) SFX.loadSamples();
+}
 document.addEventListener('keydown', ensureAudio, { once: true });
 document.addEventListener('click', ensureAudio, { once: true });
 document.addEventListener('mousedown', ensureAudio, { once: true });
@@ -10,6 +20,45 @@ document.addEventListener('pointerdown', ensureAudio, { once: true });
 
 const SFX = {
   muted: false,
+  pulseGain: 2.25,
+  _samplesReady: false,
+  samplePaths: {
+    shuriken: ['assets/sfx/shuriken_toss.wav', 'assets/sfx/shuriken.wav'],
+    struck: ['assets/sfx/struck.wav'],
+    shieldStruck: ['assets/sfx/shield_struck.wav'],
+    hurtMale: ['assets/sfx/hurt_male.wav'],
+    hurtFemale: ['assets/sfx/hurt_female.wav'],
+    chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
+  },
+  samples: {},
+  loadSamples() {
+    if (this._samplesReady) return;
+    this._samplesReady = true;
+    this.samples = {};
+    for (const [name, paths] of Object.entries(this.samplePaths)) {
+      this.samples[name] = paths.map(path => {
+        const audio = new Audio(path);
+        audio.preload = 'auto';
+        audio.load();
+        return audio;
+      });
+    }
+  },
+  sample(name, fallback, volume = 1) {
+    if (this.muted) return;
+    this.loadSamples();
+    const bank = this.samples[name] || [];
+    const ready = bank.filter(a => a.readyState >= 2);
+    const src = ready.length ? ready[Math.floor(Math.random() * ready.length)] : bank[0];
+    if (!src || src.readyState < 2) {
+      if (fallback) fallback();
+      return;
+    }
+    const inst = src.cloneNode(true);
+    inst.volume = Math.max(0, Math.min(1, volume));
+    const p = inst.play();
+    if (p && p.catch) p.catch(() => { if (fallback) fallback(); });
+  },
   play(freq, type, duration, vol = 0.15, slide = 0) {
     if (this.muted) return;
     const o = audioCtx.createOscillator();
@@ -17,7 +66,8 @@ const SFX = {
     o.type = type;
     o.frequency.setValueAtTime(freq, audioCtx.currentTime);
     if (slide) o.frequency.linearRampToValueAtTime(freq + slide, audioCtx.currentTime + duration);
-    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    const outVol = Math.max(0.001, vol * this.pulseGain);
+    g.gain.setValueAtTime(outVol, audioCtx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(); o.stop(audioCtx.currentTime + duration);
@@ -142,8 +192,8 @@ const SFX = {
     this.filteredNoise(dur * 0.55, female ? 0.018 : 0.024, 'bandpass', female ? 1450 : 820, 1.1, 0.004);
   },
   hurtVoiceForNinja(ninjaType) {
-    const femaleTypes = { fire: true, bubble: true, crystal: true };
-    const maleTypes = { earth: true, shadow: true, storm: true };
+    const femaleTypes = { wind: true, bubble: true, crystal: true };
+    const maleTypes = { earth: true, shadow: true, storm: true, fire: true };
     if (femaleTypes[ninjaType]) return 'female';
     if (maleTypes[ninjaType]) return 'male';
     return Math.random() < 0.5 ? 'female' : 'male';
@@ -152,8 +202,10 @@ const SFX = {
     this.bladeSwish(1);
   },
   hit() {
-    this.filteredNoise(0.075, 0.06, 'bandpass', 900, 1.5, 0.001);
-    this.filteredNoise(0.035, 0.04, 'highpass', 2700, 0.8, 0.001);
+    this.sample('struck', () => {
+      this.filteredNoise(0.075, 0.06, 'bandpass', 900, 1.5, 0.001);
+      this.filteredNoise(0.035, 0.04, 'highpass', 2700, 0.8, 0.001);
+    });
   },
   enemyDie() {
     this.thump(70, 0.16, 0.23);
@@ -161,17 +213,18 @@ const SFX = {
     this.filteredNoise(0.16, 0.055, 'bandpass', 1300, 1.2, 0.001);
   },
   playerHurt(ninjaType) {
-    this.vocalGrunt(this.hurtVoiceForNinja(ninjaType));
-    this.filteredNoise(0.09, 0.045, 'bandpass', 760, 1.2, 0.001);
+    const gender = this.hurtVoiceForNinja(ninjaType);
+    this.sample(gender === 'female' ? 'hurtFemale' : 'hurtMale', () => {
+      this.vocalGrunt(gender);
+      this.filteredNoise(0.09, 0.045, 'bandpass', 760, 1.2, 0.001);
+    }, 0.45);
   },
   jump() {
-    this.filteredNoise(0.08, 0.045, 'highpass', 900, 0.6, 0.001);
-    this.tone(180, 'sine', 0.11, 0.035, 85, 0.002);
+    this.play(260, 'square', 0.1, 0.06, 180);
   },
   special() {
-    this.tone(360, 'sine', 0.18, 0.08, 220, 0.006);
-    this.tone(720, 'triangle', 0.16, 0.055, 180, 0.006);
-    this.filteredNoise(0.14, 0.045, 'bandpass', 1800, 1.6, 0.004);
+    this.play(500, 'triangle', 0.15, 0.1, 200);
+    setTimeout(() => this.play(760, 'triangle', 0.10, 0.075, 120), 55);
   },
   parry() {
     this.metal(1250, 0.12, 0.12);
@@ -182,8 +235,10 @@ const SFX = {
     this.filteredNoise(0.08, 0.04, 'bandpass', 500, 1.4, 0.001);
   },
   shuriken() {
-    this.noiseSweep(0.08, 0.055, 'highpass', 1800, 6200, 0.8, 0.001);
-    this.metal(1650, 0.035, 0.055);
+    this.sample('shuriken', () => {
+      this.noiseSweep(0.08, 0.055, 'highpass', 1800, 6200, 0.8, 0.001);
+      this.metal(1650, 0.035, 0.055);
+    });
   },
   bossDie() {
     this.thump(42, 0.23, 0.46);
@@ -194,19 +249,22 @@ const SFX = {
     this.thump(48, 0.18, 0.36);
     this.filteredNoise(0.38, 0.12, 'lowpass', 300, 1.0, 0.004);
   },
-  wave() { this.tone(440, 'sine', 0.15, 0.075); setTimeout(() => this.tone(660, 'sine', 0.15, 0.075), 120); setTimeout(() => this.tone(880, 'sine', 0.2, 0.07), 240); },
+  wave() { this.play(440, 'triangle', 0.15, 0.1); setTimeout(() => this.play(660, 'triangle', 0.15, 0.1), 120); setTimeout(() => this.play(880, 'triangle', 0.2, 0.1), 240); },
   armor() {
-    this.metal(620, 0.10, 0.15);
-    this.filteredNoise(0.09, 0.055, 'bandpass', 1200, 2.2, 0.001);
+    this.sample('shieldStruck', () => {
+      this.metal(620, 0.10, 0.15);
+      this.filteredNoise(0.09, 0.055, 'bandpass', 1200, 2.2, 0.001);
+    });
   },
   chain() {
-    this.chainSwish();
+    this.play(700, 'square', 0.05, 0.08, 200);
+    this.sample('chain', () => this.chainSwish());
   },
   slam() {
     this.thump(52, 0.22, 0.26);
     this.filteredNoise(0.22, 0.13, 'lowpass', 260, 0.8, 0.001);
   },
-  pickup() { this.tone(620, 'sine', 0.08, 0.07, 120); setTimeout(() => this.tone(910, 'sine', 0.09, 0.06, 80), 80); },
+  pickup() { this.play(520, 'triangle', 0.08, 0.1); setTimeout(() => this.play(780, 'triangle', 0.1, 0.1), 80); },
   reflect() {
     this.metal(1900, 0.11, 0.09);
     this.filteredNoise(0.055, 0.045, 'highpass', 3200, 1.1, 0.001);
