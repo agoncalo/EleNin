@@ -1687,6 +1687,13 @@ class Enemy {
     game.totalKills++;
     if (game.currentObjective && game.currentObjective.type === 'hunt' && game._matchesHuntFilter(this, game.currentObjective.filter)) {
       game.objectiveKills = (game.objectiveKills || 0) + 1;
+    } else if (game.routeObjectiveSet) {
+      for (const obj of game.routeObjectiveSet) {
+        if (obj && obj.type === 'hunt' && game._matchesHuntFilter(this, obj.filter)) {
+          game.objectiveKills = (game.objectiveKills || 0) + 1;
+          break;
+        }
+      }
     }
     // Track kill for achievements & bestiary
     recordKill(game.player.ninjaType);

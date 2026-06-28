@@ -113,6 +113,7 @@ class Game {
 
     // Room map prototype
     this.mapState = this._loadMapState();
+    this.routeState = this.mapState.route || this._freshMapState().route;
     this.mapScreen = null;         // { selected, recentUnlocks, completedRoomId, delay }
     this.currentRoomId = this.mapState.currentRoomId || MAP_START_ROOM_ID;
     this.roomCache = this.mapState.roomCache || {};
@@ -188,6 +189,9 @@ class Game {
   }
 
   _objectiveStartMessage() {
+    if (this.routeObjectiveSet && this.routeObjectiveSet.length) {
+      return 'OBJECTIVES: choose your route';
+    }
     const label = ((this.currentObjective && this.currentObjective.label) || 'Defeat Enemies').trim();
     const progress = this._objectiveProgressText();
     return (/^objective$/i.test(label) ? 'OBJECTIVE' : 'OBJECTIVE: ' + label) + progress;
@@ -203,6 +207,65 @@ class Game {
   _objectiveProgressRatio() {
     const p = this._objectiveProgressInfo();
     return p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
+  }
+
+  _routeObjectiveProgressInfo(obj) {
+    const start = this.routeObjectiveStart || { tick: this.tick || 0, waveKills: 0, objectiveKills: 0 };
+    if (!obj) return null;
+    if (obj.type === 'kills') {
+      const target = Math.max(1, obj.target || 12);
+      const current = Math.max(0, (this.waveKills || 0) - (start.waveKills || 0));
+      return { current: Math.min(target, current), target, rawCurrent: current, rawTarget: target };
+    }
+    if (obj.type === 'hunt') {
+      const target = Math.max(1, obj.target || 4);
+      const current = Math.max(0, this.objectiveKills || 0);
+      return { current: Math.min(target, current), target, rawCurrent: current, rawTarget: target };
+    }
+    if (obj.type === 'survive') {
+      const target = Math.max(1, obj.targetSeconds || obj.target || 20);
+      const current = Math.max(0, Math.floor(((this.tick || 0) - (start.tick || 0)) / 60));
+      return { current: Math.min(target, current), target, suffix: 's', rawCurrent: current, rawTarget: target };
+    }
+    if (obj.type === 'collect') {
+      const target = Math.max(1, obj.target || this._objectiveCollectTarget());
+      const current = Math.max(0, (this.bossOrbsCollected || 0) - (start.bossOrbsCollected || 0));
+      return { current: Math.min(target, current), target, rawCurrent: current, rawTarget: target };
+    }
+    if (obj.type === 'zone') {
+      const target = Math.max(1, obj.targetSeconds || obj.target || 18);
+      return { current: Math.min(target, obj.zoneSeconds || 0), target, suffix: 's', rawCurrent: obj.zoneSeconds || 0, rawTarget: target };
+    }
+    return null;
+  }
+
+  _routeObjectiveRatio(obj) {
+    const p = this._routeObjectiveProgressInfo(obj);
+    return p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
+  }
+
+  _routeMarkerFor(route) {
+    return (typeof ROUTE_MARKERS !== 'undefined' && ROUTE_MARKERS[route]) || { symbol: '?', color: '#fff' };
+  }
+
+  _routeObjectiveOfType(type) {
+    return this.routeObjectiveSet && this.routeObjectiveSet.find(obj => obj && obj.type === type);
+  }
+
+  _checkRouteObjectives() {
+    if (!this.routeObjectiveSet || this.routeObjectiveResult || this.bossActive || (this.boss && !this.boss.dead)) return;
+    for (const obj of this.routeObjectiveSet) {
+      const p = this._routeObjectiveProgressInfo(obj);
+      if (p && p.rawCurrent >= p.rawTarget) {
+        this.routeObjectiveResult = obj.route || 'mid';
+        this.currentObjective = obj;
+        const marker = this._routeMarkerFor(this.routeObjectiveResult);
+        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 34, marker.symbol + ' ROUTE OPEN', marker.color));
+        this.showWaveMessage(marker.symbol + ' OBJECTIVE COMPLETE');
+        this.spawnBoss();
+        break;
+      }
+    }
   }
 
   _objectiveTotalSeconds(type) {
@@ -473,7 +536,8 @@ class Game {
       (front ? this.stagePropsFront : this.stagePropsBack).push(temp);
     };
 
-    const propCount = 12 + Math.floor(rng() * 10) + (this.levelType === 'plain' ? 4 : 0);
+    const routeStep = this.currentRouteStep || 0;
+    const propCount = 12 + Math.floor(rng() * 10) + (this.levelType === 'plain' ? 4 : 0) + Math.floor(routeStep * 1.5);
     for (let i = 0; i < propCount; i++) addProp(rng() < 0.38, rng() < 0.55);
 
     const wallTypes = ['banner', 'sign', 'lamp'];
@@ -506,6 +570,19 @@ class Game {
         const x = dir > 0 ? -80 - i * 120 : this.levelW + 80 + i * 120;
         const y = 95 + rng() * 190;
         this.stageLanterns.push(new StageLantern(Math.round(x), Math.round(y), 'flyby', dir * (0.35 + rng() * 0.45)));
+      }
+    }
+    const eerieTypes = ['statue', 'shrine', 'banner', 'lamp'];
+    const eerieCount = Math.max(0, routeStep - 2);
+    for (let i = 0; i < eerieCount; i++) {
+      const p = this._surfaceForDecor(rng, 120, rng() < 0.65);
+      if (!p) continue;
+      const type = eerieTypes[Math.floor(rng() * eerieTypes.length)];
+      const temp = new StageProp(0, 0, type, rng() < 0.5, type === 'banner' || type === 'lamp', 0.9 + rng() * 0.45);
+      temp.x = Math.round(p.x + 14 + rng() * Math.max(1, p.w - temp.w - 28));
+      temp.y = Math.round(p.y - temp.h);
+      if (temp.y >= -520 && temp.y <= this.levelH + 20) {
+        (temp.front ? this.stagePropsFront : this.stagePropsBack).push(temp);
       }
     }
   }
@@ -1429,7 +1506,9 @@ class Game {
     }
     e.isHuntTarget = true; // flag for rendering marker
     this.enemies.push(e);
-    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, '#ff0', 6, 3, 10));
+    const routeHunt = this._routeObjectiveOfType && this._routeObjectiveOfType('hunt');
+    const markerColor = routeHunt && routeHunt.marker ? routeHunt.marker.color : '#ff0';
+    this.effects.push(new Effect(x + e.w / 2, y + e.h / 2, markerColor, 6, 3, 10));
   }
 
   _preferredObjectiveX() {
@@ -1497,6 +1576,8 @@ class Game {
     this.objZone = null;
     this.samurai = null;
     const obj = this.currentObjective;
+    const routeZone = this._routeObjectiveOfType ? this._routeObjectiveOfType('zone') : null;
+    const routeCollect = this._routeObjectiveOfType ? this._routeObjectiveOfType('collect') : null;
     if (!obj) return;
     if (obj.type === 'defend') {
       obj.label = 'Protect the Ronin';
@@ -1509,7 +1590,12 @@ class Game {
       obj.label = 'Collect Shurikens';
       obj.desc = 'Collect 15 shurikens to charge the objective.';
     }
-    if (obj.type === 'zone') {
+    if (routeCollect) {
+      this.bossOrbsRequired = routeCollect.target || this._objectiveCollectTarget();
+      this.bossOrbCharge = 0;
+      this.bossOrbCooldown = 0;
+    }
+    if (obj.type === 'zone' || routeZone) {
       this._setupZoneObjective();
     } else if (obj.type === 'defend') {
       this._spawnRoninAlly(roomDef);
@@ -1698,7 +1784,15 @@ class Game {
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId];
     if (roomDef) {
       const cached = this._getRoomConfig(roomDef.id);
-      this.currentObjective = cached.objective || roomDef.objective || {
+      this.routeObjectiveSet = cached.objectiveSet || null;
+      this.routeObjectiveResult = null;
+      this.routeObjectiveStart = {
+        tick: this.tick || 0,
+        waveKills: this.waveKills || 0,
+        objectiveKills: this.objectiveKills || 0,
+        bossOrbsCollected: this.bossOrbsCollected || 0,
+      };
+      this.currentObjective = cached.objective || (this.routeObjectiveSet && this.routeObjectiveSet[0]) || roomDef.objective || {
         type: 'kills',
         label: 'Defeat Enemies',
         desc: 'Defeat enemies to fill the objective bar and draw out the boss.',
@@ -1761,7 +1855,8 @@ class Game {
     // Elemental variant chance — boosted when level has a theme element
     const baseElemChance = ELEMENTAL_SPAWN_CHANCE + (this._roomPowerLevel() - 1) * 0.04;
     const allowedElements = (this.currentRoomElementTypes || []).filter(el => ELEMENT_COLORS[el]).slice(0, 2);
-    const boostedChance = allowedElements.length ? Math.min(0.5, baseElemChance + 0.35) : 0;
+    const routeElemBoost = Math.min(0.35, ((this.currentRouteStep || 0) * 0.06));
+    const boostedChance = allowedElements.length ? Math.min(0.82, baseElemChance + 0.25 + routeElemBoost) : 0;
     if (allowedElements.length && Math.random() < boostedChance) {
       // When a level element is active, bias 75% toward that element
       if (this.levelElement && allowedElements.includes(this.levelElement) && Math.random() < 0.75) {
@@ -1777,7 +1872,7 @@ class Game {
       this.spawnedMiniboss.add(pick.type);
     }
     // Mark hunt target
-    const _huntObj = this.currentObjective;
+    const _huntObj = (this._routeObjectiveOfType && this._routeObjectiveOfType('hunt')) || this.currentObjective;
     if (_huntObj && _huntObj.type === 'hunt' && this._matchesHuntFilter(e, _huntObj.filter)) {
       e.isHuntTarget = true;
     }
@@ -1788,9 +1883,10 @@ class Game {
   spawnBoss() {
     const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId] || null;
+    const bossType = this.currentRouteBossType || (waveDef && waveDef.boss) || 'walker';
     let bx = Math.min(this.player.x + 300, this.levelW - 100);
     let by = this.levelType === 'tower' ? 100 : 300;
-    this.boss = new Boss(bx, by, waveDef.boss, 1, this._roomPowerLevel());
+    this.boss = new Boss(bx, by, bossType, 1, this._roomPowerLevel());
     // Use forced level element if set, otherwise small random chance
     const bossAllowedElements = (this.currentRoomElementTypes || []).filter(el => ELEMENT_COLORS[el]).slice(0, 2);
     if (this.levelElement) {
@@ -1823,7 +1919,7 @@ class Game {
     this.showWaveMessage(this.boss.name + elemTag);
     // Boss entrance phrase
     this.ninjaResponseActive = false;
-    const bPhrase = getBattlePhrase(waveDef.boss, this.player.ninjaType, this.boss.element);
+    const bPhrase = getBattlePhrase(bossType, this.player.ninjaType, this.boss.element);
     if (bPhrase) {
       this.phraseText = bPhrase;
       this.phraseTimer = 150;
@@ -1831,7 +1927,7 @@ class Game {
       this.phraseColor = this.boss.element ? ELEMENT_COLORS[this.boss.element].accent : '#faa';
       this.phraseSource = this.boss;
       // Schedule ninja response
-      const nResp = getNinjaResponse(this.player.ninjaType, waveDef.boss, this.boss.element);
+      const nResp = getNinjaResponse(this.player.ninjaType, bossType, this.boss.element);
       if (nResp) {
         this.ninjaResponseText = nResp;
         this.ninjaResponseTimer = -90;
@@ -1864,6 +1960,14 @@ class Game {
     unlocked[MAP_START_ROOM_ID] = true;
     return {
       currentRoomId: MAP_START_ROOM_ID,
+      route: {
+        step: 0,
+        lane: 'mid',
+        previousLane: 'mid',
+        history: [],
+        next: null,
+        allHard: true,
+      },
       unlocked,
       completed: {},
       unlockSources: {},
@@ -1880,8 +1984,10 @@ class Game {
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.unlocked || !parsed.roomCache) return this._freshMapState();
       if (!parsed.unlocked[MAP_START_ROOM_ID]) parsed.unlocked[MAP_START_ROOM_ID] = true;
+      const freshRoute = this._freshMapState().route;
       return {
         currentRoomId: parsed.currentRoomId || MAP_START_ROOM_ID,
+        route: Object.assign({}, freshRoute, parsed.route || {}),
         unlocked: parsed.unlocked || { [MAP_START_ROOM_ID]: true },
         completed: parsed.completed || {},
         unlockSources: parsed.unlockSources || {},
@@ -1896,6 +2002,7 @@ class Game {
 
   _saveMapState() {
     this.mapState.currentRoomId = this.currentRoomId;
+    this.mapState.route = this.routeState || this.mapState.route || this._freshMapState().route;
     this.mapState.roomCache = this.roomCache;
     this.mapState.itemRoomAssignments = this.mapState.itemRoomAssignments || {};
     this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
@@ -1906,22 +2013,154 @@ class Game {
     }
   }
 
+  _routeLaneIndex(lane) {
+    return Math.max(0, ROUTE_LANES.indexOf(lane));
+  }
+
+  _routeStageDef(step) {
+    return ROUTE_STAGE_LAYOUTS[Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, step || 0))];
+  }
+
+  _routeLayoutRoomId(step, lane) {
+    const stage = this._routeStageDef(step);
+    lane = ROUTE_LANES.includes(lane) ? lane : 'mid';
+    return (stage && stage.lanes && (stage.lanes[lane] || stage.lanes.mid || stage.lanes.easy)) || MAP_START_ROOM_ID;
+  }
+
+  _routeBossFor(step, lane, previousLane, history) {
+    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
+    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
+      const allHard = (history || []).length >= ROUTE_STAGE_LAYOUTS.length - 1 && (history || []).every(h => h && h.route === 'hard');
+      if (allHard) return ROUTE_FINAL_PERFECT_HARD_BOSS;
+      return ROUTE_FINAL_BOSSES[lane] || 'flyshooter';
+    }
+    const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
+    const from = ROUTE_LANES.includes(previousLane) ? previousLane : 'mid';
+    const to = ROUTE_LANES.includes(lane) ? lane : 'mid';
+    const row = ROUTE_BOSS_MATRIX[from] || ROUTE_BOSS_MATRIX.mid;
+    const list = row[to] || row.mid || ['deflector'];
+    return list[Math.min(list.length - 1, matrixStep)] || 'deflector';
+  }
+
+  _routeElementFor(step, lane, bossType) {
+    if (step < ROUTE_FIXED_BOSSES.length) return null;
+    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
+      if (lane === 'hard') return 'ghost';
+      if (lane === 'easy') return null;
+      return null;
+    }
+    const pool = ROUTE_ELEMENTS[lane] || ROUTE_ELEMENTS.mid;
+    const element = pool[step % pool.length] || null;
+    if (bossType === 'flyshooter' && lane === 'hard') return 'lightning';
+    return element;
+  }
+
+  _routeObjectiveSet(roomDef, bossType, step) {
+    const enemies = (roomDef && roomDef.enemyTypes && roomDef.enemyTypes.length)
+      ? roomDef.enemyTypes
+      : ['walker', 'shooter', 'jumper'];
+    const huntTarget = enemies.find(t => t !== bossType) || enemies[0] || 'walker';
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+                       shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
+                       flyer:'Flyers', flyshooter:'Overlords' }[huntTarget] || huntTarget;
+    const depth = Math.max(0, step || 0);
+    const midMarker = this._routeMarkerFor('mid');
+    const hardMarker = this._routeMarkerFor('hard');
+    const midObj = depth % 2 === 0
+      ? Object.assign({}, ROUTE_OBJECTIVES[1], {
+        filter: { enemyType: huntTarget },
+        label: 'Hunt ' + typeName,
+        desc: 'Marked enemies force this route.',
+        target: 4 + Math.floor(depth * 1.5),
+        icon: midMarker.symbol,
+        marker: midMarker
+      })
+      : {
+        route: 'mid',
+        type: 'collect',
+        label: 'Collect Caches',
+        desc: 'Marked shuriken caches force this route.',
+        target: Math.min(10, 5 + depth),
+        icon: midMarker.symbol,
+        marker: midMarker
+      };
+    const hardObj = depth % 2 === 0
+      ? Object.assign({}, ROUTE_OBJECTIVES[2], {
+        targetSeconds: 18 + depth * 4,
+        target: 18 + depth * 4
+      })
+      : {
+        route: 'hard',
+        type: 'zone',
+        label: 'Hold Marker',
+        desc: 'Stand in the marked zone to force this route.',
+        targetSeconds: 15 + depth * 3,
+        target: 15 + depth * 3,
+        zoneSeconds: 0,
+        icon: hardMarker.symbol,
+        marker: hardMarker
+      };
+    return [
+      Object.assign({}, ROUTE_OBJECTIVES[0], { target: 12 + depth * 3 }),
+      midObj,
+      hardObj
+    ];
+  }
+
+  _routeConfigFor(step, lane, previousLane, history) {
+    step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, step || 0));
+    lane = ROUTE_LANES.includes(lane) ? lane : 'mid';
+    previousLane = ROUTE_LANES.includes(previousLane) ? previousLane : lane;
+    const roomId = this._routeLayoutRoomId(step, lane);
+    const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
+    const bossType = this._routeBossFor(step, lane, previousLane, history || []);
+    const element = this._routeElementFor(step, lane, bossType);
+    const waveIdx = Math.max(0, WAVE_DEFS.findIndex(w => w.boss === bossType));
+    const objectiveSet = this._routeObjectiveSet(roomDef, bossType, step);
+    return { step, lane, previousLane, roomId: roomDef.id, roomDef, bossType, element, waveIdx, objectiveSet };
+  }
+
+  _currentRouteConfig() {
+    const route = this.routeState || this._freshMapState().route;
+    if (route.next) return route.next;
+    return this._routeConfigFor(route.step || 0, route.lane || 'mid', route.previousLane || route.lane || 'mid', route.history || []);
+  }
+
   _getRoomConfig(roomId) {
     const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
+    const routeCfg = this._currentRouteConfig ? this._currentRouteConfig() : null;
+    const routeApplies = routeCfg && routeCfg.roomId === roomDef.id;
     if (!this.roomCache[roomDef.id]) {
       this.roomCache[roomDef.id] = {
         id: roomDef.id,
-        waveIdx: roomDef.waveIdx,
-        element: roomDef.element || null,
-        elementTypes: this._roomElementTypes(roomDef),
+        waveIdx: routeApplies ? routeCfg.waveIdx : roomDef.waveIdx,
+        element: routeApplies ? routeCfg.element : (roomDef.element || null),
+        elementTypes: routeApplies ? (routeCfg.element ? [routeCfg.element] : []) : this._roomElementTypes(roomDef),
         mapType: roomDef.mapType || null,
         enemyTypes: roomDef.enemyTypes ? roomDef.enemyTypes.slice() : null,
         area: roomDef.area || null,
         kind: roomDef.kind || 'stage',
-        distance: roomDef.distance || 0,
-        objective: roomDef.objective || null,
+        distance: routeApplies ? routeCfg.step : (roomDef.distance || 0),
+        bossType: routeApplies ? routeCfg.bossType : roomDef.bossType,
+        routeStep: routeApplies ? routeCfg.step : 0,
+        routeLane: routeApplies ? routeCfg.lane : 'mid',
+        objectiveSet: routeApplies ? routeCfg.objectiveSet : null,
+        objective: routeApplies ? routeCfg.objectiveSet[0] : (roomDef.objective || null),
         createdAtTick: this.tick || 0,
       };
+    }
+    if (routeApplies) {
+      Object.assign(this.roomCache[roomDef.id], {
+        waveIdx: routeCfg.waveIdx,
+        element: routeCfg.element,
+        elementTypes: routeCfg.element ? [routeCfg.element] : [],
+        bossType: routeCfg.bossType,
+        routeStep: routeCfg.step,
+        routeLane: routeCfg.lane,
+        distance: routeCfg.step,
+        objectiveSet: routeCfg.objectiveSet,
+        objective: routeCfg.objectiveSet[0],
+      });
     }
     if (this.roomCache[roomDef.id].distance === undefined) this.roomCache[roomDef.id].distance = roomDef.distance || 0;
     if (!this.roomCache[roomDef.id].objective) this.roomCache[roomDef.id].objective = roomDef.objective || null;
@@ -1936,6 +2175,9 @@ class Game {
   }
 
   _roomPowerLevel(roomDef) {
+    if (!roomDef || (roomDef.id && roomDef.id === this.currentRoomId)) {
+      return Math.max(1, (this.currentRouteStep || 0) + 1);
+    }
     roomDef = roomDef || MAP_ROOM_BY_ID[this.currentRoomId];
     const distance = roomDef && roomDef.distance !== undefined ? roomDef.distance : 0;
     return Math.max(1, distance + 1);
@@ -1964,14 +2206,13 @@ class Game {
     pl.bonusSpeed -= prev.speed || 0;
     pl.bonusReach -= prev.reach || 0;
 
-    const cleared = this._completedRoomCount();
     const next = {
-      maxHp: Math.floor(cleared / 4),
-      damage: Math.floor(cleared / 12),
-      elemental: Math.floor(cleared / 10),
-      armor: Math.floor(cleared / 18),
-      speed: Math.floor(cleared / 16),
-      reach: Math.floor(cleared / 14),
+      maxHp: 0,
+      damage: 0,
+      elemental: 0,
+      armor: 0,
+      speed: 0,
+      reach: 0,
     };
     pl._roomLevelApplied = next;
     pl.maxHp += next.maxHp;
@@ -2160,6 +2401,14 @@ class Game {
     recordItemFound(itemId);
   }
 
+  _nextItemForBossType(bossType) {
+    const drops = BOSS_ITEM_DROPS[bossType] || [];
+    for (const itemId of drops) {
+      if (BOSS_ITEMS[itemId] && !(this.player.items && this.player.items[itemId])) return itemId;
+    }
+    return null;
+  }
+
   _chooseRoomReward(roomId, choice) {
     const itemId = this._itemForRoom(roomId);
     if (!itemId || !BOSS_ITEMS[itemId]) return;
@@ -2213,6 +2462,8 @@ class Game {
 
   _enterMapRoom(roomId, opts) {
     opts = opts || {};
+    const routeCfg = this._currentRouteConfig();
+    roomId = routeCfg ? routeCfg.roomId : roomId;
     const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
     const cached = this._getRoomConfig(roomDef.id);
     this.currentRoomId = roomDef.id;
@@ -2224,10 +2475,17 @@ class Game {
     this.currentRoomEnemyTypes = cached.enemyTypes || roomDef.enemyTypes || null;
     this.currentRoomArea = cached.area || roomDef.area || null;
     this.currentRoomKind = cached.kind || roomDef.kind || 'stage';
+    this.currentRouteStep = cached.routeStep || 0;
+    this.currentRouteLane = cached.routeLane || 'mid';
+    this.currentRouteBossType = cached.bossType || roomDef.bossType;
+    this.routeObjectiveSet = cached.objectiveSet || null;
+    this.routeObjectiveResult = null;
+    this.routeObjectiveStart = null;
+    if (this.routeState) this.routeState.next = null;
     this.pendingObjective = null;
     this._recomputeRoomLevelBonuses();
     this._recomputeItemAttributeBonuses();
-    this.wave = this._roomPowerLevel(roomDef);
+    this.wave = (cached.routeStep || 0) + 1;
     this._saveMapState();
     if (!opts.keepPlayer) this._prepareRoomStart();
   }
@@ -2284,7 +2542,15 @@ class Game {
     this.gameOver = false;
     this.killerInfo = null;
     this.lives = 1;
-    this._openCurrentMap(30);
+    const fresh = this._freshMapState();
+    this.mapState.route = fresh.route;
+    this.mapState.completed = {};
+    this.mapState.unlocked = fresh.unlocked;
+    this.mapState.currentRoomId = MAP_START_ROOM_ID;
+    this.routeState = this.mapState.route;
+    this.currentRoomId = MAP_START_ROOM_ID;
+    this.roomCache = {};
+    this.mapScreen = null;
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
@@ -2311,6 +2577,8 @@ class Game {
     this.player.statusStun = 0;
     this.player.statusCurse = 0;
     this.player.statusBleed = 0;
+    this._enterMapRoom(MAP_START_ROOM_ID);
+    this.showWaveMessage(this._objectiveStartMessage());
   }
 
   _openCurrentMap(delay) {
@@ -2347,41 +2615,66 @@ class Game {
     const roomDef = MAP_ROOM_BY_ID[this.currentRoomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
     const recentUnlocks = [];
     const previousClear = this.mapState.completed[roomDef.id] || null;
-    const rewardItem = this._itemForBossClear(roomDef);
+    const bossType = this.currentRouteBossType || (this.boss && this.boss.bossType) || roomDef.bossType;
+    const rewardItem = this._nextItemForBossType(bossType);
     const secondaryDone = this._roomSecondaryComplete(roomDef) || !!(previousClear && previousClear.secondaryDone);
+    const routeResult = this.routeObjectiveResult || 'mid';
     this.mapState.completed[roomDef.id] = {
       waveIdx: roomDef.waveIdx,
-      element: roomDef.element || null,
+      element: this.levelElement || null,
+      bossType,
       kills: Math.max(this.waveKills, previousClear ? previousClear.kills || 0 : 0),
       secondaryDone,
+      routeResult,
     };
-    this._recomputeRoomLevelBonuses();
-    this.player.defeatedBossTypes.add(roomDef.bossType);
+    recordWaveClear((this.currentRouteStep || 0) + 1, this.player.ninjaType);
+    this.player.defeatedBossTypes.add(bossType);
     if (rewardItem) {
-      const previousChoice = this.mapState.itemRewardChoices && this.mapState.itemRewardChoices[roomDef.id];
-      this.itemRewardScreen = {
-        itemId: rewardItem,
-        bossType: roomDef.bossType,
-        roomId: roomDef.id,
-        selected: previousChoice === 'attr' ? 1 : 0,
-        delay: 30
-      };
+      this._grantBossItem(rewardItem);
+      this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
     }
-    for (const id of roomDef.navLinks || roomDef.unlockOnPrimary || []) {
-      this._unlockMapRoom(id, roomDef.id, 'primary', recentUnlocks);
+    const route = this.routeState || this._freshMapState().route;
+    const completedStep = route.step || 0;
+    route.history = route.history || [];
+    route.history.push({ step: completedStep, lane: route.lane || 'mid', route: routeResult, bossType, element: this.levelElement || null, roomId: roomDef.id });
+    route.allHard = !!route.allHard && routeResult === 'hard';
+    if (completedStep >= ROUTE_STAGE_LAYOUTS.length - 1) {
+      this.gameWon = true;
+      this.boss = null;
+      this.bossActive = false;
+      this.enemies = [];
+      this.allies = [];
+      this.friendlyTargets = [];
+      this.projectiles = [];
+      this.hitLines = [];
+      this.showWaveMessage('VICTORY!');
+      SFX.victory();
+      recordGoodEnding();
+      this._saveMapState();
+      return;
     }
-    if (secondaryDone) {
-      for (const id of roomDef.unlockOnSecondary || []) {
-        this._unlockMapRoom(id, roomDef.id, 'secondary', recentUnlocks);
-      }
-    }
+    const nextStep = completedStep + 1;
+    const previousLane = route.lane || 'mid';
+    const nextLane = routeResult;
+    const nextCfg = this._routeConfigFor(nextStep, nextLane, previousLane, route.history);
+    route.previousLane = previousLane;
+    route.lane = nextLane;
+    route.step = nextStep;
+    route.next = nextCfg;
+    this.routeState = route;
+    this.mapState.route = route;
+    this.mapState.unlocked[nextCfg.roomId] = true;
+    recentUnlocks.push(nextCfg.roomId);
     this._saveMapState();
     this.mapScreen = {
-      selected: Math.max(0, MAP_ROOM_DEFS.findIndex(r => r.id === roomDef.id)),
+      selected: Math.max(0, MAP_ROOM_DEFS.findIndex(r => r.id === nextCfg.roomId)),
       recentUnlocks,
       completedRoomId: roomDef.id,
+      routeAutoAdvance: true,
+      nextRoomId: nextCfg.roomId,
+      nextRoute: nextLane,
       zoom: this.mapZoom || (this.mapScreen && this.mapScreen.zoom) || 1,
-      delay: 45,
+      delay: 120,
     };
     this.boss = null;
     this.bossActive = false;
@@ -2931,7 +3224,9 @@ class Game {
 
   _renderZoneLady(ctx, cam) {
     const z = this.objZone;
-    if (!z || this.bossActive || (this.currentObjective && this.currentObjective.type !== 'zone')) return;
+    const routeZone = this._routeObjectiveOfType && this._routeObjectiveOfType('zone');
+    if (!z || this.bossActive || (!routeZone && this.currentObjective && this.currentObjective.type !== 'zone')) return;
+    const zoneMarker = routeZone && routeZone.marker ? routeZone.marker : { color: '#9fbaff' };
 
     const pl = this.player;
     const inZone = pl.x + pl.w > z.x && pl.x < z.x + z.w &&
@@ -2940,13 +3235,14 @@ class Game {
     const cx = z.x + z.w / 2 - cam.x;
     const baseY = z.y + z.h - 8 - cam.y;
     const bob = Math.sin(t * 0.08) * 1.5;
-    const glow = inZone ? '#68ffad' : '#9fbaff';
+    const glow = inZone ? '#68ffad' : zoneMarker.color;
 
     ctx.save();
     ctx.translate(Math.round(cx) + 0.5, Math.round(baseY + bob) + 0.5);
 
     ctx.globalAlpha = 0.38 + Math.sin(t * 0.09) * 0.08;
-    ctx.fillStyle = inZone ? 'rgba(92,255,174,0.42)' : 'rgba(150,184,255,0.34)';
+    ctx.fillStyle = inZone ? 'rgba(92,255,174,0.42)' : zoneMarker.color;
+    ctx.globalAlpha = inZone ? 0.42 : 0.22;
     ctx.beginPath();
     ctx.ellipse(0, -19, 30, 36, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -3202,6 +3498,14 @@ class Game {
       if (ms.delay > 0) {
         ms.delay--;
         consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
+      }
+      if (ms.routeAutoAdvance) {
+        if (ms.delay <= 0 || consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
+          this.mapScreen = null;
+          this._enterMapRoom(ms.nextRoomId || this._routeLayoutRoomId((this.routeState && this.routeState.step) || 0, (this.routeState && this.routeState.lane) || 'mid'));
+          this.showWaveMessage(this._objectiveStartMessage());
+        }
+        return;
       }
       const navLeft = consumePress('ArrowLeft') || consumePress('KeyA');
       const navRight = consumePress('ArrowRight') || consumePress('KeyD');
@@ -3488,7 +3792,8 @@ class Game {
         this.spawnEnemy();
       }
       // Hunt objective: guarantee one target enemy alive at all times
-      const _wObj = this.currentObjective;
+      const _routeHuntObj = this.routeObjectiveSet && this.routeObjectiveSet.find(obj => obj && obj.type === 'hunt');
+      const _wObj = _routeHuntObj || this.currentObjective;
       if (_wObj && _wObj.type === 'hunt' && !this.bossActive && !this.boss) {
         const _huntAlive = this.enemies.some(e => !e.dead && this._matchesHuntFilter(e, _wObj.filter));
         if (!_huntAlive) {
@@ -3502,6 +3807,16 @@ class Game {
       }
       // ── Boss Summon Orb logic ──
       if (!this.bossActive && !this.boss) {
+        if (this.routeObjectiveSet) {
+          const routeZone = this._routeObjectiveOfType('zone');
+          if (routeZone && this.objZone) {
+            const _pl = this.player;
+            const _inZone = _pl.x + _pl.w > this.objZone.x && _pl.x < this.objZone.x + this.objZone.w &&
+                            _pl.y + _pl.h > this.objZone.y && _pl.y < this.objZone.y + this.objZone.h;
+            if (_inZone && this.tick % 60 === 0) routeZone.zoneSeconds = (routeZone.zoneSeconds || 0) + 1;
+          }
+          this._checkRouteObjectives();
+        } else {
         if (this.bossOrbCooldown > 0) this.bossOrbCooldown--;
         // Objective-based charge accumulation (overrides damage-based for non-kill types)
         const _obj = this.currentObjective;
@@ -3568,6 +3883,7 @@ class Game {
           const pl = this.player;
           this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 30, '\u2606 BOSS ORB!', '#f80'));
           }
+        }
         }
         // Update and collect pickups
         const pl = this.player;
@@ -4643,6 +4959,8 @@ class Game {
     // Zone: glowing rectangle in world space (render before platforms so it appears in background)
     if (this.objZone && !this.bossActive) {
       const z = this.objZone;
+      const routeZone = this._routeObjectiveOfType && this._routeObjectiveOfType('zone');
+      const zoneMarker = routeZone && routeZone.marker ? routeZone.marker : { symbol: '◆', color: '#88aaff' };
       const zsx = z.x - cam.x, zsy = z.y - cam.y;
       const _pl = this.player;
       const _inZone = _pl.x + _pl.w > z.x && _pl.x < z.x + z.w &&
@@ -4650,19 +4968,19 @@ class Game {
       const t = this.tick;
       ctx.save();
       ctx.globalAlpha = 0.18 + Math.sin(t * 0.05) * 0.06;
-      ctx.fillStyle = _inZone ? '#44ff88' : '#88aaff';
+      ctx.fillStyle = zoneMarker.color;
       ctx.fillRect(zsx, zsy, z.w, z.h);
       ctx.globalAlpha = _inZone ? 0.9 : (0.5 + Math.sin(t * 0.08) * 0.3);
-      ctx.strokeStyle = _inZone ? '#44ff88' : '#88aaff';
+      ctx.strokeStyle = zoneMarker.color;
       ctx.lineWidth = _inZone ? 3 : 2;
       ctx.setLineDash([8, 6]);
       ctx.strokeRect(zsx, zsy, z.w, z.h);
       ctx.setLineDash([]);
       ctx.globalAlpha = 0.9;
-      ctx.fillStyle = _inZone ? '#44ff88' : '#aac';
+      ctx.fillStyle = zoneMarker.color;
       ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(_inZone ? '◈ HOLD' : '◈ ZONE', zsx + z.w / 2, zsy - 5);
+      ctx.fillText(zoneMarker.symbol + (_inZone ? ' HOLD' : ' ZONE'), zsx + z.w / 2, zsy - 5);
       ctx.textAlign = 'left';
       ctx.restore();
     }
@@ -4692,7 +5010,7 @@ class Game {
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
 
-    for (const sp of this.shurikenPickups) sp.render(ctx, cam);
+    for (const sp of this.shurikenPickups) sp.render(ctx, cam, this);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
     for (const hp of this.heartPickups) hp.render(ctx, cam);
     for (const bo of this.bossOrbPickups) {
@@ -4759,7 +5077,9 @@ class Game {
     this._renderRoninAllyMarker(ctx, cam);
 
     // Hunt objective: draw target marker over matching enemies
-    if (this.currentObjective && this.currentObjective.type === 'hunt' && !this.bossActive) {
+    const routeHunt = this._routeObjectiveOfType && this._routeObjectiveOfType('hunt');
+    if (((this.currentObjective && this.currentObjective.type === 'hunt') || routeHunt) && !this.bossActive) {
+      const huntMarker = routeHunt && routeHunt.marker ? routeHunt.marker : { symbol: '◆', color: '#ff0' };
       const t = this.tick;
       for (const e of this.enemies) {
         if (e.dead || !e.isHuntTarget) continue;
@@ -4767,9 +5087,9 @@ class Game {
         const ey = e.y - cam.y;
         ctx.save();
         ctx.globalAlpha = 0.8 + Math.sin(t * 0.12) * 0.2;
-        ctx.strokeStyle = '#ff0';
+        ctx.strokeStyle = huntMarker.color;
         ctx.lineWidth = 2;
-        ctx.shadowColor = '#ff0';
+        ctx.shadowColor = huntMarker.color;
         ctx.shadowBlur = 8;
         // Diamond target indicator above enemy
         const ds = 8;
@@ -4780,6 +5100,11 @@ class Game {
         ctx.lineTo(ex - ds, ey - 16);
         ctx.closePath();
         ctx.stroke();
+        ctx.fillStyle = huntMarker.color;
+        ctx.font = 'bold 13px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(huntMarker.symbol, ex, ey - 11);
+        ctx.textAlign = 'left';
         ctx.shadowBlur = 0;
         ctx.restore();
       }
@@ -5545,6 +5870,34 @@ class Game {
       ctx.fillStyle = '#ccc';
       ctx.font = 'bold 11px monospace';
       ctx.fillText(timeStr, 10, 17);
+    }
+
+    if (this.routeObjectiveSet && !this.bossActive && !(this.boss && !this.boss.dead)) {
+      const x = 8, y = 28, w = 250, rowH = 17;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x, y, w, 64);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = '#ddd';
+      ctx.fillText('ROUTE OBJECTIVES', x + 8, y + 12);
+      for (let i = 0; i < this.routeObjectiveSet.length; i++) {
+        const obj = this.routeObjectiveSet[i];
+        const p = this._routeObjectiveProgressInfo(obj);
+        const yy = y + 20 + i * rowH;
+        const routeMarker = obj.marker || this._routeMarkerFor(obj.route);
+        const routeColor = routeMarker.color || '#ccc';
+        const pct = p ? Math.max(0, Math.min(1, p.rawCurrent / Math.max(1, p.rawTarget))) : 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(x + 78, yy - 8, 112, 6);
+        ctx.fillStyle = routeColor;
+        ctx.fillRect(x + 78, yy - 8, 112 * pct, 6);
+        ctx.fillStyle = routeColor;
+        ctx.fillText(obj.marker ? routeMarker.symbol : '-', x + 8, yy);
+        ctx.fillStyle = '#ccc';
+        const prog = p ? (p.current + '/' + p.target + (p.suffix || '')) : '';
+        ctx.fillText(obj.label + ' ' + prog, x + 196, yy);
+      }
+      ctx.restore();
     }
 
     // Ninja bar at top, status bars stacked up from bottom
@@ -6663,7 +7016,149 @@ class Game {
     ctx.fillText(rs.delay > 0 ? '...' : 'A/D choose   Z confirm', boxX + 184, boxY + boxH - 12);
   }
 
+  _renderRouteMapScreen(ctx) {
+    const ms = this.mapScreen;
+    const route = this.routeState || { step: 0, lane: 'mid', previousLane: 'mid', history: [] };
+    const history = route.history || [];
+    ctx.fillStyle = 'rgba(0,0,0,0.84)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px monospace';
+    const title = 'MISSION ROUTE';
+    ctx.fillText(title, CANVAS_W / 2 - ctx.measureText(title).width / 2, 42);
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#aaa';
+    const hint = ms && ms.routeAutoAdvance
+      ? (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) : 'Z confirm next mission')
+      : 'Route advances by completed objective';
+    ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
+
+    const mapX = 70, mapY = 96, mapW = 610, mapH = 360;
+    const panelX = 700, panelY = 96, panelW = 200, panelH = 360;
+    ctx.fillStyle = 'rgba(10,14,18,0.92)';
+    ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = '#334';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mapX, mapY, mapW, mapH);
+
+    const steps = ROUTE_STAGE_LAYOUTS.length;
+    const nodeX = step => mapX + 38 + (mapW - 76) * (step / Math.max(1, steps - 1));
+    const nodeY = (step, lane) => {
+      if (step === 0 || step === steps - 1) return mapY + mapH / 2;
+      const row = ROUTE_STAGE_LAYOUTS[step].laneRows[lane];
+      return mapY + mapH / 2 + row * 82;
+    };
+    const nodeLaneList = step => (step === 0 || step === steps - 1) ? ['mid'] : ROUTE_LANES;
+    const nodeKey = (step, lane) => step + ':' + lane;
+    const activeStep = route.step || 0;
+    const activeLane = route.lane || 'mid';
+    const visited = new Set(['0:mid']);
+    let prevLane = 'mid';
+    for (const h of history) {
+      visited.add(nodeKey(h.step, h.lane || prevLane));
+      if (h.step + 1 < steps) visited.add(nodeKey(h.step + 1, h.route || 'mid'));
+      prevLane = h.route || prevLane;
+    }
+    visited.add(nodeKey(activeStep, activeStep === 0 || activeStep === steps - 1 ? 'mid' : activeLane));
+
+    ctx.save();
+    ctx.lineWidth = 1.2;
+    for (let step = 0; step < steps - 1; step++) {
+      for (const fromLane of nodeLaneList(step)) {
+        for (const toLane of nodeLaneList(step + 1)) {
+          const fromX = nodeX(step), fromY = nodeY(step, fromLane);
+          const toX = nodeX(step + 1), toY = nodeY(step + 1, toLane);
+          ctx.strokeStyle = 'rgba(160,170,190,0.24)';
+          ctx.beginPath();
+          ctx.moveTo(fromX, fromY);
+          ctx.lineTo(toX, toY);
+          ctx.stroke();
+        }
+      }
+    }
+    let drawPrevLane = 'mid';
+    for (const h of history) {
+      if (h.step >= steps - 1) continue;
+      const marker = this._routeMarkerFor(h.route || 'mid');
+      ctx.strokeStyle = marker.color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(nodeX(h.step), nodeY(h.step, h.lane || drawPrevLane));
+      ctx.lineTo(nodeX(h.step + 1), nodeY(h.step + 1, h.step + 1 === steps - 1 ? 'mid' : (h.route || 'mid')));
+      ctx.stroke();
+      drawPrevLane = h.route || drawPrevLane;
+    }
+    ctx.restore();
+
+    for (let step = 0; step < steps; step++) {
+      for (const lane of nodeLaneList(step)) {
+        const x = nodeX(step), y = nodeY(step, lane);
+        const isCurrent = step === activeStep && (step === 0 || step === steps - 1 || lane === activeLane);
+        const seen = visited.has(nodeKey(step, lane));
+        const marker = step === 0 || step === steps - 1 ? { symbol: '', color: '#ffe033' } : this._routeMarkerFor(lane);
+        ctx.save();
+        ctx.fillStyle = seen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
+        ctx.strokeStyle = isCurrent ? '#fff' : marker.color;
+        ctx.lineWidth = isCurrent ? 4 : 2;
+        ctx.shadowColor = isCurrent ? '#fff' : marker.color;
+        ctx.shadowBlur = seen || isCurrent ? 10 : 0;
+        ctx.beginPath();
+        ctx.arc(x, y, isCurrent ? 18 : 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = marker.color;
+        ctx.font = 'bold 15px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(step === 0 ? 'S' : step === steps - 1 ? 'F' : marker.symbol, x, y + 5);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '9px monospace';
+        const stageName = ROUTE_STAGE_LAYOUTS[step].name;
+        ctx.fillText(stageName.length > 12 ? stageName.slice(0, 12) : stageName, x, y + 32);
+        ctx.restore();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(12,12,16,0.95)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = '#334';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    const cfg = this._routeConfigFor(activeStep, activeLane, route.previousLane || 'mid', history);
+    const bossName = BOSS_NAMES[cfg.bossType] || cfg.bossType.toUpperCase();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('Current Mission', panelX + 14, panelY + 28);
+    ctx.fillStyle = '#bbb';
+    ctx.font = '11px monospace';
+    ctx.fillText('Step ' + (activeStep + 1) + '/' + steps, panelX + 14, panelY + 54);
+    ctx.fillText('Boss: ' + bossName, panelX + 14, panelY + 74);
+    ctx.fillText('Element: ' + (cfg.element || 'normal'), panelX + 14, panelY + 94);
+    ctx.fillText('Layout: ' + (cfg.roomDef.mapType || 'classic'), panelX + 14, panelY + 114);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('Route Trail', panelX + 14, panelY + 150);
+    ctx.font = '11px monospace';
+    let yy = panelY + 172;
+    if (!history.length) {
+      ctx.fillStyle = '#777';
+      ctx.fillText('No route yet', panelX + 14, yy);
+    } else {
+      for (let i = Math.max(0, history.length - 8); i < history.length; i++) {
+        const h = history[i];
+        const marker = this._routeMarkerFor(h.route || 'mid');
+        const boss = BOSS_NAMES[h.bossType] || (h.bossType || '').toUpperCase();
+        ctx.fillStyle = marker.color;
+        ctx.fillText((h.step + 1) + '. ' + marker.symbol + ' ' + boss, panelX + 14, yy);
+        yy += 18;
+      }
+    }
+  }
+
   renderMapScreen(ctx) {
+    this._renderRouteMapScreen(ctx);
+    return;
     const ms = this.mapScreen;
     ctx.fillStyle = 'rgba(0,0,0,0.84)';
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -6675,7 +7170,9 @@ class Game {
 
     ctx.font = '11px monospace';
     ctx.fillStyle = '#aaa';
-    const hint = ms.delay > 0 ? '...' + Math.ceil(ms.delay / 60) : 'WASD / arrows select room   Q/E zoom   0 free travel   Z confirm';
+    const hint = ms.routeAutoAdvance
+      ? (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) : 'Z confirm next mission')
+      : (ms.delay > 0 ? '...' + Math.ceil(ms.delay / 60) : 'WASD / arrows select room   Q/E zoom   0 free travel   Z confirm');
     ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
 
     const mapX = 70, mapY = 88, mapW = 610, mapH = 390;
@@ -7043,18 +7540,23 @@ class Game {
     panelText(selectedUnlocked ? selectedRoom.subtitle : 'Locked', panelX + 14, panelY + 48, panelW - 28);
 
     if (selectedUnlocked) {
-      const wd = WAVE_DEFS[selectedRoom.waveIdx] || WAVE_DEFS[0];
-      const bossName = BOSS_NAMES[wd.boss] || wd.boss.toUpperCase();
+      const routeCfg = (this.routeState && selectedRoom.id === this._routeLayoutRoomId(this.routeState.step, this.routeState.lane))
+        ? this._routeConfigFor(this.routeState.step, this.routeState.lane, this.routeState.previousLane || 'mid', this.routeState.history || [])
+        : null;
+      const wd = WAVE_DEFS[routeCfg ? routeCfg.waveIdx : selectedRoom.waveIdx] || WAVE_DEFS[0];
+      const routeBoss = routeCfg ? routeCfg.bossType : wd.boss;
+      const routeElement = routeCfg ? routeCfg.element : selectedRoom.element;
+      const bossName = BOSS_NAMES[routeBoss] || routeBoss.toUpperCase();
       const area = MAP_AREAS[selectedRoom.area] || null;
       const mix = (selectedRoom.enemyTypes || []).map(t => ENEMY_STATS[t] ? ENEMY_STATS[t].name : t).join(', ');
-      ctx.fillStyle = selectedRoom.element && ELEMENT_COLORS[selectedRoom.element] ? ELEMENT_COLORS[selectedRoom.element].accent : '#ffe033';
+      ctx.fillStyle = routeElement && ELEMENT_COLORS[routeElement] ? ELEMENT_COLORS[routeElement].accent : '#ffe033';
       ctx.font = 'bold 12px monospace';
       panelText('Boss: ' + bossName, panelX + 14, panelY + 84, panelW - 28);
       ctx.fillStyle = '#bbb';
       ctx.font = '11px monospace';
       panelText('Area: ' + (area ? area.label : selectedRoom.area), panelX + 14, panelY + 106, panelW - 28);
       panelText('Type: ' + (kindLabel[selectedRoom.kind] || 'Stage'), panelX + 14, panelY + 126, panelW - 28);
-      panelText('Element: ' + (selectedRoom.element || 'normal'), panelX + 14, panelY + 146, panelW - 28);
+      panelText('Element: ' + (routeElement || 'normal'), panelX + 14, panelY + 146, panelW - 28);
       panelText('Layout: ' + (selectedRoom.mapType || 'classic'), panelX + 14, panelY + 166, panelW - 28);
       panelText('Enemies: ' + mix, panelX + 14, panelY + 186, panelW - 28);
       panelText('Status: ' + (selectedCompleted ? 'completed' : 'available'), panelX + 14, panelY + 206, panelW - 28);
@@ -7062,27 +7564,28 @@ class Game {
 
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText('Recently unlocked', panelX + 14, panelY + 242);
+    ctx.fillText('Route trail', panelX + 14, panelY + 242);
     ctx.font = '11px monospace';
-    if (ms.recentUnlocks && ms.recentUnlocks.length) {
+    const routeHistory = (this.routeState && this.routeState.history) || [];
+    if (routeHistory.length) {
       let yy = panelY + 264;
-      for (const id of ms.recentUnlocks) {
-        const room = MAP_ROOM_BY_ID[id];
-        if (!room) continue;
-        ctx.fillStyle = '#ffe033';
-        panelText('+ ' + room.name, panelX + 14, yy, panelW - 28);
+      for (let i = Math.max(0, routeHistory.length - 8); i < routeHistory.length; i++) {
+        const h = routeHistory[i];
+        ctx.fillStyle = h.route === 'hard' ? '#f66' : h.route === 'mid' ? '#fc6' : '#7df';
+        const boss = BOSS_NAMES[h.bossType] || (h.bossType || '').toUpperCase();
+        panelText((h.step + 1) + '. ' + (ROUTE_LABELS[h.route] || h.route) + ' - ' + boss, panelX + 14, yy, panelW - 28);
         yy += 18;
       }
     } else {
       ctx.fillStyle = '#777';
-      ctx.fillText('No new rooms', panelX + 14, panelY + 264);
+      ctx.fillText('No route yet', panelX + 14, panelY + 264);
     }
 
     const doneCount = Object.keys(this.mapState.completed || {}).length;
     const unlockedCount = Object.keys(this.mapState.unlocked || {}).length;
     ctx.fillStyle = '#888';
     ctx.font = '10px monospace';
-    ctx.fillText(`Cache: ${unlockedCount}/${MAP_ROOM_DEFS.length} rooms`, panelX + 14, panelY + panelH - 36);
+    ctx.fillText(`Route step: ${((this.routeState && this.routeState.step) || 0) + 1}/${ROUTE_STAGE_LAYOUTS.length}`, panelX + 14, panelY + panelH - 36);
     ctx.fillText(`Completed: ${doneCount}`, panelX + 14, panelY + panelH - 18);
   }
 

@@ -43,7 +43,8 @@ class ShurikenPickupOrb extends TimedPickupOrb {
   }
 
   static spawnInterval(game) {
-    const collectMode = game.currentObjective && game.currentObjective.type === 'collect';
+    const routeCollect = game._routeObjectiveOfType && game._routeObjectiveOfType('collect');
+    const collectMode = routeCollect || (game.currentObjective && game.currentObjective.type === 'collect');
     return collectMode ? 120 : ((game.player.items && game.player.items.tripleShuriken) ? 150 : 300);
   }
 
@@ -52,7 +53,7 @@ class ShurikenPickupOrb extends TimedPickupOrb {
   }
 
   static maxOnScreen(game) {
-    return game.currentObjective && game.currentObjective.type === 'collect' ? 6 : 3;
+    return (game._routeObjectiveOfType && game._routeObjectiveOfType('collect')) || (game.currentObjective && game.currentObjective.type === 'collect') ? 6 : 3;
   }
 
   update(game) {
@@ -71,24 +72,27 @@ class ShurikenPickupOrb extends TimedPickupOrb {
   }
 
   isObjectiveCache(game) {
-    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : game.bossOrbsRequired;
-    return game.currentObjective && game.currentObjective.type === 'collect' &&
+    const routeCollect = game._routeObjectiveOfType && game._routeObjectiveOfType('collect');
+    const target = routeCollect ? routeCollect.target : (game._objectiveCollectTarget ? game._objectiveCollectTarget() : game.bossOrbsRequired);
+    return (routeCollect || (game.currentObjective && game.currentObjective.type === 'collect')) &&
       !game.bossActive && !game.boss &&
       game.bossOrbsCollected < target;
   }
 
   collectObjectiveCache(game, cx, cy) {
-    const target = game._objectiveCollectTarget ? game._objectiveCollectTarget() : 15;
+    const routeCollect = game._routeObjectiveOfType && game._routeObjectiveOfType('collect');
+    const target = routeCollect ? routeCollect.target : (game._objectiveCollectTarget ? game._objectiveCollectTarget() : 15);
+    const marker = routeCollect && routeCollect.marker ? routeCollect.marker : { symbol: '\u2726', color: '#ccc' };
     game.bossOrbsRequired = target;
     game.bossOrbsCollected = Math.min(target, (game.bossOrbsCollected || 0) + 1);
     game.bossOrbCharge = 0;
     game.bossOrbCooldown = 0;
-    game.effects.push(new Effect(cx, cy, '#ccc', 10, 4, 15));
+    game.effects.push(new Effect(cx, cy, marker.color, 10, 4, 15));
     const txt = game.bossOrbsCollected >= target
-      ? '\u2726 BOSS SUMMONED!'
-      : '\u2726 ' + game.bossOrbsCollected + '/' + target;
-    game.effects.push(new TextEffect(cx, cy - 38, txt, '#ccc'));
-    if (game.bossOrbsCollected >= target) game.spawnBoss();
+      ? marker.symbol + ' ROUTE READY!'
+      : marker.symbol + ' ' + game.bossOrbsCollected + '/' + target;
+    game.effects.push(new TextEffect(cx, cy - 38, txt, marker.color));
+    if (!routeCollect && game.bossOrbsCollected >= target) game.spawnBoss();
   }
 
   fireShurikens(game, pl, cx, cy) {
@@ -143,9 +147,11 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     projectile.life = 30;
   }
 
-  render(ctx, cam) {
+  render(ctx, cam, game) {
     const state = this.drawState(cam);
     if (!state) return;
+    const routeCollect = game && game._routeObjectiveOfType && game._routeObjectiveOfType('collect');
+    const marker = routeCollect && this.isObjectiveCache(game) ? routeCollect.marker : null;
     ctx.save();
     ctx.globalAlpha = state.alpha;
     ctx.translate(state.x + 10, state.y + 10);
@@ -165,6 +171,17 @@ class ShurikenPickupOrb extends TimedPickupOrb {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    if (marker) {
+      ctx.rotate(-this.bobTimer * 1.5);
+      ctx.shadowColor = marker.color;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = marker.color;
+      ctx.font = 'bold 15px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(marker.symbol, 0, -16);
+      ctx.textAlign = 'left';
+      ctx.shadowBlur = 0;
+    }
     ctx.restore();
   }
 }

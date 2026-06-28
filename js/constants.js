@@ -423,7 +423,68 @@ const BOSS_NAMES = {
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v27';
+const ROUTE_LANES = ['easy', 'mid', 'hard'];
+const ROUTE_LABELS = {
+  easy: 'Route Alpha',
+  mid: 'Route Beta',
+  hard: 'Route Gamma',
+};
+const ROUTE_MARKERS = {
+  easy: { symbol: '▲', color: '#7df' },
+  mid: { symbol: '◆', color: '#4af' },
+  hard: { symbol: '●', color: '#f66' },
+};
+const ROUTE_OBJECTIVES = [
+  { route: 'easy', type: 'kills', label: 'Breakthrough', desc: 'Defeat enough enemies to force this route.', icon: '', marker: null },
+  { route: 'mid', type: 'hunt', label: 'Target Hunt', desc: 'Hunt marked enemies to force this route.', icon: '◆', marker: ROUTE_MARKERS.mid },
+  { route: 'hard', type: 'survive', label: 'Endure', desc: 'Hold out under pressure to force this route.', icon: '', marker: null },
+];
+const ROUTE_STAGE_LAYOUTS = [
+  { name: 'Forest Outpost', lanes: { easy: 'forest-walker-normal', mid: 'forest-walker-normal', hard: 'forest-walker-normal' } },
+  { name: 'River Ambush', lanes: { easy: 'forest-shooter-normal', mid: 'forest-shooter-normal', hard: 'forest-shooter-normal' } },
+  { name: 'High Canopy', lanes: { easy: 'forest-jumper-normal', mid: 'forest-jumper-normal', hard: 'forest-jumper-normal' } },
+  { name: 'Storm Gate', lanes: { easy: 'forest-flyer-normal', mid: 'forest-flyer-normal', hard: 'forest-flyer-normal' } },
+  { name: 'Route Split I', lanes: { easy: 'forest-bouncer-normal', mid: 'mountain-shielded-crystal', hard: 'volcano-deflector-fire' } },
+  { name: 'Route Split II', lanes: { easy: 'castle-shielded-ghost', mid: 'mountain-protector-steel', hard: 'skies-attacker-lightning' } },
+  { name: 'Route Split III', lanes: { easy: 'volcano-bouncer-spiky', mid: 'castle-deflector-normal', hard: 'skies-protector-ghost' } },
+  { name: 'Venom Approach', final: true, lanes: { easy: 'castle-flyshooter-normal', mid: 'castle-flyshooter-normal', hard: 'castle-flyshooter-normal' } },
+];
+for (let i = 0; i < ROUTE_STAGE_LAYOUTS.length; i++) {
+  ROUTE_STAGE_LAYOUTS[i].step = i;
+  ROUTE_STAGE_LAYOUTS[i].col = i;
+  ROUTE_STAGE_LAYOUTS[i].laneRows = { easy: 1, mid: 0, hard: -1 };
+}
+const ROUTE_FIXED_BOSSES = ['walker', 'shooter', 'jumper', 'flyer'];
+const ROUTE_BOSS_MATRIX = {
+  easy: {
+    easy: ['bouncer', 'shielded', 'bouncer'],
+    mid: ['shielded', 'deflector', 'protector'],
+    hard: ['deflector', 'attacker', 'protector'],
+  },
+  mid: {
+    easy: ['shielded', 'bouncer', 'deflector'],
+    mid: ['deflector', 'protector', 'attacker'],
+    hard: ['protector', 'attacker', 'flyshooter'],
+  },
+  hard: {
+    easy: ['deflector', 'protector', 'attacker'],
+    mid: ['protector', 'attacker', 'flyshooter'],
+    hard: ['attacker', 'flyshooter', 'flyshooter'],
+  },
+};
+const ROUTE_FINAL_BOSSES = {
+  easy: 'shielded',
+  mid: 'flyshooter',
+  hard: 'flyshooter',
+};
+const ROUTE_FINAL_PERFECT_HARD_BOSS = 'attacker';
+const ROUTE_ELEMENTS = {
+  easy: [null, 'water', 'wind', 'crystal'],
+  mid: [null, 'crystal', 'steel', 'ghost'],
+  hard: ['fire', 'spiky', 'lightning', 'ghost'],
+};
+
+const MAP_STORAGE_KEY = 'elenin-map-cache-v28-route';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
