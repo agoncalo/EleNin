@@ -696,6 +696,25 @@ const Music = {
   master: null,
   compressor: null,
   timer: null,
+  audio: null,
+  audioTrack: null,
+  fileMode: false,
+  fileBlocked: null,
+  trackPaths: {
+    menu: 'assets/music/menu.wav',
+    stage1: 'assets/music/stage1.wav',
+    stage2: 'assets/music/stage2.wav',
+    stage3: 'assets/music/stage3.wav',
+    tower: 'assets/music/tower.wav',
+    arena: 'assets/music/arena.wav',
+    boss: 'assets/music/boss.wav',
+    boss2: 'assets/music/boss2.wav',
+    boss3: 'assets/music/boss3.wav',
+    bossAirForce: 'assets/music/bossAirForce.wav',
+    bossRonin: 'assets/music/bossRonin.wav',
+    bossProtector: 'assets/music/bossProtector.wav',
+    bossOverlord: 'assets/music/bossOverlord.wav'
+  },
   vol: 0.38,
   muted: false,
 
@@ -772,6 +791,49 @@ const Music = {
     this._osc(180, 'triangle', 0.06, vol * 0.4, -80, when);
   },
 
+  _stopFile() {
+    if (!this.audio) return;
+    this.audio.pause();
+    this.audio.currentTime = 0;
+    this.audio = null;
+    this.audioTrack = null;
+    this.fileMode = false;
+  },
+
+  _playFile(name) {
+    const path = this.trackPaths[name];
+    if (!path) return false;
+    if (this.fileBlocked === name && audioCtx.state === 'suspended') return false;
+    if (this.audio && this.audioTrack === name) {
+      this.audio.volume = this.muted ? 0 : this.vol;
+      if (this.audio.paused && !this.muted) {
+        const p = this.audio.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      return true;
+    }
+    this._stopFile();
+    const a = new Audio(path);
+    a.loop = true;
+    a.preload = 'auto';
+    a.volume = this.muted ? 0 : this.vol;
+    this.audio = a;
+    this.audioTrack = name;
+    this.fileMode = true;
+    const p = a.play();
+    if (p && p.catch) {
+      p.catch(() => {
+        if (this.audio === a) {
+          this.fileBlocked = name;
+          this._stopFile();
+          this._playProcedural(name);
+        }
+      });
+    }
+    this.fileBlocked = null;
+    return true;
+  },
+
   _playStep(track, when) {
     if (!track || audioCtx.state === 'suspended' || this.muted) return;
     const s = this.step % track.len;
@@ -789,6 +851,16 @@ const Music = {
 
   _wake() {
     if (!this.playing || !this.current) return;
+    if (this.audio) {
+      this.audio.volume = this.muted ? 0 : this.vol;
+      if (this.audio.paused && !this.muted) {
+        const p = this.audio.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      return;
+    }
+    this.fileBlocked = null;
+    if (this.trackPaths[this.current] && this._playFile(this.current)) return;
     const track = MUSIC_TRACKS[this.current];
     if (!track) return;
     this._init();
@@ -801,6 +873,17 @@ const Music = {
   },
 
   play(name) {
+    if (this.trackPaths[name] && this._playFile(name)) {
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      this.current = name;
+      this.playing = true;
+      return;
+    }
+    this._playProcedural(name);
+  },
+
+  _playProcedural(name) {
+    this._stopFile();
     if (this.current === name && this.playing && this.timer) {
       if (this.master && !this.muted && audioCtx.state === 'running' && this.master.gain.value < this.vol * 0.25) this._setMasterGain(this.vol, 0.15);
       return;
@@ -824,6 +907,7 @@ const Music = {
 
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this._stopFile();
     if (this.master) {
       this._setMasterGain(0, 0.5);
     }
@@ -833,6 +917,7 @@ const Music = {
 
   setMuted(m) {
     this.muted = m;
+    if (this.audio) this.audio.volume = m ? 0 : this.vol;
     if (this.master) {
       this._setMasterGain(m ? 0 : this.vol, 0.3);
     }
