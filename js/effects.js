@@ -509,11 +509,25 @@ class AngledDeathFade {
     const cy = 0;
     const x = -w / 2;
     const y = -h / 2;
+    drawEnemySilhouettePath(ctx, x, y, w, h, this.type);
+    return;
     ctx.beginPath();
     if (this.type === 'flyer') {
-      ctx.ellipse(cx, cy, w * 0.56, h * 0.44, 0, 0, Math.PI * 2);
+      ctx.moveTo(cx - w * 0.55, cy - h * 0.05);
+      ctx.quadraticCurveTo(cx - w * 1.02, cy - h * 0.42, cx - w * 0.72, cy + h * 0.36);
+      ctx.quadraticCurveTo(cx - w * 0.36, cy + h * 0.18, cx - w * 0.22, cy + h * 0.05);
+      ctx.ellipse(cx, cy, w * 0.42, h * 0.38, 0, Math.PI * 0.96, Math.PI * 2.04);
+      ctx.quadraticCurveTo(cx + w * 0.36, cy + h * 0.18, cx + w * 0.72, cy + h * 0.36);
+      ctx.quadraticCurveTo(cx + w * 1.02, cy - h * 0.42, cx + w * 0.55, cy - h * 0.05);
+      ctx.closePath();
     } else if (this.type === 'flyshooter') {
-      ctx.ellipse(cx, cy + h * 0.02, w * 0.64, h * 0.30, 0, 0, Math.PI * 2);
+      ctx.moveTo(cx - w * 0.78, cy - h * 0.12);
+      ctx.lineTo(cx - w * 0.30, cy - h * 0.34);
+      ctx.lineTo(cx + w * 0.62, cy - h * 0.18);
+      ctx.lineTo(cx + w * 0.86, cy + h * 0.02);
+      ctx.lineTo(cx + w * 0.50, cy + h * 0.24);
+      ctx.lineTo(cx - w * 0.58, cy + h * 0.22);
+      ctx.closePath();
     } else if (this.type === 'attacker') {
       ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
     } else if (this.type === 'shooter') {
@@ -575,6 +589,11 @@ class AngledDeathFade {
     ctx.fillStyle = this.color;
     this._drawSilhouette(ctx);
     ctx.fill();
+    ctx.globalAlpha = 0.72 * fade;
+    ctx.strokeStyle = '#050203';
+    ctx.lineWidth = this.boss ? 3.2 : 2.2;
+    this._drawSilhouette(ctx);
+    ctx.stroke();
     ctx.globalAlpha = 0.32 * fade;
     ctx.fillStyle = '#12080a';
     this._drawSilhouette(ctx);

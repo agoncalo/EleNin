@@ -97,6 +97,11 @@ class Game {
     this.bossMessage = 0;
     this.waveMessage = '';
     this.waveMessageTimer = 0;
+    this.missionDirector = null;
+    this.missionSeals = [];
+    this.protectBuilding = null;
+    this.routeLady = null;
+    this.objectiveIndicatorIntroTimer = 0;
     this.gameWon = false;
     this.itemPickupOverlay = null; // { itemId, timer }
     this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
@@ -189,6 +194,10 @@ class Game {
   }
 
   _objectiveStartMessage() {
+    if (this.missionDirector && this.missionDirector.phases) {
+      const phase = this.missionDirector.phases[this.missionDirector.phaseIndex];
+      return phase && phase.type === 'survive' ? '' : this._missionPhaseTargetText(phase);
+    }
     if (this.routeObjectiveSet && this.routeObjectiveSet.length) {
       return 'OBJECTIVES: choose your route';
     }
@@ -265,6 +274,616 @@ class Game {
         this.spawnBoss();
         break;
       }
+    }
+  }
+
+  _missionPhaseDefs(roomDef, cached) {
+    const step = Math.max(0, (cached && cached.routeStep) || this.currentRouteStep || 0);
+    const enemyTypes = (roomDef && roomDef.enemyTypes && roomDef.enemyTypes.length)
+      ? roomDef.enemyTypes.slice()
+      : ['walker', 'shooter', 'jumper'];
+    const roomEnemySet = new Set(enemyTypes);
+    const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'bouncer', 'jumper', 'shooter', 'walker'];
+    let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t));
+    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType));
+    const eliteA = eliteTypes[step % eliteTypes.length] || 'charger';
+    const eliteB = eliteTypes[(step + 2) % eliteTypes.length] || 'shielded';
+    const minibossKinds = ['solo', 'squad', 'captainGuards'];
+    const kindA = minibossKinds[step % minibossKinds.length];
+    const kindB = minibossKinds[(step + 1) % minibossKinds.length];
+    return [
+      { type: 'survive', label: 'Hold the Line', seconds: 18 + step * 2, routeEvent: this._missionRouteEventDef(step, 0) },
+      { type: 'miniboss', label: 'Break the Vanguard', enemyType: eliteA, encounter: kindA },
+      { type: 'survive', label: 'Weather the Ambush', seconds: 16 + step * 2, routeEvent: this._missionRouteEventDef(step, 1) },
+      { type: 'miniboss', label: 'Cut Down the Champion', enemyType: eliteB, encounter: kindB },
+      { type: 'survive', label: 'Endure the Omen', seconds: 16 + step * 2, routeEvent: this._missionRouteEventDef(step, 2) },
+      { type: 'boss', label: 'Final Target' }
+    ];
+  }
+
+  _missionRouteEventDef(step, slot) {
+    if (step <= 0 && slot === 0) return null;
+    const kind = (step + slot) % 4;
+    if (kind === 0) {
+      const blessings = ['summon', 'heal', 'purge'];
+      return { type: 'lady', label: 'Protect the Shrine Lady', blessing: blessings[(step + slot) % blessings.length], score: 1 + (slot === 2 ? 1 : 0) };
+    }
+    if (kind === 1) {
+      const enemyTypes = ['charger', 'bouncer', 'jumper', 'walker', 'shielded'];
+      return { type: 'escapeKill', label: 'Kill the Escaping Target', enemyType: enemyTypes[(step + slot) % enemyTypes.length], score: 1 + (slot === 1 ? 1 : 0) };
+    }
+    if (kind === 2) {
+      return { type: 'seals', label: 'Restore the Seals', count: Math.min(5, 2 + slot + Math.floor(step / 3)), score: 1 };
+    }
+    return { type: 'bomb', label: 'Disarm the Bomb Carriage', score: 2 };
+  }
+
+  _initMissionDirector(roomDef, cached) {
+    this.routeObjectiveSet = null;
+    this.routeObjectiveResult = null;
+    this.currentObjective = { type: 'mission', label: 'Mission', desc: 'Complete the encounter chain.', icon: '' };
+    this.missionSeals = [];
+    this.protectBuilding = null;
+    this.missionDirector = {
+      active: true,
+      roomId: roomDef ? roomDef.id : this.currentRoomId,
+      step: Math.max(0, (cached && cached.routeStep) || this.currentRouteStep || 0),
+      phaseIndex: -1,
+      phases: this._missionPhaseDefs(roomDef, cached),
+      score: 0,
+      failedProtect: false,
+      miniboss: null,
+      minibosses: [],
+      minibossCaptain: null,
+      routeEvent: null,
+      phaseStartedTick: this.tick || 0,
+      lastPhaseLabel: '',
+    };
+    this._startMissionPhase(0);
+  }
+
+  _missionPhaseTargetText(phase) {
+    if (!phase) return 'TARGET';
+    if (phase.type === 'survive') return 'TARGET: SURVIVE';
+    if (phase.type === 'miniboss') return 'TARGET: ELIMINATE ELITE';
+    if (phase.type === 'zone') return 'TARGET: HOLD THE SHRINE';
+    if (phase.type === 'protect') return phase.target === 'building' ? 'TARGET: PROTECT THE GATE' : 'TARGET: PROTECT THE RONIN';
+    if (phase.type === 'seals') return 'TARGET: RESTORE THE SEALS';
+    if (phase.type === 'boss') return 'TARGET: BOSS APPROACHING';
+    return 'TARGET: ' + (phase.label || 'MISSION');
+  }
+
+  _startMissionPhase(index) {
+    const md = this.missionDirector;
+    if (!md || !md.phases || index >= md.phases.length) return;
+    this._cleanupMissionRouteEventForPhaseChange();
+    md.phaseIndex = index;
+    md.phaseStartedTick = this.tick || 0;
+    md.miniboss = null;
+    md.minibosses = [];
+    md.minibossCaptain = null;
+    md.routeEvent = null;
+    const phase = md.phases[index];
+    phase.timer = Math.max(1, Math.round((phase.seconds || 0) * 60));
+    phase.holdFrames = 0;
+    phase.completed = false;
+    this.missionSeals = [];
+    this.objZone = null;
+    if (this.samurai && this.samurai.objectiveAlly) {
+      this.samurai.dead = true;
+      this.samurai = null;
+    }
+    this.protectBuilding = null;
+    this.routeLady = null;
+    this.currentObjective = { type: 'mission', label: phase.label || 'Mission', desc: '', icon: '' };
+    if (phase.type === 'survive') {
+      this.waveMessage = '';
+      this.waveMessageTimer = 0;
+      if (phase.routeEvent) this._queueMissionRouteEvent(phase.routeEvent, phase);
+    } else if (phase.type !== 'boss') {
+      this.waveMessage = '';
+      this.waveMessageTimer = 0;
+    }
+    if (phase.type === 'miniboss') {
+      this._spawnMissionMiniboss(phase);
+    } else if (phase.type === 'zone') {
+      this._setupZoneObjective();
+      this._flashObjectiveIndicator();
+    } else if (phase.type === 'protect') {
+      if (phase.target === 'building') this._setupProtectBuilding();
+      else this._spawnRoninAlly(MAP_ROOM_BY_ID[this.currentRoomId]);
+      this._flashObjectiveIndicator();
+    } else if (phase.type === 'seals') {
+      this._spawnMissionSeals(phase.count || 3);
+      this._flashObjectiveIndicator();
+    } else if (phase.type === 'boss') {
+      this.routeObjectiveResult = this._missionRouteResult();
+      this.spawnBoss();
+    }
+  }
+
+  _cleanupMissionRouteEventForPhaseChange() {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.done || event.failed) return;
+    if (event.type === 'escapeKill' && event.target && !event.target.dead) {
+      event.failed = true;
+      event.target.dead = true;
+      this.effects.push(new TextEffect(event.target.x + event.target.w / 2, event.target.y - 18, 'ESCAPED', event.target.routeObjectiveColor || '#39d8ff'));
+    } else if (event.type === 'bomb' && event.carriage && !event.carriage.dead) {
+      event.failed = true;
+      event.carriage.dead = true;
+    }
+  }
+
+  _startMissionRouteEvent(eventDef, phase) {
+    const md = this.missionDirector;
+    if (!md || !eventDef) return;
+    const event = Object.assign({}, eventDef);
+    event.done = false;
+    event.failed = false;
+    event.holdFrames = 0;
+    event.startedTick = this.tick || 0;
+    event.phaseSeconds = phase ? (phase.seconds || 0) : 0;
+    md.routeEvent = event;
+    if (event.type === 'zone') {
+      this._setupZoneObjective();
+    } else if (event.type === 'protect') {
+      if (event.target === 'building') this._setupProtectBuilding();
+      else this._spawnRoninAlly(MAP_ROOM_BY_ID[this.currentRoomId]);
+    } else if (event.type === 'seals') {
+      this._spawnMissionSeals(event.count || 3);
+    }
+    SFX.alarmSecondary();
+    this._flashObjectiveIndicator();
+  }
+
+  _queueMissionRouteEvent(eventDef, phase) {
+    const md = this.missionDirector;
+    if (!md || !eventDef) return;
+    const event = Object.assign({}, eventDef);
+    event.done = false;
+    event.failed = false;
+    event.spawned = false;
+    event.holdFrames = 0;
+    event.startedTick = this.tick || 0;
+    event.phaseSeconds = phase ? (phase.seconds || 0) : 0;
+    event.delayTimer = Math.max(90, Math.min(300, Math.round((event.phaseSeconds || 12) * 18)));
+    md.routeEvent = event;
+  }
+
+  _spawnQueuedMissionRouteEvent(event) {
+    if (!event || event.spawned) return;
+    event.spawned = true;
+    event.spawnTick = this.tick || 0;
+    if (event.type === 'zone') {
+      this._setupZoneObjective();
+    } else if (event.type === 'protect') {
+      if (event.target === 'building') this._setupProtectBuilding();
+      else this._spawnRoninAlly(MAP_ROOM_BY_ID[this.currentRoomId]);
+    } else if (event.type === 'lady') {
+      this._spawnRouteLady(event);
+    } else if (event.type === 'escapeKill') {
+      this._spawnRouteEscapeTarget(event);
+    } else if (event.type === 'bomb') {
+      this._spawnRouteBombCarriage(event);
+    } else if (event.type === 'seals') {
+      this._spawnMissionSeals(event.count || 3);
+    }
+    this._flashObjectiveIndicator();
+  }
+
+  _spawnRouteLady(event) {
+    const w = 28, h = 42;
+    const anchor = this._objectiveAnchor(this._preferredObjectiveX(), 120, 84);
+    const power = this._roomPowerLevel();
+    this.routeLady = {
+      x: Math.round(anchor.x + 46), y: Math.round(anchor.y + 34), w, h,
+      hp: 38 + power * 10, maxHp: 38 + power * 10,
+      friendly: true, objectiveAlly: true, routeLady: true,
+      blessing: event.blessing || 'summon',
+      takeDamage: function() {}
+    };
+    this.effects.push(new TextEffect(this.routeLady.x + w / 2, this.routeLady.y - 18, 'SHRINE LADY', '#ffe0ec'));
+  }
+
+  _spawnRouteEscapeTarget(event) {
+    const type = event.enemyType || 'charger';
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const x = dir > 0 ? -80 : this.levelW + 80;
+    const e = new Enemy(x, 0, type, true, 1, this._roomPowerLevel() + 0.5);
+    const anchor = this._objectiveAnchor(dir > 0 ? 90 : this.levelW - 90, e.w, e.h);
+    e.y = Math.round(anchor.y);
+    e.isRouteEscapeTarget = true;
+    e.routeEscapeDir = dir;
+    const playerRunSpeed = this._playerRunSpeed();
+    e.routeEscapeSpeed = Math.min(playerRunSpeed * 0.92, 2.5 + Math.min(1.4, (this.currentRouteStep || 0) * 0.16));
+    e.routeEscapeBaseY = e.y;
+    e.hp = Math.ceil(e.hp * 1.25);
+    e.maxHp = e.hp;
+    e.displayHp = e.hp;
+    e.isHuntTarget = true;
+    e.routeObjectiveColor = '#39d8ff';
+    this.enemies.push(e);
+    event.target = e;
+    this.effects.push(new TextEffect(e.x + e.w / 2, e.y - 18, 'ESCAPING!', e.routeObjectiveColor));
+  }
+
+  _spawnRouteBombCarriage(event) {
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const w = 58, h = 38;
+    const anchor = this._objectiveAnchor(dir > 0 ? 90 : this.levelW - 90, w, h);
+    const hp = 34 + this._roomPowerLevel() * 7;
+    event.carriage = {
+      x: dir > 0 ? -80 : this.levelW + 80,
+      y: Math.round(anchor.y + Math.max(0, h - 24)),
+      w, h, hp, maxHp: hp, dir, dead: false,
+      friendly: false, objectiveAlly: false, routeBomb: true,
+      takeDamage: function(amount) { this.hp = Math.max(0, this.hp - Math.max(1, Math.round(amount || 1))); if (this.hp <= 0) this.dead = true; }
+    };
+  }
+
+  _completeMissionRouteEvent(score, text, color) {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.done || event.failed) return;
+    event.done = true;
+    md.score += Math.max(0, score === undefined ? (event.score || 1) : score);
+    this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 48, text || 'ROUTE UP', color || '#68ffad'));
+    if (event.type === 'lady') this._grantRouteLadyBlessing(event);
+  }
+
+  _failMissionRouteEvent(text) {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.done || event.failed) return;
+    event.failed = true;
+    if (event.type === 'protect') md.failedProtect = true;
+    this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 48, text || 'ROUTE LOST', '#f66'));
+  }
+
+  _grantRouteLadyBlessing(event) {
+    const blessing = (event && event.blessing) || (this.routeLady && this.routeLady.blessing) || 'summon';
+    const x = this.routeLady ? this.routeLady.x + this.routeLady.w / 2 : this.player.x + this.player.w / 2;
+    const y = this.routeLady ? this.routeLady.y : this.player.y;
+    if (blessing === 'heal') {
+      const heal = Math.max(4, Math.round(this.player.maxHp * 0.35));
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + heal);
+      this.player.displayHp = Math.min(this.player.maxHp, Math.max(this.player.displayHp || 0, this.player.hp));
+      this.effects.push(new TextEffect(x, y - 28, 'HEALING BLESSING', '#4f8'));
+      this.effects.push(new Effect(x, y, '#4f8', 24, 4, 24));
+    } else if (blessing === 'purge') {
+      let hit = 0;
+      for (const e of this.enemies) {
+        if (!e || e.dead || e.friendly) continue;
+        e.takeDamage(Math.max(8, Math.round((e.maxHp || e.hp || 12) * 0.45)), this, x, null, 'special');
+        hit++;
+        if (hit >= 8) break;
+      }
+      this.effects.push(new TextEffect(x, y - 28, 'PURGE BLESSING', '#ffe033'));
+      triggerScreenShake(4, 12);
+    } else {
+      for (let i = 0; i < 2; i++) {
+        const types = this._elementAllyTypes(MAP_ROOM_BY_ID[this.currentRoomId]);
+        const type = types[(i + (this.tick || 0)) % types.length] || 'wind';
+        const ally = new AllyNinja(x + (i ? 28 : -28), y + 8, type, this._roomPowerLevel(), i + 7);
+        ally.patrolLeft = Math.max(0, ally.x - 180);
+        ally.patrolRight = Math.min(this.levelW, ally.x + 220);
+        this.allies.push(ally);
+        this.effects.push(new TextEffect(ally.x + ally.w / 2, ally.y - 12, type.toUpperCase() + ' ALLY', ally.type.accentColor));
+      }
+      this.effects.push(new TextEffect(x, y - 28, 'SUMMON BLESSING', '#9fbaff'));
+    }
+  }
+
+  _onRouteEscapeKilled(enemy) {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.type !== 'escapeKill' || event.target !== enemy || event.done || event.failed) return;
+    this._completeMissionRouteEvent(event.score || 1, 'ROUTE UP: TARGET KILLED', enemy.routeObjectiveColor || '#39d8ff');
+  }
+
+  _playerRunSpeed() {
+    const pl = this.player;
+    if (!pl) return 4;
+    const typeSpeed = pl.type && pl.type.speed ? pl.type.speed : (NINJA_TYPES[pl.ninjaType] ? NINJA_TYPES[pl.ninjaType].speed : 4);
+    const buff = pl.bubbleBuffTimer > 0 ? 1.35 : 1;
+    return Math.max(2.8, (typeSpeed + (pl.bonusSpeed || 0) * 0.3) * buff);
+  }
+
+  _updateRouteEscapeGrounding(target) {
+    if (!target || target.flying) return;
+    const prevY = target.y;
+    target.vy = Math.min(MAX_FALL, (target.vy || 0) + GRAVITY);
+    target.y += target.vy;
+    for (const p of this.platforms) {
+      if (!p || p.w < Math.max(48, target.w * 0.7) || p.h > 28) continue;
+      if (!rectOverlap(target, p)) continue;
+      if (target.vy >= 0 && prevY + target.h <= p.y + 8) {
+        target.y = p.y - target.h;
+        target.vy = 0;
+        target.routeEscapeBaseY = target.y;
+        return;
+      }
+    }
+  }
+
+  _flashObjectiveIndicator() {
+    this.objectiveIndicatorIntroTimer = 96;
+  }
+
+  _missionRouteResult() {
+    const md = this.missionDirector;
+    if (!md) return 'mid';
+    const score = md.score || 0;
+    if (score >= 3) return 'hard';
+    if (score >= 1 && !md.failedProtect) return 'mid';
+    return 'easy';
+  }
+
+  _completeMissionPhase(extraScore) {
+    const md = this.missionDirector;
+    if (!md) return;
+    this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 34, 'TARGET CLEAR', '#ffe033'));
+    this._startMissionPhase(md.phaseIndex + 1);
+  }
+
+  _spawnMissionMiniboss(phase) {
+    const type = phase.enemyType || 'charger';
+    const encounter = phase.encounter || 'solo';
+    this._missionMinibossSpawnSide = Math.random() < 0.5 ? -1 : 1;
+    if (encounter === 'squad') {
+      this._spawnMissionEliteSquad(phase, type);
+    } else if (encounter === 'captainGuards') {
+      this._spawnMissionCaptainGuards(phase, type);
+    } else {
+      this._spawnMissionElite(type, true, 'ELITE', 1.45, null);
+    }
+    this._flashObjectiveIndicator();
+    SFX.alarmMiniboss();
+    SFX.bossSpawn();
+    this._missionMinibossSpawnSide = null;
+  }
+
+  _missionMinibossSpawnPoint(offsetIndex, total) {
+    const spread = 82;
+    const side = this._missionMinibossSpawnSide || (Math.random() < 0.5 ? -1 : 1);
+    const spawnDist = this.levelW < 1000 ? 260 : 460;
+    const centerOffset = (offsetIndex - (total - 1) / 2) * spread;
+    const x = Math.max(40, Math.min(this.levelW - 90, this.player.x + side * spawnDist + centerOffset));
+    const y = this.levelType === 'tower' ? Math.min(this.player.y - 120, 160) : -40;
+    return { x, y };
+  }
+
+  _spawnMissionElite(type, big, text, hpMult, role, index, total) {
+    const pos = this._missionMinibossSpawnPoint(index || 0, total || 1);
+    const e = new Enemy(pos.x, pos.y, type, !!big, 1, this._roomPowerLevel() + 0.5);
+    e.isMissionMiniboss = true;
+    e.missionMinibossRole = role || 'solo';
+    e.missionPhaseIndex = this.missionDirector ? this.missionDirector.phaseIndex : 0;
+    e.hp = Math.ceil(e.hp * (hpMult || 1.45));
+    e.maxHp = e.hp;
+    e.displayHp = e.hp;
+    if (this.levelElement && ELEMENT_COLORS[this.levelElement]) {
+      e.element = this.levelElement;
+      e.elementColors = ELEMENT_COLORS[this.levelElement];
+      e.color = e.elementColors.body;
+    }
+    this.enemies.push(e);
+    if (this.missionDirector) {
+      this.missionDirector.minibosses.push(e);
+      if (!this.missionDirector.miniboss) this.missionDirector.miniboss = e;
+      if (role === 'captain') this.missionDirector.minibossCaptain = e;
+    }
+    this.effects.push(new SlamRing(pos.x + e.w / 2, pos.y + e.h / 2, role === 'guard' ? '#ffb347' : '#ffe033', big ? 120 : 86, big ? 14 : 9));
+    this.effects.push(new TextEffect(pos.x + e.w / 2, pos.y - 20, text || 'ELITE', role === 'guard' ? '#ffb347' : '#ffe033'));
+    return e;
+  }
+
+  _spawnMissionEliteSquad(phase, type) {
+    for (let i = 0; i < 4; i++) {
+      this._spawnMissionElite(type, false, 'ELITE SQUAD', 1.85, 'squad', i, 4);
+    }
+    if (this.missionDirector) this.missionDirector.miniboss = this.missionDirector.minibosses[0] || null;
+  }
+
+  _spawnMissionCaptainGuards(phase, type) {
+    const guardType = phase.guardType || (type === 'shielded' ? 'walker' : 'shielded');
+    for (let i = 0; i < 3; i++) {
+      this._spawnMissionElite(guardType, false, 'GUARD', 1.55, 'guard', i, 4);
+    }
+    const captain = this._spawnMissionElite(type, true, 'CAPTAIN', 1.75, 'captain', 3, 4);
+    captain.missionCaptainLocked = true;
+    if (this.missionDirector) this.missionDirector.miniboss = captain;
+  }
+
+  _onMissionMinibossKilled(enemy) {
+    const md = this.missionDirector;
+    if (!md || !enemy || !enemy.isMissionMiniboss) return;
+    if (enemy.missionPhaseIndex !== md.phaseIndex) return;
+    if (enemy.missionMinibossRole === 'guard' && md.minibossCaptain && !md.minibossCaptain.dead && !this._missionCaptainGuardAlive(md.minibossCaptain)) {
+      md.minibossCaptain.missionCaptainLocked = false;
+      this.effects.push(new TextEffect(md.minibossCaptain.x + md.minibossCaptain.w / 2, md.minibossCaptain.y - 28, 'CAPTAIN EXPOSED', '#ffe033'));
+      this.effects.push(new SlamRing(md.minibossCaptain.x + md.minibossCaptain.w / 2, md.minibossCaptain.y + md.minibossCaptain.h / 2, '#ffe033', 110, 12));
+    }
+    const alive = (md.minibosses || []).some(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex);
+    if (alive) return;
+    this._completeMissionPhase(0);
+  }
+
+  _missionCaptainGuardAlive(captain) {
+    const md = this.missionDirector;
+    if (!md || !captain) return false;
+    return (md.minibosses || []).some(e => e && !e.dead && e !== captain && e.missionPhaseIndex === captain.missionPhaseIndex && e.missionMinibossRole === 'guard');
+  }
+
+  _setupProtectBuilding() {
+    const w = 74, h = 70;
+    const anchor = this._objectiveAnchor(this._preferredObjectiveX(), w, h);
+    const power = this._roomPowerLevel();
+    this.protectBuilding = {
+      x: Math.round(anchor.x), y: Math.round(anchor.y), w, h,
+      hp: 50 + power * 12, maxHp: 50 + power * 12,
+      friendly: true, objectiveAlly: true, takeDamage: function() {}
+    };
+  }
+
+  _spawnMissionSeals(count) {
+    const n = Math.max(1, count || 3);
+    for (let i = 0; i < n; i++) {
+      const px = 160 + ((i + 1) / (n + 1)) * Math.max(320, this.levelW - 320);
+      const anchor = this._objectiveAnchor(px, 24, 28);
+      this.missionSeals.push({
+        x: Math.round(anchor.x + 4), y: Math.round(anchor.y - 8),
+        w: 24, h: 28, done: false, bob: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  _updateMissionSeals() {
+    if (!this.missionSeals || !this.missionSeals.length) return false;
+    let remaining = 0;
+    for (const seal of this.missionSeals) {
+      if (!seal || seal.done) continue;
+      seal.bob += 0.07;
+      if (rectOverlap(this.player, seal)) {
+        seal.done = true;
+        SFX.pickup();
+        this.effects.push(new SlamRing(seal.x + seal.w / 2, seal.y + seal.h / 2, '#9fbaff', 70, 8));
+        this.effects.push(new TextEffect(seal.x + seal.w / 2, seal.y - 14, 'SEAL RESTORED', '#9fbaff'));
+      } else {
+        remaining++;
+      }
+    }
+    return remaining <= 0;
+  }
+
+  _updateMissionRouteEvent() {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.done || event.failed) return;
+    if (!event.spawned) {
+      event.delayTimer = Math.max(0, (event.delayTimer || 0) - 1);
+      if (event.delayTimer <= 0) this._spawnQueuedMissionRouteEvent(event);
+      return;
+    }
+    if (event.type === 'zone' && this.objZone) {
+      const pl = this.player;
+      const inZone = pl.x + pl.w > this.objZone.x && pl.x < this.objZone.x + this.objZone.w &&
+                     pl.y + pl.h > this.objZone.y && pl.y < this.objZone.y + this.objZone.h;
+      if (inZone) event.holdFrames++;
+      if (event.holdFrames >= Math.max(1, (event.seconds || 9) * 60)) {
+        this._completeMissionRouteEvent(event.score || 1, 'ROUTE UP: SHRINE HELD', '#68ffad');
+      }
+    } else if (event.type === 'protect') {
+      const target = event.target === 'building' ? this.protectBuilding : this.samurai;
+      if (!target || target.dead || target.hp <= 0) {
+        this._failMissionRouteEvent('ROUTE LOST: TARGET DOWN');
+      }
+    } else if (event.type === 'lady') {
+      const target = this.routeLady;
+      if (!target || target.dead || target.hp <= 0) {
+        this._failMissionRouteEvent('ROUTE LOST: LADY FALLEN');
+      }
+    } else if (event.type === 'escapeKill') {
+      const target = event.target;
+      if (!target || target.dead) return;
+      const speed = Math.min(target.routeEscapeSpeed || 3, this._playerRunSpeed() * 0.92);
+      target.routeEscapeSpeed = speed;
+      target.x += (target.routeEscapeDir || 1) * speed;
+      target.vx = (target.routeEscapeDir || 1) * speed;
+      target.facing = target.routeEscapeDir || 1;
+      this._updateRouteEscapeGrounding(target);
+      if ((target.routeEscapeDir > 0 && target.x + target.w >= this.levelW) || (target.routeEscapeDir < 0 && target.x <= 0)) {
+        this._failMissionRouteEvent('ROUTE LOST: TARGET ESCAPED');
+        target.dead = true;
+      }
+    } else if (event.type === 'bomb') {
+      const c = event.carriage;
+      if (!c || c.dead || c.hp <= 0) {
+        this._completeMissionRouteEvent(event.score || 2, 'ROUTE UP: BOMB DISARMED', '#ffb347');
+        return;
+      }
+      c.x += (c.dir || 1) * 2.15;
+      const atk = this.player && this.player.attackBox;
+      if (atk && rectOverlap(atk, c)) {
+        c.hp = Math.max(0, c.hp - 1.6);
+        this.effects.push(new Effect(c.x + c.w / 2, c.y + c.h / 2, '#ffb347', 4, 1, 6));
+      }
+      if ((c.dir > 0 && c.x > this.levelW + 40) || (c.dir < 0 && c.x + c.w < -40)) {
+        this._failMissionRouteEvent('BOMB DETONATED');
+        const dist = Math.abs((this.player.x + this.player.w / 2) - (c.x + c.w / 2));
+        if (dist < 360) this.player.takeDamage(Math.max(6, Math.round(this.player.maxHp * 0.45)), this, 'fire', { type: 'bomb', element: 'fire', isBoss: false });
+        this.effects.push(new SlamRing(c.x + c.w / 2, c.y + c.h / 2, '#f63', 190, 24));
+        this.effects.push(new ScreenFlash('#fff1c2', 0.62, 20));
+        this.effects.push(new ScreenFlash('#ff5a22', 0.28, 28));
+        SFX.nuke();
+        triggerScreenShake(10, 18);
+        c.dead = true;
+      }
+    } else if (event.type === 'seals') {
+      if (this._updateMissionSeals()) {
+        this._completeMissionRouteEvent(event.score || 1, 'ROUTE UP: SEALS RESTORED', '#9fbaff');
+      }
+    }
+  }
+
+  _finalizeMissionRouteEventAtPhaseEnd() {
+    const md = this.missionDirector;
+    const event = md && md.routeEvent;
+    if (!event || event.done || event.failed) return;
+    if (!event.spawned) return;
+    if (event.type === 'protect') {
+      const target = event.target === 'building' ? this.protectBuilding : this.samurai;
+      if (!target || target.dead || target.hp <= 0) {
+        this._failMissionRouteEvent('ROUTE LOST: TARGET DOWN');
+        return;
+      }
+      const pct = target.hp / Math.max(1, target.maxHp || target.hp);
+      const score = pct > 0.75 ? (event.score || 1) + 1 : (event.score || 1);
+      this._completeMissionRouteEvent(score, pct > 0.75 ? 'ROUTE UP: CLEAN DEFENSE' : 'ROUTE UP: DEFENDED', '#4f8');
+    } else if (event.type === 'lady') {
+      const target = this.routeLady;
+      if (!target || target.dead || target.hp <= 0) {
+        this._failMissionRouteEvent('ROUTE LOST: LADY FALLEN');
+        return;
+      }
+      const pct = target.hp / Math.max(1, target.maxHp || target.hp);
+      this._completeMissionRouteEvent((event.score || 1) + (pct > 0.75 ? 1 : 0), pct > 0.75 ? 'ROUTE UP: LADY SAVED' : 'ROUTE UP: LADY LIVES', '#ffe0ec');
+    }
+  }
+
+  _updateMissionDirector() {
+    const md = this.missionDirector;
+    if (!md || !md.active || this.bossActive || (this.boss && !this.boss.dead) || this.gameWon) return;
+    const phase = md.phases[md.phaseIndex];
+    if (!phase || phase.type === 'boss' || phase.completed) return;
+    if (phase.type === 'survive') {
+      this._updateMissionRouteEvent();
+      phase.timer--;
+      if (phase.timer <= 0) {
+        this._finalizeMissionRouteEventAtPhaseEnd();
+        this._completeMissionPhase(0);
+      }
+    } else if (phase.type === 'zone' && this.objZone) {
+      const pl = this.player;
+      const inZone = pl.x + pl.w > this.objZone.x && pl.x < this.objZone.x + this.objZone.w &&
+                     pl.y + pl.h > this.objZone.y && pl.y < this.objZone.y + this.objZone.h;
+      if (inZone) phase.holdFrames++;
+      if (phase.holdFrames >= Math.max(1, (phase.seconds || 12) * 60)) this._completeMissionPhase(2);
+    } else if (phase.type === 'protect') {
+      phase.timer--;
+      const target = phase.target === 'building' ? this.protectBuilding : this.samurai;
+      if (!target || target.dead || target.hp <= 0) {
+        md.failedProtect = true;
+        this.showWaveMessage('TARGET LOST');
+        this._completeMissionPhase(0);
+      } else if (phase.timer <= 0) {
+        const pct = target.hp / Math.max(1, target.maxHp || target.hp);
+        this._completeMissionPhase(pct > 0.75 ? 3 : (pct > 0.35 ? 1 : 0));
+      }
+    } else if (phase.type === 'seals') {
+      if (this._updateMissionSeals()) this._completeMissionPhase(2);
     }
   }
 
@@ -979,6 +1598,40 @@ class Game {
     }
 
     ctx.fillStyle = bodyColor;
+    drawEnemySilhouettePath(ctx, cx - 24, cy - 28, 48, 56, bossType);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
+    ctx.lineWidth = 2;
+    drawEnemySilhouettePath(ctx, cx - 24, cy - 28, 48, 56, bossType);
+    ctx.stroke();
+    ctx.fillStyle = accentColor;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    if (bossType === 'walker') {
+      ctx.beginPath(); ctx.moveTo(cx - 28, cy + 2); ctx.lineTo(cx + 42, cy - 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + 47, cy - 11); ctx.lineTo(cx + 34, cy - 18); ctx.lineTo(cx + 37, cy - 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (bossType === 'shooter' || bossType === 'flyshooter') {
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 44, cy - 2); ctx.stroke();
+      ctx.fillRect(cx + 42, cy - 6, 7, 8);
+    } else if (bossType === 'shielded' || bossType === 'protector') {
+      ctx.fillRect(cx + 22, cy - 24, 10, 48);
+      ctx.fillStyle = '#111'; ctx.fillRect(cx + 25, cy - 18, 3, 36);
+    } else if (bossType === 'charger') {
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(cx + 12, cy - 14); ctx.lineTo(cx + 42, cy - 30); ctx.moveTo(cx + 12, cy + 6); ctx.lineTo(cx + 42, cy + 20); ctx.stroke();
+    } else if (bossType === 'jumper' || bossType === 'bouncer') {
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(cx - 12, cy + 18); ctx.lineTo(cx - 32, cy + 34); ctx.moveTo(cx + 12, cy + 18); ctx.lineTo(cx + 32, cy + 34); ctx.stroke();
+    } else if (bossType === 'flyer') {
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(cx + 4, cy, 5, 0, Math.PI * 2); ctx.fill();
+    } else if (bossType === 'deflector') {
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(cx - 24, cy + 8); ctx.lineTo(cx + 32, cy - 20); ctx.stroke();
+    }
+    ctx.restore();
+    return;
 
     switch (bossType) {
       case 'walker': {
@@ -1665,6 +2318,8 @@ class Game {
       }
     }
     if (this._friendlyAlive(this.samurai)) targets.push(this.samurai);
+    if (this._friendlyAlive(this.protectBuilding)) targets.push(this.protectBuilding);
+    if (this._friendlyAlive(this.routeLady)) targets.push(this.routeLady);
     this.friendlyTargets = targets;
     return targets;
   }
@@ -1762,7 +2417,8 @@ class Game {
       if (target.hp <= 0) {
         target.dead = true;
         this.bossOrbCharge = 0;
-        this.effects.push(new TextEffect(target.x + target.w / 2, target.y - 16, 'RONIN FALLEN!', '#f44'));
+        const fallenText = target === this.protectBuilding ? 'GATE DESTROYED!' : (target === this.routeLady ? 'LADY FALLEN!' : 'RONIN FALLEN!');
+        this.effects.push(new TextEffect(target.x + target.w / 2, target.y - 16, fallenText, '#f44'));
         triggerScreenShake(6, 15);
         SFX.enemyDie();
       }
@@ -1792,6 +2448,10 @@ class Game {
         objectiveKills: this.objectiveKills || 0,
         bossOrbsCollected: this.bossOrbsCollected || 0,
       };
+      if (cached.objective && cached.objective.type === 'mission') {
+        this._initMissionDirector(roomDef, cached);
+        return;
+      }
       this.currentObjective = cached.objective || (this.routeObjectiveSet && this.routeObjectiveSet[0]) || roomDef.objective || {
         type: 'kills',
         label: 'Defeat Enemies',
@@ -1913,8 +2573,10 @@ class Game {
     this.effects.push(new Effect(bCX, bCY, '#f44', 14, 5, 20));
     triggerScreenShake(10, 20);
     triggerHitstop(12);
+    SFX.alarmBoss();
     SFX.bossSpawn();
     SFX.bossRoar();
+    this._flashObjectiveIndicator();
     const elemTag = this.boss.element ? ` [${this.boss.element.toUpperCase()}]` : '';
     this.showWaveMessage(this.boss.name + elemTag);
     // Boss entrance phrase
@@ -2116,8 +2778,9 @@ class Game {
     const bossType = this._routeBossFor(step, lane, previousLane, history || []);
     const element = this._routeElementFor(step, lane, bossType);
     const waveIdx = Math.max(0, WAVE_DEFS.findIndex(w => w.boss === bossType));
-    const objectiveSet = this._routeObjectiveSet(roomDef, bossType, step);
-    return { step, lane, previousLane, roomId: roomDef.id, roomDef, bossType, element, waveIdx, objectiveSet };
+    const objectiveSet = null;
+    const objective = { type: 'mission', label: 'Mission', desc: 'Survive the encounter chain and defeat the boss.', icon: '' };
+    return { step, lane, previousLane, roomId: roomDef.id, roomDef, bossType, element, waveIdx, objectiveSet, objective };
   }
 
   _currentRouteConfig() {
@@ -2145,7 +2808,7 @@ class Game {
         routeStep: routeApplies ? routeCfg.step : 0,
         routeLane: routeApplies ? routeCfg.lane : 'mid',
         objectiveSet: routeApplies ? routeCfg.objectiveSet : null,
-        objective: routeApplies ? routeCfg.objectiveSet[0] : (roomDef.objective || null),
+        objective: routeApplies ? routeCfg.objective : (roomDef.objective || null),
         createdAtTick: this.tick || 0,
       };
     }
@@ -2159,7 +2822,7 @@ class Game {
         routeLane: routeCfg.lane,
         distance: routeCfg.step,
         objectiveSet: routeCfg.objectiveSet,
-        objective: routeCfg.objectiveSet[0],
+        objective: routeCfg.objective,
       });
     }
     if (this.roomCache[roomDef.id].distance === undefined) this.roomCache[roomDef.id].distance = roomDef.distance || 0;
@@ -2238,12 +2901,12 @@ class Game {
     return Math.round(10 + progress * 22 + kindBonus);
   }
 
-  _bossTargetDeathHits(roomDef) {
-    if (roomDef && roomDef.kind === 'trueFinal') return 3;
-    if (roomDef && roomDef.kind === 'finalBoss') return 4;
-    if (roomDef && roomDef.kind === 'bridgeBoss') return 4;
-    if (roomDef && roomDef.kind === 'miniBoss') return 5;
-    return Math.max(3, Math.round(5 - this._mapProgressRatio(roomDef) * 1.5));
+  _bossDamageFraction(roomDef) {
+    if (roomDef && roomDef.kind === 'trueFinal') return 1.05;
+    if (roomDef && roomDef.kind === 'finalBoss') return 0.90;
+    if (roomDef && roomDef.kind === 'bridgeBoss') return 0.80;
+    if (roomDef && roomDef.kind === 'miniBoss') return 0.60;
+    return 0.60 + this._mapProgressRatio(roomDef) * 0.20;
   }
 
   _rawDamageForDeathHits(targetHits, element) {
@@ -2253,11 +2916,18 @@ class Game {
     return Math.max(1, Math.ceil(pl.maxHp / Math.max(1, targetHits) + armorOffset));
   }
 
+  _rawDamageForHealthFraction(fraction, element) {
+    const pl = this.player;
+    const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
+    const armorOffset = bypassArmor ? 0 : (pl.bonusArmor || 0);
+    return Math.max(1, Math.ceil(pl.maxHp * Math.max(0.05, fraction) + armorOffset));
+  }
+
   _applyBossBalance(boss, roomDef) {
     if (!boss) return;
     const attackDamage = this._balancedPlayerAttackDamage();
     const targetHits = this._bossTargetHits(roomDef);
-    const targetDeathHits = this._bossTargetDeathHits(roomDef);
+    const damageFraction = this._bossDamageFraction(roomDef);
     if (boss._syncElementState) boss._syncElementState();
     const armorTax = boss.elementArmorMax ? Math.ceil(boss.elementArmorMax * 0.6) : 0;
     const targetHp = Math.max(attackDamage + 1, attackDamage * targetHits - armorTax) * 8;
@@ -2269,11 +2939,11 @@ class Game {
     boss.displayStance = boss.stance;
     boss.staggerBar = 0;
     boss.stanceRecoverDelay = 0;
-    boss.contactDmg = Math.max(2, Math.round(this._rawDamageForDeathHits(targetDeathHits, boss.element) * 1.25));
+    boss.contactDmg = Math.max(3, this._rawDamageForHealthFraction(damageFraction, boss.element));
     boss._bossEhp = Math.max(8, boss.contactDmg * 5);
     boss._bossArm = 0;
     boss._targetHits = targetHits;
-    boss._targetDeathHits = targetDeathHits;
+    boss._targetDamageFraction = damageFraction;
   }
 
   _enemyTargetHits(enemy, pick) {
@@ -2304,12 +2974,7 @@ class Game {
     enemy.stanceRecoverDelay = 0;
 
     const isBig = pick && pick.big;
-    const dangerHits = {
-      walker: 15, shooter: 14, jumper: 13, bouncer: 12, charger: 10,
-      shielded: 11, deflector: 10, protector: 11, attacker: 9, flyer: 13, flyshooter: 11
-    };
-    const deathHits = Math.max(7, (dangerHits[enemy.type] || 13) - (isBig ? 3 : 0));
-    enemy.contactDmg = this._rawDamageForDeathHits(deathHits, enemy.element);
+    enemy.contactDmg = this._rawDamageForHealthFraction(isBig ? 0.55 : 0.40, enemy.element);
   }
 
   _roomProgressLabel() {
@@ -2500,6 +3165,10 @@ class Game {
     this.bossOrbsCollected = 0;
     this.bossOrbPickups = [];
     this.spawnedMiniboss = new Set();
+    this.missionDirector = null;
+    this.missionSeals = [];
+    this.protectBuilding = null;
+    this.routeLady = null;
     this.boss = null;
     this.bossActive = false;
     this.projectiles = [];
@@ -2553,6 +3222,10 @@ class Game {
     this.mapScreen = null;
     this.boss = null;
     this.bossActive = false;
+    this.missionDirector = null;
+    this.missionSeals = [];
+    this.protectBuilding = null;
+    this.routeLady = null;
     this.projectiles = [];
     this.hitLines = [];
     this.grenades = [];
@@ -2629,6 +3302,8 @@ class Game {
     };
     recordWaveClear((this.currentRouteStep || 0) + 1, this.player.ninjaType);
     this.player.defeatedBossTypes.add(bossType);
+    this.showWaveMessage('VICTORY!');
+    this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 42, 'VICTORY!', '#ffe033'));
     if (rewardItem) {
       this._grantBossItem(rewardItem);
       this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
@@ -3225,7 +3900,10 @@ class Game {
   _renderZoneLady(ctx, cam) {
     const z = this.objZone;
     const routeZone = this._routeObjectiveOfType && this._routeObjectiveOfType('zone');
-    if (!z || this.bossActive || (!routeZone && this.currentObjective && this.currentObjective.type !== 'zone')) return;
+    const missionZone = this.missionDirector && this.missionDirector.phases &&
+      this.missionDirector.phases[this.missionDirector.phaseIndex] &&
+      this.missionDirector.phases[this.missionDirector.phaseIndex].type === 'zone';
+    if (!z || this.bossActive || (!missionZone && !routeZone && this.currentObjective && this.currentObjective.type !== 'zone')) return;
     const zoneMarker = routeZone && routeZone.marker ? routeZone.marker : { color: '#9fbaff' };
 
     const pl = this.player;
@@ -3422,6 +4100,367 @@ class Game {
     ctx.textBaseline = 'middle';
     //const label = pl.staggerChaining ? 'CHAIN FINISH - SLOW TIME' : (pl.stormChaining ? 'STORM CHAIN - SLOW TIME' : 'SHADOW CHAIN - SLOW TIME');
     //ctx.fillText(label, px, py - 58 - pulse * 4);
+    ctx.restore();
+  }
+
+  _renderMissionObjects(ctx, cam) {
+    const t = this.tick || 0;
+    if (this.protectBuilding && !this.protectBuilding.dead) {
+      const b = this.protectBuilding;
+      const sx = b.x - cam.x, sy = b.y - cam.y;
+      const pct = Math.max(0, Math.min(1, b.hp / Math.max(1, b.maxHp)));
+      ctx.save();
+      ctx.translate(Math.round(sx) + 0.5, Math.round(sy) + 0.5);
+      ctx.fillStyle = '#34281f';
+      ctx.fillRect(4, 18, b.w - 8, b.h - 18);
+      ctx.fillStyle = '#5f4730';
+      ctx.fillRect(10, 28, b.w - 20, b.h - 28);
+      ctx.fillStyle = '#2b1f19';
+      ctx.fillRect(26, 42, 22, 28);
+      ctx.strokeStyle = '#d9b36a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 22);
+      ctx.lineTo(b.w / 2, 0);
+      ctx.lineTo(b.w, 22);
+      ctx.stroke();
+      ctx.fillStyle = '#d9b36a';
+      ctx.fillRect(17, 31, 10, 10);
+      ctx.fillRect(48, 31, 10, 10);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(4, -11, b.w - 8, 6);
+      ctx.fillStyle = pct > 0.35 ? '#4f8' : '#f44';
+      ctx.fillRect(4, -11, (b.w - 8) * pct, 6);
+      ctx.strokeStyle = '#ddd';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(4, -11, b.w - 8, 6);
+      ctx.fillStyle = '#ffe0a0';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('GATE', b.w / 2, -17);
+      ctx.restore();
+    }
+
+    if (this.routeLady && !this.routeLady.dead) {
+      const l = this.routeLady;
+      const sx = l.x - cam.x, sy = l.y - cam.y;
+      const cx = sx + l.w / 2;
+      const baseY = sy + l.h;
+      const pct = Math.max(0, Math.min(1, l.hp / Math.max(1, l.maxHp)));
+      const auraColor = l.blessing === 'heal' ? '#68ffad' : (l.blessing === 'purge' ? '#ffe033' : '#9fbaff');
+      ctx.save();
+      ctx.globalAlpha = 0.24 + Math.sin(t * 0.08) * 0.05;
+      ctx.fillStyle = auraColor;
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY - 3, 72, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.88;
+      ctx.strokeStyle = auraColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY - 3, 82, 24, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#3a2030';
+      ctx.fillRect(cx - 58, baseY - 18, 8, 18);
+      ctx.fillRect(cx + 50, baseY - 18, 8, 18);
+      ctx.fillStyle = '#ffd35a';
+      ctx.fillRect(cx - 58, baseY - 25, 8, 7);
+      ctx.fillRect(cx + 50, baseY - 25, 8, 7);
+      ctx.fillStyle = '#6b263d';
+      ctx.fillRect(sx + 6, sy + 16, l.w - 12, l.h - 12);
+      ctx.fillStyle = '#f7c7d8';
+      ctx.fillRect(sx + 8, sy + 4, l.w - 16, 14);
+      ctx.fillStyle = '#ffe8f1';
+      ctx.fillRect(sx + 10, sy + 2, l.w - 20, 8);
+      ctx.fillStyle = '#24131d';
+      ctx.fillRect(sx + 10, sy + 10, 3, 3);
+      ctx.fillRect(sx + l.w - 13, sy + 10, 3, 3);
+      ctx.strokeStyle = auraColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 19, sy + 23);
+      ctx.quadraticCurveTo(cx, sy + 13 + Math.sin(t * 0.1) * 3, cx + 19, sy + 23);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.68)';
+      ctx.fillRect(cx - 28, sy - 16, 56, 6);
+      ctx.fillStyle = pct > 0.35 ? '#4f8' : '#f44';
+      ctx.fillRect(cx - 28, sy - 16, 56 * pct, 6);
+      ctx.strokeStyle = '#ffe0ec';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - 28, sy - 16, 56, 6);
+      ctx.fillStyle = auraColor;
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText((l.blessing || 'summon').toUpperCase(), cx, sy - 22);
+      ctx.restore();
+    }
+
+    const md = this.missionDirector;
+    const bomb = md && md.routeEvent && md.routeEvent.carriage;
+    if (bomb && !bomb.dead) {
+      const sx = bomb.x - cam.x, sy = bomb.y - cam.y;
+      const pct = Math.max(0, Math.min(1, bomb.hp / Math.max(1, bomb.maxHp)));
+      ctx.save();
+      ctx.fillStyle = '#3b2418';
+      ctx.fillRect(sx + 5, sy + 10, bomb.w - 10, bomb.h - 12);
+      ctx.fillStyle = '#6b3a20';
+      ctx.fillRect(sx + 12, sy + 4, bomb.w - 24, 16);
+      ctx.fillStyle = '#19100c';
+      ctx.beginPath();
+      ctx.arc(sx + 13, sy + bomb.h - 4, 7, 0, Math.PI * 2);
+      ctx.arc(sx + bomb.w - 13, sy + bomb.h - 4, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ff6a3d';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx + bomb.w * 0.35, sy + 4);
+      ctx.quadraticCurveTo(sx + bomb.w * 0.45, sy - 10 + Math.sin(t * 0.25) * 2, sx + bomb.w * 0.58, sy + 4);
+      ctx.stroke();
+      ctx.fillStyle = '#ffcf33';
+      ctx.fillRect(sx + bomb.w * 0.56, sy - 2, 6, 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.68)';
+      ctx.fillRect(sx + 2, sy - 12, bomb.w - 4, 5);
+      ctx.fillStyle = pct > 0.35 ? '#ffb347' : '#f44';
+      ctx.fillRect(sx + 2, sy - 12, (bomb.w - 4) * pct, 5);
+      ctx.restore();
+    }
+
+    for (const seal of this.missionSeals || []) {
+      if (!seal || seal.done) continue;
+      const sx = seal.x + seal.w / 2 - cam.x;
+      const sy = seal.y + seal.h / 2 + Math.sin(seal.bob || 0) * 4 - cam.y;
+      ctx.save();
+      ctx.translate(Math.round(sx) + 0.5, Math.round(sy) + 0.5);
+      ctx.rotate(Math.sin(t * 0.05 + seal.bob) * 0.15);
+      ctx.shadowColor = '#9fbaff';
+      ctx.shadowBlur = 12 + Math.sin(t * 0.09) * 4;
+      ctx.strokeStyle = '#9fbaff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -15);
+      ctx.lineTo(12, 0);
+      ctx.lineTo(0, 15);
+      ctx.lineTo(-12, 0);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(159,186,255,0.28)';
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('X', 0, 1);
+      ctx.restore();
+    }
+  }
+
+  _nearestMissionSeal() {
+    let best = null;
+    let bestDist = Infinity;
+    const px = this.player.x + this.player.w / 2;
+    const py = this.player.y + this.player.h / 2;
+    for (const seal of this.missionSeals || []) {
+      if (!seal || seal.done) continue;
+      const sx = seal.x + seal.w / 2;
+      const sy = seal.y + seal.h / 2;
+      const dx = sx - px;
+      const dy = sy - py;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = seal;
+      }
+    }
+    return best;
+  }
+
+  _currentObjectiveIndicatorTarget() {
+    if (this.boss && !this.boss.dead) {
+      return { entity: this.boss, label: 'BOSS', color: this.boss.element && this.boss.elementColors ? this.boss.elementColors.accent : '#f44' };
+    }
+    const md = this.missionDirector;
+    const missionTarget = this._missionMinibossIndicatorTarget();
+    if (missionTarget) {
+      return missionTarget;
+    }
+    if (md && md.routeEvent && !md.routeEvent.done && !md.routeEvent.failed) {
+      const event = md.routeEvent;
+      if (event.type === 'protect') {
+        const target = event.target === 'building' ? this.protectBuilding : this.samurai;
+        if (target && !target.dead && target.hp > 0) return { entity: target, label: 'PROTECT', color: '#4f8' };
+      }
+      if (event.type === 'lady') {
+        const target = this.routeLady;
+        if (target && !target.dead && target.hp > 0) return { entity: target, label: 'PROTECT', color: '#ffe0ec' };
+      }
+      if (event.type === 'zone' && this.objZone) {
+        return { entity: this.objZone, label: 'PROTECT', color: '#68ffad' };
+      }
+      if (event.type === 'seals') {
+        const seal = this._nearestMissionSeal();
+        if (seal) return { entity: seal, label: 'COLLECT', color: '#9fbaff' };
+      }
+      if (event.type === 'bomb') {
+        const target = event.carriage || this.protectBuilding;
+        if (target && !target.dead) return { entity: target, label: 'DISARM', color: '#ff6a3d' };
+      }
+      if (event.type === 'escapeKill') {
+        const target = event.target;
+        if (target && !target.dead) return { entity: target, label: 'KILL', color: target.routeObjectiveColor || '#39d8ff' };
+      }
+    }
+    for (const e of this.enemies || []) {
+      if (e && !e.dead && e.isMissionMiniboss) return { entity: e, label: 'KILL', color: '#ffe033' };
+      if (e && !e.dead && e.isRouteEscapeTarget) return { entity: e, label: 'KILL', color: e.routeObjectiveColor || '#39d8ff' };
+      if (e && !e.dead && e.isHuntTarget) return { entity: e, label: 'KILL', color: '#ff0' };
+    }
+    if (this.currentObjective && this.currentObjective.type === 'defend' && this.samurai && !this.samurai.dead) {
+      return { entity: this.samurai, label: 'PROTECT', color: '#4f8' };
+    }
+    if (this.currentObjective && this.currentObjective.type === 'zone' && this.objZone) {
+      return { entity: this.objZone, label: 'PROTECT', color: '#68ffad' };
+    }
+    return null;
+  }
+
+  _missionMinibossIndicatorTarget() {
+    const md = this.missionDirector;
+    if (!md) return null;
+    if (md.minibossCaptain && !md.minibossCaptain.dead) {
+      const guard = (md.minibosses || []).find(e => e && !e.dead && e.missionMinibossRole === 'guard' && e.missionPhaseIndex === md.phaseIndex);
+      if (guard) return { entity: guard, label: 'KILL', color: '#ffb347' };
+      return { entity: md.minibossCaptain, label: 'KILL', color: md.minibossCaptain.element && md.minibossCaptain.elementColors ? md.minibossCaptain.elementColors.accent : '#ffe033' };
+    }
+    const squadTarget = (md.minibosses || []).find(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex);
+    if (squadTarget) {
+      return { entity: squadTarget, label: 'KILL', color: squadTarget.missionMinibossRole === 'squad' ? '#ffb347' : (squadTarget.element && squadTarget.elementColors ? squadTarget.elementColors.accent : '#ffe033') };
+    }
+    if (md.miniboss && !md.miniboss.dead) {
+      return { entity: md.miniboss, label: 'KILL', color: md.miniboss.element && md.miniboss.elementColors ? md.miniboss.elementColors.accent : '#ffe033' };
+    }
+    return null;
+  }
+
+  _renderObjectiveTargetIndicator(ctx, cam) {
+    const targetInfo = this._currentObjectiveIndicatorTarget();
+    if (!targetInfo || !targetInfo.entity) return;
+    const target = targetInfo.entity;
+    const color = targetInfo.color || '#ffe033';
+    const cx = target.x + target.w / 2 - cam.x;
+    const cy = target.y + target.h / 2 - cam.y;
+    const margin = 38;
+    const onScreen = cx >= margin && cx <= CANVAS_W - margin && cy >= margin && cy <= CANVAS_H - margin;
+    const t = this.tick || 0;
+    const intro = Math.max(0, this.objectiveIndicatorIntroTimer || 0);
+    const introPct = Math.min(1, intro / 96);
+    const introEase = introPct * introPct;
+    const introScale = 1 + introEase * 4.2;
+
+    ctx.save();
+    if (intro > 0) {
+      ctx.globalAlpha = introEase * 0.22;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.globalAlpha = Math.min(1, introEase * 1.2);
+      ctx.textAlign = 'center';
+      ctx.font = '900 ' + Math.round(22 + introEase * 22) + 'px monospace';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 20 + introEase * 32;
+      ctx.strokeStyle = '#120016';
+      ctx.lineWidth = 8;
+      ctx.fillStyle = color;
+      const announceY = 78 + Math.sin(t * 0.15) * introEase * 6;
+      ctx.strokeText(targetInfo.label, CANVAS_W / 2, announceY);
+      ctx.fillText(targetInfo.label, CANVAS_W / 2, announceY);
+      ctx.shadowBlur = 0;
+    }
+    if (onScreen) {
+      const y = cy - target.h / 2 - 24 - introEase * 28 + Math.sin(t * 0.12) * (3 + introEase * 10);
+      ctx.globalAlpha = 0.86 + Math.sin(t * 0.14) * 0.12;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 16 + introEase * 54;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3 + introEase * 5;
+      if (introEase > 0.02) {
+        const ringR = (38 + Math.max(target.w, target.h) * 0.45) * (0.65 + introEase * 1.25);
+        ctx.globalAlpha = 0.28 + introEase * 0.52;
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.55 + introEase * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(cx - ringR - 18, cy);
+        ctx.lineTo(cx - ringR + 18, cy);
+        ctx.moveTo(cx + ringR - 18, cy);
+        ctx.lineTo(cx + ringR + 18, cy);
+        ctx.moveTo(cx, cy - ringR - 18);
+        ctx.lineTo(cx, cy - ringR + 18);
+        ctx.moveTo(cx, cy + ringR - 18);
+        ctx.lineTo(cx, cy + ringR + 18);
+        ctx.stroke();
+        ctx.globalAlpha = 0.86 + Math.sin(t * 0.14) * 0.12;
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx, y - 14 * introScale);
+      ctx.lineTo(cx + 12 * introScale, y);
+      ctx.lineTo(cx, y + 14 * introScale);
+      ctx.lineTo(cx - 12 * introScale, y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.48)';
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.font = '900 ' + Math.round(11 + introEase * 18) + 'px monospace';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = '#120016';
+      ctx.lineWidth = introEase > 0.05 ? 6 : 0;
+      if (introEase > 0.05) ctx.strokeText(targetInfo.label, cx, y - 21 * introScale);
+      ctx.fillText(targetInfo.label, cx, y - 21 * introScale);
+    } else {
+      const centerX = CANVAS_W / 2;
+      const centerY = CANVAS_H / 2;
+      const dx = cx - centerX;
+      const dy = cy - centerY;
+      const angle = Math.atan2(dy, dx);
+      const edgeX = Math.max(margin, Math.min(CANVAS_W - margin, cx));
+      const edgeY = Math.max(margin, Math.min(CANVAS_H - margin, cy));
+      const pulse = (1 + Math.sin(t * 0.16) * 0.12) * introScale;
+      ctx.globalAlpha = 0.94;
+      ctx.translate(edgeX, edgeY);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 18 + introEase * 60;
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#120016';
+      ctx.lineWidth = 5 + introEase * 5;
+      ctx.beginPath();
+      ctx.moveTo(22 * pulse, 0);
+      ctx.lineTo(-13 * pulse, -15 * pulse);
+      ctx.lineTo(-5 * pulse, 0);
+      ctx.lineTo(-13 * pulse, 15 * pulse);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fill();
+      ctx.rotate(-angle);
+      if (introEase > 0.02) {
+        ctx.globalAlpha = introEase * 0.65;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 34 + introEase * 54, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.94;
+      }
+      ctx.font = '900 ' + Math.round(12 + introEase * 20) + 'px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#120016';
+      ctx.lineWidth = 6;
+      const labelY = (edgeY < 70 ? 36 : -32) * Math.min(2.1, introScale);
+      ctx.strokeText(targetInfo.label, 0, labelY);
+      ctx.fillText(targetInfo.label, 0, labelY);
+    }
     ctx.restore();
   }
 
@@ -3805,8 +4844,10 @@ class Game {
         if (this.samurai.flashTimer > 0) this.samurai.flashTimer--;
         if (this.samurai._friendlyHitTimer > 0) this.samurai._friendlyHitTimer--;
       }
+      if (this.protectBuilding && this.protectBuilding._friendlyHitTimer > 0) this.protectBuilding._friendlyHitTimer--;
+      if (this.missionDirector) this._updateMissionDirector();
       // ── Boss Summon Orb logic ──
-      if (!this.bossActive && !this.boss) {
+      if (!this.missionDirector && !this.bossActive && !this.boss) {
         if (this.routeObjectiveSet) {
           const routeZone = this._routeObjectiveOfType('zone');
           if (routeZone && this.objZone) {
@@ -3927,6 +4968,7 @@ class Game {
 
     if (this.bossMessage > 0) this.bossMessage--;
     if (this.waveMessageTimer > 0) this.waveMessageTimer--;
+    if (this.objectiveIndicatorIntroTimer > 0) this.objectiveIndicatorIntroTimer--;
     if (this.phraseTimer > 0) this.phraseTimer--;
     if (this.ninjaResponseTimer < 0) this.ninjaResponseTimer++;
     else if (this.ninjaResponseTimer > 0) this.ninjaResponseTimer--;
@@ -4728,18 +5770,21 @@ class Game {
 
   render() {
     // ── Music state management ──
-    if (this.menuActive || this.controlsScreen || this.mainMenuScreen) {
+    if (this.menuActive || this.mainMenuScreen) {
       Music.play('menu');
     } else if (this.gameWon || this.gameOver) {
       if (Music.playing) Music.stop();
     } else if (this.bossActive && this.boss) {
       Music.play(BOSS_MUSIC[this.boss.bossType] || GENERAL_BOSS_TRACKS[this.wave % 3]);
     } else {
-      if (this.levelType === 'tower') Music.play('tower');
-      else if (this.levelType === 'arena') Music.play('arena');
-      else if (this.wave <= 3) Music.play('stage1');
-      else if (this.wave <= 7) Music.play('stage2');
-      else Music.play('stage3');
+      let stageTrack = 'stage3';
+      if (this.levelType === 'tower') stageTrack = 'tower';
+      else if (this.levelType === 'arena') stageTrack = 'arena';
+      else if (this.wave <= 3) stageTrack = 'stage1';
+      else if (this.wave <= 7) stageTrack = 'stage2';
+      const md = this.missionDirector;
+      const minibossActive = md && this._missionMinibossAlive();
+      Music.play(minibossActive ? stageTrack + '_miniboss' : stageTrack);
     }
 
     if (this.menuActive) {
@@ -4750,11 +5795,6 @@ class Game {
       this.renderMainMenu();
       return;
     }
-    if (this.controlsScreen) {
-      this.renderControls();
-      return;
-    }
-
     const cam = this.camera;
     updateScreenShake();
     cam.x += screenShakeX;
@@ -4989,6 +6029,7 @@ class Game {
     for (const s of this.spikes) s.render(ctx, cam);
     for (const b of this.bloodStains || []) b.render(ctx, cam);
     this._renderZoneLady(ctx, cam);
+    this._renderMissionObjects(ctx, cam);
     for (const p of this.stagePropsBack || []) p.render(ctx, cam);
     for (const l of this.stageLanterns || []) l.render(ctx, cam);
 
@@ -5075,6 +6116,7 @@ class Game {
 
     for (const ally of this.allies) ally.render(ctx, cam, this);
     this._renderRoninAllyMarker(ctx, cam);
+    this._renderObjectiveTargetIndicator(ctx, cam);
 
     // Hunt objective: draw target marker over matching enemies
     const routeHunt = this._routeObjectiveOfType && this._routeObjectiveOfType('hunt');
@@ -5348,7 +6390,8 @@ class Game {
         ctx.fillStyle = '#400';
         ctx.fillRect(headX, headY - 26, headW, 6);
         ctx.fillStyle = '#f44';
-        ctx.fillRect(headX, headY - 26, headW * (g.hp / g.maxHp), 6);
+        const golemHpRatio = Math.max(0, Math.min(1, g.hp / Math.max(1, g.maxHp)));
+        ctx.fillRect(headX, headY - 26, headW * golemHpRatio, 6);
       }
     }
     if (this.player.bubbleUlt) {
@@ -5584,9 +6627,10 @@ class Game {
     }
 
     // Low HP red overlay
-    if (this.player.hp / this.player.maxHp <= 0.33 && !this.gameOver) {
+    const playerHpRatio = Math.max(0, Math.min(1, this.player.hp / Math.max(1, this.player.maxHp)));
+    if (playerHpRatio <= 0.33 && !this.gameOver) {
       ctx.save();
-      ctx.globalAlpha = 0.05 + 0.15 * (1 - this.player.hp / this.player.maxHp);
+      ctx.globalAlpha = 0.05 + 0.15 * (1 - playerHpRatio);
       ctx.fillStyle = '#f22';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
@@ -5853,6 +6897,82 @@ class Game {
     this._renderSomberShaderLayer(ctx);
   }
 
+  _missionMinibossAlive() {
+    const md = this.missionDirector;
+    if (!md) return false;
+    if ((md.minibosses || []).some(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex)) return true;
+    return !!(md.miniboss && !md.miniboss.dead);
+  }
+
+  _renderStaggerChainCombo(ctx) {
+    const pl = this.player;
+    const combo = pl ? (pl.staggerChainCombo || 0) : 0;
+    if (!pl || combo < 2 || (!pl.staggerChaining && (pl.staggerChainComboTimer || 0) <= 0)) return;
+
+    const timer = Math.max(0, pl.staggerChainComboTimer || 0);
+    const alpha = Math.min(1, timer / 18);
+    const pop = Math.max(0, pl.staggerChainComboPop || 0);
+    const wild = Math.min(1, (combo - 2) / 10);
+    const hot = Math.min(1, (combo - 4) / 8);
+    const size = 38 + Math.min(combo, 14) * 4 + pop * 18 + wild * 10;
+    const x = CANVAS_W * 0.68 + Math.sin(this.tick * 0.17) * wild * 10 + (Math.random() - 0.5) * wild * 5;
+    const y = 100 + Math.cos(this.tick * 0.13) * wild * 5 + (Math.random() - 0.5) * wild * 4;
+    const rot = Math.sin(this.tick * 0.21) * wild * 0.18 + (Math.random() - 0.5) * wild * 0.08;
+    const numberColor = hot >= 1 ? '#ffe033' : (combo >= 8 ? '#ff3df2' : (combo >= 5 ? '#c04fff' : '#f4f0ff'));
+    const flareColor = combo >= 8 ? '#ff3df2' : '#c04fff';
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = flareColor;
+    ctx.shadowBlur = 16 + wild * 22 + pop * 18;
+
+    if (combo >= 5) {
+      ctx.save();
+      ctx.rotate(-0.35 + Math.sin(this.tick * 0.12) * 0.08);
+      ctx.strokeStyle = combo >= 9 ? '#ffe033' : flareColor;
+      ctx.lineWidth = 2 + wild * 2;
+      const rays = 3 + Math.min(4, Math.floor(combo / 3));
+      for (let i = 0; i < rays; i++) {
+        const yy = (i - (rays - 1) / 2) * (8 + wild * 5);
+        const len = 44 + combo * 3 + i * 7;
+        ctx.beginPath();
+        ctx.moveTo(-len - 24, yy);
+        ctx.lineTo(-22 - i * 4, yy - 4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(22 + i * 4, yy + 4);
+        ctx.lineTo(len + 24, yy);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    const scaleX = 1 + pop * 0.16 + wild * 0.08;
+    const scaleY = 1 - pop * 0.05 + Math.sin(this.tick * 0.2) * wild * 0.03;
+    ctx.scale(scaleX, scaleY);
+    ctx.font = '900 ' + Math.round(size) + 'px monospace';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#120016';
+    ctx.lineWidth = 8 + wild * 5;
+    ctx.strokeText(combo + 'x', 0, 0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2 + pop * 2;
+    ctx.strokeText(combo + 'x', 0, 0);
+    ctx.fillStyle = numberColor;
+    ctx.fillText(combo + 'x', 0, 0);
+
+    ctx.font = '900 13px monospace';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = alpha * (0.74 + wild * 0.18);
+    ctx.fillText('CHAIN STRIKE', 0, Math.max(34, size * 0.52));
+    ctx.restore();
+  }
+
   renderUI() {
     const cam = this.camera;
     const pl = this.player;
@@ -5872,7 +6992,7 @@ class Game {
       ctx.fillText(timeStr, 10, 17);
     }
 
-    if (this.routeObjectiveSet && !this.bossActive && !(this.boss && !this.boss.dead)) {
+    if (!this.missionDirector && this.routeObjectiveSet && !this.bossActive && !(this.boss && !this.boss.dead)) {
       const x = 8, y = 28, w = 250, rowH = 17;
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -5899,6 +7019,8 @@ class Game {
       }
       ctx.restore();
     }
+
+    this._renderStaggerChainCombo(ctx);
 
     // Ninja bar at top, status bars stacked up from bottom
     const ninjaBarY = 4;
@@ -6007,8 +7129,8 @@ class Game {
     ctx.fillRect(swordX, swordY + 4, 5, 7);
     ctx.restore();
     drawChargePips('MAG', pl.specialCharges, pl.specialRechargeTimer, chargeLeft + attackGroupW + chargeGap + chargeLabelW + 8, pipY, attrColors.mind);
-    const hpRatio = pl.hp / pl.maxHp;
-    const displayHpRatio = pl.displayHp / pl.maxHp;
+    const hpRatio = Math.max(0, Math.min(1, pl.hp / Math.max(1, pl.maxHp)));
+    const displayHpRatio = Math.max(0, Math.min(1, pl.displayHp / Math.max(1, pl.maxHp)));
 
     const ultPct = pl.ultimateCharge / pl.ultimateMax;
     const ultReady = pl.ultimateReady && !pl.ultimateActive;
@@ -6130,7 +7252,7 @@ class Game {
     }
 
     // Boss Summon Orb HUD (top center) — placeholder circles that fill when charge builds
-    if (!this.gameWon && !(this.boss && !this.boss.dead)) {
+    if (!this.missionDirector && !this.gameWon && !(this.boss && !this.boss.dead)) {
       const objCx = CANVAS_W / 2;
       const objBarW = 420, objBarH = 24;
       const objBarX = objCx - objBarW / 2, objBarY = 40;
@@ -6265,8 +7387,8 @@ class Game {
       const pbW = 400, pbH = 18;
       const pbX = CANVAS_W / 2 - pbW / 2;
       const pbY = 38;
-      const hpRatio = b.hp / b.maxHp;
-      const displayRatio = b.displayHp / b.maxHp;
+      const hpRatio = Math.max(0, Math.min(1, b.hp / Math.max(1, b.maxHp)));
+      const displayRatio = Math.max(0, Math.min(1, b.displayHp / Math.max(1, b.maxHp)));
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(pbX - 2, pbY - 2, pbW + 4, pbH + 4);
@@ -6286,7 +7408,7 @@ class Game {
       // Boss label inside bar: "30/50 (RONIN BOSS)"
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 11px monospace';
-      const bossLabel = `${Math.ceil(b.hp)}/${b.maxHp} (${b.name})`;
+      const bossLabel = `${Math.max(0, Math.ceil(b.hp))}/${b.maxHp} (${b.name})`;
       const tw = ctx.measureText(bossLabel).width;
       ctx.fillText(bossLabel, CANVAS_W / 2 - tw / 2, pbY + 14);
     }
@@ -7031,7 +8153,7 @@ class Game {
     ctx.fillStyle = '#aaa';
     const hint = ms && ms.routeAutoAdvance
       ? (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) : 'Z confirm next mission')
-      : 'Route advances by completed objective';
+      : 'Route advances by mission performance';
     ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
 
     const mapX = 70, mapY = 96, mapW = 610, mapH = 360;
@@ -7097,22 +8219,23 @@ class Game {
         const isCurrent = step === activeStep && (step === 0 || step === steps - 1 || lane === activeLane);
         const seen = visited.has(nodeKey(step, lane));
         const marker = step === 0 || step === steps - 1 ? { symbol: '', color: '#ffe033' } : this._routeMarkerFor(lane);
+        const nodeColor = (seen || isCurrent) ? marker.color : '#686a72';
         ctx.save();
-        ctx.fillStyle = seen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
-        ctx.strokeStyle = isCurrent ? '#fff' : marker.color;
+        ctx.fillStyle = seen ? 'rgba(255,255,255,0.12)' : 'rgba(110,112,122,0.10)';
+        ctx.strokeStyle = isCurrent ? '#fff' : nodeColor;
         ctx.lineWidth = isCurrent ? 4 : 2;
-        ctx.shadowColor = isCurrent ? '#fff' : marker.color;
+        ctx.shadowColor = isCurrent ? '#fff' : nodeColor;
         ctx.shadowBlur = seen || isCurrent ? 10 : 0;
         ctx.beginPath();
         ctx.arc(x, y, isCurrent ? 18 : 14, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
         ctx.shadowBlur = 0;
-        ctx.fillStyle = marker.color;
+        ctx.fillStyle = nodeColor;
         ctx.font = 'bold 15px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(step === 0 ? 'S' : step === steps - 1 ? 'F' : marker.symbol, x, y + 5);
-        ctx.fillStyle = '#aaa';
+        ctx.fillStyle = seen || isCurrent ? '#aaa' : '#5f626a';
         ctx.font = '9px monospace';
         const stageName = ROUTE_STAGE_LAYOUTS[step].name;
         ctx.fillText(stageName.length > 12 ? stageName.slice(0, 12) : stageName, x, y + 32);
@@ -7384,7 +8507,7 @@ class Game {
         : room.kind === 'bridgeBoss' ? '#294d5b'
         : room.kind === 'miniBoss' ? '#4a3866'
         : baseFill;
-      const stroke = selected ? '#ffe033' : recent ? '#fff' : current ? '#4f4' : kindColor || (accessible ? '#aaa' : '#333');
+      const stroke = selected ? '#ffe033' : recent ? '#fff' : current ? '#4f4' : (accessible ? (kindColor || '#aaa') : '#333');
 
       if (accessible) {
         ctx.fillStyle = selected ? 'rgba(255,224,51,0.12)' : current ? 'rgba(80,255,80,0.08)' : 'rgba(255,255,255,0.04)';
@@ -7437,12 +8560,12 @@ class Game {
         ctx.stroke();
         ctx.restore();
       }
-      drawRoomIcon(room, x, y, Math.min(tileW, tileH), kindColor || '#fff', unlocked ? 0.95 : 0.32);
+      drawRoomIcon(room, x, y, Math.min(tileW, tileH), unlocked ? (kindColor || '#fff') : '#666', unlocked ? 0.95 : 0.26);
       if (this._roomHasSkyExit(room)) {
         ctx.save();
-        ctx.globalAlpha = unlocked ? 1 : 0.42;
+        ctx.globalAlpha = unlocked ? 1 : 0.28;
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
-        ctx.strokeStyle = '#7bd';
+        ctx.strokeStyle = unlocked ? '#7bd' : '#666';
         ctx.lineWidth = 1.5;
         const sx = x + tileW / 2 - 8;
         const sy = y - tileH / 2 - 10;
@@ -7453,7 +8576,7 @@ class Game {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = '#9df';
+        ctx.fillStyle = unlocked ? '#9df' : '#777';
         ctx.font = 'bold 7px monospace';
         ctx.textAlign = 'center';
         ctx.fillText('SKY', sx, sy + 5);

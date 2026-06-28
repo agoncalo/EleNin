@@ -33,7 +33,7 @@ function gameLoop(timestamp) {
     }
     // Pause toggle (Escape)
     if (consumePress('Escape') || gpJust[9]) {
-      if (!game.gameOver && !game.gameWon && !game.menuActive && !game.mainMenuScreen && !game.controlsScreen) {
+      if (!game.gameOver && !game.gameWon && !game.menuActive && !game.mainMenuScreen) {
         togglePause();
         clearFrameInput();
         accumulator -= FIXED_DT;
@@ -66,14 +66,6 @@ function gameLoop(timestamp) {
       }
       if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.menuActive = false;
-        game.controlsScreen = true;
-      }
-      clearFrameInput();
-      accumulator -= FIXED_DT;
-      continue;
-    }
-    if (game.controlsScreen) {
-      if (Object.values(justPressed).some(v => v) || gpJust.some(v => v)) {
         game.controlsScreen = false;
         game._openCurrentMap(30);
       }

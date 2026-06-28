@@ -688,6 +688,30 @@ const BOSS_MUSIC = {
 // General boss tracks cycled for non-specific bosses
 const GENERAL_BOSS_TRACKS = ['boss', 'boss2', 'boss3'];
 
+function makeMinibossMusicTrack(baseName) {
+  const base = MUSIC_TRACKS[baseName];
+  if (!base) return null;
+  const ch = base.ch.map(src => {
+    const copy = Object.assign({}, src);
+    copy.p = src.p.slice();
+    if (copy.t === 'k' || copy.t === 's') copy.v = Math.min(0.14, (copy.v || 0.06) * 1.18);
+    else if (copy.t === 'h') copy.v = Math.min(0.06, (copy.v || 0.02) * 1.35);
+    else copy.v = Math.min(0.07, (copy.v || 0.04) * 0.82);
+    return copy;
+  });
+  ch.push(
+    { t: 'k', v: 0.055, p: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0] },
+    { t: 'h', v: 0.018, p: [1,0,1,0, 1,0,1,1, 1,0,1,0, 1,1,1,0] },
+    { w: 'sawtooth', v: 0.022, d: 0.08, p: [45,0,0,0, 0,0,45,0, 43,0,0,0, 0,0,43,0] }
+  );
+  return { bpm: base.bpm + 5, len: base.len, ch };
+}
+
+['stage1', 'stage2', 'stage3', 'tower', 'arena'].forEach(name => {
+  const track = makeMinibossMusicTrack(name);
+  if (track) MUSIC_TRACKS[name + '_miniboss'] = track;
+});
+
 // ── Sequencer Engine ─────────────────────────────────────────
 const Music = {
   playing: false,

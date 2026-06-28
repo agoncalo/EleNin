@@ -14,13 +14,10 @@ class Enemy {
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     this._initCombatBars(healthScale);
-    // Balanced damage: normal enemies ~10 hits to kill, big ~5, per-type variation
+    // Regular enemies hit in big chunks; the player can recover by fighting back.
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(this.wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(this.wave, 10)] || 21;
-    const _hitsN = {walker:12,shooter:12,jumper:10,bouncer:10,charger:9,shielded:10,deflector:7,protector:12,attacker:6,flyer:8,flyshooter:8};
-    const _hitsB = {walker:6,shooter:6,jumper:5,bouncer:5,charger:4,shielded:5,deflector:4,protector:6,attacker:3,flyer:4,flyshooter:4};
-    const _hits = big ? (_hitsB[type] || 5) : (_hitsN[type] || 10);
-    this.contactDmg = Math.max(1, Math.round(_ehp / _hits + _arm));
+    this.contactDmg = Math.max(1, Math.round(_ehp * (big ? 0.55 : 0.40) + _arm));
     const darkTypeColors = {
       walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
       charger: '#241716', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
@@ -201,6 +198,9 @@ class Enemy {
     game.player.staggerChainHit = new Set();
     game.player.staggerChainHit.add(this);
     game.player.staggerChainDmg = 1;
+    game.player.staggerChainCombo = 1;
+    game.player.staggerChainComboTimer = 90;
+    game.player.staggerChainComboPop = 1;
     if (game.player._addStaggerChainCutMark) game.player._addStaggerChainCutMark(this);
     if (game.player._spawnChainCut) game.player._spawnChainCut(this);
     this._finishByStanceChain(game);
@@ -375,6 +375,11 @@ class Enemy {
     this._updateStance();
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
+    if (this.isRouteEscapeTarget) {
+      if (this.damageIframes > 0) this.damageIframes--;
+      if (this.flashTimer > 0) this.flashTimer--;
+      return;
+    }
     if (this.grounded) this.juggleState = false;
     if (this.chainBubbleTimer > 0) {
       this.chainBubbleTimer--;
@@ -1410,14 +1415,17 @@ class Enemy {
     const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
     if (this.contactTick <= 0 && this.type !== 'attacker' && !this.friendly && contactTarget && !this.slamming && !contactTarget.slamming) {
       const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
-      const isCharging = ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') || this.type === 'charger';
-      const kbStr = isCharging ? 14 : (this.big ? 9 : 5);
-      const dmg = isCharging ? Math.round(this.contactDmg * 1.5) : this.contactDmg;
+      const isShieldCharge = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
+      const isDashHit = isShieldCharge || this.type === 'charger' || this.flyerDashState === 'dashing';
+      const kbStr = isDashHit ? 14 : (this.big ? 9 : 5);
+      const dmg = isDashHit
+        ? Math.round(this.contactDmg * (isShieldCharge ? 1.5 : 1.25))
+        : Math.max(1, Math.round(this.contactDmg * (this.big ? 0.45 : 0.32)));
       const spikyMul = this._spikySpikesActive() ? 1.5 : 1;
-      game._applyFriendlyKnockback(contactTarget, this, kbDir * kbStr, isCharging ? -3 : (this.big ? -5 : -4), isCharging ? 10 : 8);
+      game._applyFriendlyKnockback(contactTarget, this, kbDir * kbStr, isDashHit ? -3 : (this.big ? -5 : -4), isDashHit ? 10 : 8);
       game._damageFriendlyTarget(contactTarget, Math.round(dmg * spikyMul), this.element || null, { type: this.type, element: this.element, isBoss: false });
       this.contactTick = 30;
-      if (isCharging) {
+      if (isShieldCharge || this.type === 'charger') {
         this.chargeState = 'recoil';
         this.chargeTimer = 0;
         this.vx = -this.facing * speed * 3;
@@ -1430,6 +1438,14 @@ class Enemy {
     if (this.dead) return false;
     if (this.friendly) return false;
     this._syncElementState();
+    if (this.missionMinibossRole === 'captain' && this.missionCaptainLocked && game && game._missionCaptainGuardAlive && game._missionCaptainGuardAlive(this)) {
+      this.flashTimer = 4;
+      if (game.effects) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 16, 'GUARDS FIRST', '#ffb347'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ffb347', 8, 2, 8));
+      }
+      return false;
+    }
     if (this.element === 'wind' && this.windPhaseTimer > 0) {
       this.flashTimer = 3;
       if (game) {
@@ -1695,6 +1711,12 @@ class Enemy {
         }
       }
     }
+    if (this.isMissionMiniboss && game && game._onMissionMinibossKilled) {
+      game._onMissionMinibossKilled(this);
+    }
+    if (this.isRouteEscapeTarget && game && game._onRouteEscapeKilled) {
+      game._onRouteEscapeKilled(this);
+    }
     // Track kill for achievements & bestiary
     recordKill(game.player.ninjaType);
     recordBestiaryKill(this.type, this.big, false, this.element);
@@ -1910,13 +1932,40 @@ class Enemy {
     const h = this.h;
     ctx.save();
     ctx.fillStyle = color;
-    ctx.strokeStyle = 'rgba(0,0,0,0.82)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
+    ctx.lineWidth = 2.4;
+    drawEnemySilhouettePath(ctx, sx, sy, w, h, type);
+    ctx.fill();
+    ctx.stroke();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = 'rgba(255,245,210,0.72)';
+    ctx.lineWidth = 1;
+    drawEnemySilhouettePath(ctx, sx, sy, w, h, type);
+    ctx.stroke();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(cx - w * 0.10, sy + h * 0.22, w * 0.12, h * 0.08, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
     ctx.beginPath();
     if (type === 'flyer') {
-      ctx.ellipse(cx, cy, w * 0.56, h * 0.44, 0, 0, Math.PI * 2);
+      ctx.moveTo(cx - w * 0.55, cy - h * 0.05);
+      ctx.quadraticCurveTo(cx - w * 1.02, cy - h * 0.42, cx - w * 0.72, cy + h * 0.36);
+      ctx.quadraticCurveTo(cx - w * 0.36, cy + h * 0.18, cx - w * 0.22, cy + h * 0.05);
+      ctx.ellipse(cx, cy, w * 0.42, h * 0.38, 0, Math.PI * 0.96, Math.PI * 2.04);
+      ctx.quadraticCurveTo(cx + w * 0.36, cy + h * 0.18, cx + w * 0.72, cy + h * 0.36);
+      ctx.quadraticCurveTo(cx + w * 1.02, cy - h * 0.42, cx + w * 0.55, cy - h * 0.05);
+      ctx.closePath();
     } else if (type === 'flyshooter') {
-      ctx.ellipse(cx, cy + h * 0.02, w * 0.64, h * 0.30, 0, 0, Math.PI * 2);
+      ctx.moveTo(cx - w * 0.78, cy - h * 0.12);
+      ctx.lineTo(cx - w * 0.30, cy - h * 0.34);
+      ctx.lineTo(cx + w * 0.62, cy - h * 0.18);
+      ctx.lineTo(cx + w * 0.86, cy + h * 0.02);
+      ctx.lineTo(cx + w * 0.50, cy + h * 0.24);
+      ctx.lineTo(cx - w * 0.58, cy + h * 0.22);
+      ctx.closePath();
     } else if (type === 'attacker') {
       ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
     } else if (type === 'shooter') {
@@ -1964,6 +2013,10 @@ class Enemy {
     }
     ctx.fill();
     ctx.stroke();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = 'rgba(255,245,210,0.72)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.globalAlpha = 0.18;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -1979,6 +2032,8 @@ class Enemy {
     const dir = this.facing >= 0 ? 1 : -1;
     const frontX = dir > 0 ? sx + this.w : sx;
     const faceX = dir > 0 ? sx + this.w * 0.58 : sx + this.w * 0.22;
+    this._renderRedesignedEnemyDetails(ctx, sx, sy, game, t, cx, cy, dir, frontX, faceX);
+    return;
     ctx.save();
     ctx.lineWidth = this.big ? 2 : 1.5;
     if (this.type === 'walker') {
@@ -2001,24 +2056,36 @@ class Enemy {
       ctx.moveTo(sx + this.w * 0.90, sy + this.h * 0.48);
       ctx.lineTo(sx + this.w * 1.12, sy + this.h * 0.62);
       ctx.stroke();
-      const axeGripX = frontX - dir * this.w * 0.18;
-      const axeGripY = sy + this.h * 0.54;
+      const spearGripX = frontX - dir * this.w * 0.28;
+      const spearGripY = sy + this.h * 0.54;
       ctx.save();
-      ctx.translate(axeGripX, axeGripY);
-      ctx.rotate(dir > 0 ? -0.75 : 0.75);
-      ctx.strokeStyle = '#3a2415';
-      ctx.lineWidth = 3;
+      ctx.translate(spearGripX, spearGripY);
+      ctx.rotate(dir > 0 ? -0.18 : Math.PI + 0.18);
+      ctx.strokeStyle = '#5b3a20';
+      ctx.lineWidth = 3.5;
       ctx.beginPath();
-      ctx.moveTo(0, -this.h * 0.30);
-      ctx.lineTo(0, this.h * 0.22);
+      ctx.moveTo(-this.w * 0.20, 0);
+      ctx.lineTo(this.w * 1.18, 0);
       ctx.stroke();
-      ctx.fillStyle = '#7f8781';
+      ctx.strokeStyle = '#eadfbe';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(-8, -this.h * 0.34);
-      ctx.quadraticCurveTo(2, -this.h * 0.48, 11, -this.h * 0.32);
-      ctx.lineTo(4, -this.h * 0.20);
-      ctx.quadraticCurveTo(-3, -this.h * 0.26, -8, -this.h * 0.34);
+      ctx.moveTo(-this.w * 0.14, -2);
+      ctx.lineTo(this.w * 1.06, -2);
+      ctx.stroke();
+      ctx.fillStyle = '#d7dee0';
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(this.w * 1.26, 0);
+      ctx.lineTo(this.w * 1.02, -7);
+      ctx.lineTo(this.w * 1.08, 0);
+      ctx.lineTo(this.w * 1.02, 7);
+      ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#b33';
+      ctx.fillRect(this.w * 0.16, -4, 7, 8);
       ctx.restore();
     } else if (this.type === 'shooter') {
       ctx.fillStyle = '#202735';
@@ -2082,18 +2149,24 @@ class Enemy {
       ctx.translate(axeGripX, axeGripY);
       ctx.rotate(dir > 0 ? -0.65 : 0.65);
       ctx.strokeStyle = '#3a2415';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(0, -this.h * 0.28);
-      ctx.lineTo(0, this.h * 0.24);
+      ctx.moveTo(0, -this.h * 0.34);
+      ctx.lineTo(0, this.h * 0.28);
       ctx.stroke();
-      ctx.fillStyle = '#73786f';
+      ctx.fillStyle = '#c9d0c9';
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.moveTo(-8, -this.h * 0.32);
-      ctx.quadraticCurveTo(2, -this.h * 0.47, 12, -this.h * 0.30);
-      ctx.lineTo(4, -this.h * 0.18);
-      ctx.quadraticCurveTo(-4, -this.h * 0.24, -8, -this.h * 0.32);
+      ctx.moveTo(-12, -this.h * 0.38);
+      ctx.quadraticCurveTo(3, -this.h * 0.58, 18, -this.h * 0.34);
+      ctx.lineTo(8, -this.h * 0.15);
+      ctx.quadraticCurveTo(-4, -this.h * 0.22, -12, -this.h * 0.38);
+      ctx.moveTo(4, -this.h * 0.38);
+      ctx.quadraticCurveTo(16, -this.h * 0.48, 22, -this.h * 0.25);
+      ctx.lineTo(9, -this.h * 0.18);
       ctx.fill();
+      ctx.stroke();
       ctx.restore();
     } else if (this.type === 'flyshooter') {
       ctx.fillStyle = '#303341';
@@ -2217,6 +2290,208 @@ class Enemy {
       ctx.moveTo(frontX - dir * this.w * 0.12, sy + this.h * 0.50);
       ctx.lineTo(frontX + dir * this.w * 0.10, sy + this.h * 0.43);
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _renderRedesignedEnemyDetails(ctx, sx, sy, game, t, cx, cy, dir, frontX, faceX) {
+    const w = this.w;
+    const h = this.h;
+    const type = this.type || this.bossType || 'walker';
+    const strokeScale = this.big || this.bossType ? 1.35 : 1;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (type === 'walker') {
+      ctx.strokeStyle = '#17100c';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.10, sy + h * 0.45);
+      ctx.lineTo(cx - dir * w * 0.38, sy + h * 0.62);
+      ctx.moveTo(cx + dir * w * 0.04, sy + h * 0.48);
+      ctx.lineTo(cx + dir * w * 0.28, sy + h * 0.64);
+      ctx.stroke();
+      ctx.fillStyle = '#6d765e';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.20, w * 0.22, h * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#2b201c';
+      ctx.fillRect(cx - w * 0.16, sy + h * 0.34, w * 0.32, h * 0.30);
+      ctx.strokeStyle = '#5b3a20';
+      ctx.lineWidth = 4.2 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.44, sy + h * 0.55);
+      ctx.lineTo(cx + dir * w * 1.24, sy + h * 0.30);
+      ctx.stroke();
+      ctx.strokeStyle = '#eadfbe';
+      ctx.lineWidth = 1.2 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.34, sy + h * 0.51);
+      ctx.lineTo(cx + dir * w * 1.08, sy + h * 0.31);
+      ctx.stroke();
+      ctx.fillStyle = '#d7dee0';
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1.5 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * w * 1.34, sy + h * 0.28);
+      ctx.lineTo(cx + dir * w * 1.02, sy + h * 0.18);
+      ctx.lineTo(cx + dir * w * 1.10, sy + h * 0.32);
+      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (type === 'shooter') {
+      ctx.fillStyle = '#161c28';
+      ctx.fillRect(sx + w * 0.30, sy + h * 0.30, w * 0.34, h * 0.52);
+      ctx.fillStyle = '#39465b';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.24, w * 0.26, h * 0.11, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0b0e13';
+      ctx.lineWidth = 5 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.18, sy + h * 0.48);
+      ctx.lineTo(cx + dir * w * 1.18, sy + h * 0.42);
+      ctx.stroke();
+      ctx.strokeStyle = '#8793a4';
+      ctx.lineWidth = 2 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * w * 0.18, sy + h * 0.44);
+      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.40);
+      ctx.stroke();
+      ctx.fillStyle = '#cfd6d9';
+      ctx.fillRect(cx + dir * w * 1.12 - (dir < 0 ? 5 : 0), sy + h * 0.37, 5, 7);
+    } else if (type === 'flyer') {
+      const flap = Math.sin(t * 0.25) * 5;
+      ctx.fillStyle = '#e8e0c8';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, w * 0.25, h * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#5d3d5d';
+      ctx.lineWidth = 3 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.16, cy - h * 0.05);
+      ctx.quadraticCurveTo(cx - w * 0.72, cy - h * 0.44 - flap, cx - w * 0.92, cy + h * 0.12);
+      ctx.moveTo(cx + w * 0.16, cy - h * 0.05);
+      ctx.quadraticCurveTo(cx + w * 0.72, cy - h * 0.44 + flap, cx + w * 0.92, cy + h * 0.12);
+      ctx.stroke();
+      ctx.fillStyle = '#101015';
+      ctx.beginPath();
+      ctx.arc(cx + dir * w * 0.08, cy - h * 0.02, w * 0.10, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === 'flyshooter') {
+      ctx.fillStyle = '#65758a';
+      ctx.fillRect(sx + w * 0.18, sy + h * 0.28, w * 0.66, h * 0.18);
+      ctx.strokeStyle = '#252a35';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.10, sy + h * 0.43);
+      ctx.lineTo(sx - w * 0.36, sy + h * 0.40);
+      ctx.moveTo(sx + w * 0.90, sy + h * 0.43);
+      ctx.lineTo(sx + w * 1.36, sy + h * 0.40);
+      ctx.stroke();
+      ctx.fillStyle = '#a5f0ff';
+      for (let i = 0; i < 3; i++) ctx.fillRect(sx + w * (0.30 + i * 0.18), sy + h * 0.50, 4, 4);
+      ctx.globalAlpha = 0.24;
+      ctx.fillStyle = '#9ff';
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.26, sy + h * 0.58);
+      ctx.lineTo(cx + w * 0.26, sy + h * 0.58);
+      ctx.lineTo(cx + w * 0.42, sy + h * 1.08);
+      ctx.lineTo(cx - w * 0.42, sy + h * 1.08);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (type === 'shielded' || type === 'protector') {
+      ctx.fillStyle = type === 'protector' ? '#143224' : '#30412c';
+      ctx.fillRect(sx + w * 0.27, sy + h * 0.18, w * 0.46, h * 0.58);
+      ctx.fillStyle = type === 'protector' ? '#62d989' : '#d7d0bd';
+      ctx.beginPath();
+      ctx.moveTo(cx, sy + h * 0.04);
+      ctx.lineTo(sx + w * 0.74, sy + h * 0.18);
+      ctx.lineTo(sx + w * 0.26, sy + h * 0.18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = type === 'protector' ? '#62d989' : '#c9d0c9';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * w * 0.10, sy + h * 0.42);
+      ctx.lineTo(cx + dir * w * 0.70, sy + h * 0.18);
+      ctx.lineTo(cx + dir * w * 0.50, sy + h * 0.56);
+      ctx.stroke();
+    } else if (type === 'charger') {
+      ctx.fillStyle = '#2f201b';
+      ctx.beginPath();
+      ctx.ellipse(frontX - dir * w * 0.22, sy + h * 0.34, w * 0.24, h * 0.20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#c9c0a6';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(frontX - dir * w * 0.18, sy + h * 0.20);
+      ctx.lineTo(frontX + dir * w * 0.28, sy + h * 0.00);
+      ctx.moveTo(frontX - dir * w * 0.18, sy + h * 0.38);
+      ctx.lineTo(frontX + dir * w * 0.28, sy + h * 0.54);
+      ctx.stroke();
+      ctx.fillStyle = '#0d0706';
+      ctx.beginPath();
+      ctx.arc(frontX - dir * w * 0.14, sy + h * 0.31, 3 * strokeScale, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === 'bouncer') {
+      ctx.fillStyle = '#2c2f22';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.24, w * 0.25, h * 0.12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#211';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx, sy + h * 0.22);
+      ctx.lineTo(cx + dir * w * 0.58, sy - h * 0.02);
+      ctx.stroke();
+      ctx.fillStyle = '#555';
+      ctx.fillRect(cx + dir * w * 0.48 - (dir < 0 ? 10 : 0), sy - h * 0.08, 10, 10);
+      ctx.strokeStyle = '#6e7248';
+      ctx.lineWidth = 3 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.24, sy + h * 0.70);
+      ctx.lineTo(sx + w * 0.06, sy + h * 1.02);
+      ctx.moveTo(sx + w * 0.76, sy + h * 0.70);
+      ctx.lineTo(sx + w * 0.94, sy + h * 1.02);
+      ctx.stroke();
+    } else if (type === 'jumper') {
+      ctx.fillStyle = '#3a2634';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.30, w * 0.25, h * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#7c6a82';
+      ctx.lineWidth = 4 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.32, sy + h * 0.60);
+      ctx.lineTo(sx - w * 0.06, sy + h * 0.98);
+      ctx.moveTo(sx + w * 0.68, sy + h * 0.60);
+      ctx.lineTo(sx + w * 1.06, sy + h * 0.98);
+      ctx.stroke();
+    } else if (type === 'deflector') {
+      ctx.fillStyle = '#aac';
+      ctx.beginPath();
+      ctx.moveTo(sx - w * 0.08, sy + h * 0.24);
+      ctx.lineTo(cx, sy - h * 0.12);
+      ctx.lineTo(sx + w * 1.08, sy + h * 0.24);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#d9d9e2';
+      ctx.lineWidth = 3 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.10, sy + h * 0.58);
+      ctx.lineTo(sx + w * 0.96, sy + h * 0.18);
+      ctx.stroke();
+    }
+
+    if (!this.flying && type !== 'attacker') {
+      ctx.fillStyle = this.flashTimer > 0 ? '#111' : '#f4d6b0';
+      ctx.fillRect(faceX, sy + h * 0.25, Math.max(3, w * 0.10), 3);
+      ctx.fillStyle = '#190707';
+      ctx.fillRect(faceX + dir * 2, sy + h * 0.35, dir * Math.max(6, w * 0.20), 2);
     }
     ctx.restore();
   }
@@ -2890,8 +3165,8 @@ class Enemy {
       const barY = sy - 10;
       ctx.fillStyle = '#400';
       ctx.fillRect(barX, barY, barW, 4);
-      const displayRatio = this.displayHp / this.maxHp;
-      const hpRatio = this.hp / this.maxHp;
+      const displayRatio = Math.max(0, Math.min(1, this.displayHp / Math.max(1, this.maxHp)));
+      const hpRatio = Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)));
       if (displayRatio > hpRatio) {
         ctx.fillStyle = '#f66';
         ctx.fillRect(barX, barY, barW * displayRatio, 4);
@@ -3021,7 +3296,7 @@ class Boss extends Enemy {
     // Override contact damage — boss takes 3 hits to kill player
     const _ehp = [0,16,24,34,46,60,73,89,107,127,148][Math.min(wave, 10)] || 148;
     const _arm = [0,1,2,4,6,8,10,13,15,18,21][Math.min(wave, 10)] || 21;
-    this.contactDmg = Math.max(1, Math.round(_ehp / 3 + _arm));
+    this.contactDmg = Math.max(1, Math.round(_ehp * 0.70 + _arm));
     this._bossEhp = _ehp;
     this._bossArm = _arm;
     // Boss-specific state
@@ -3852,18 +4127,21 @@ class Boss extends Enemy {
     const contactTarget = game._firstOverlappingFriendly ? game._firstOverlappingFriendly(this, this) : (rectOverlap(this, game.player.getHurtbox()) ? game.player : null);
     if (this.contactTick <= 0 && contactTarget && !contactTarget.slamming) {
       const kbDir = Math.sign(game._entityCenterX(contactTarget) - (this.x + this.w / 2)) || 1;
-      const isCharging = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
-      if (isCharging) {
+      const isShieldCharge = (this.bossType === 'shielded' || this.bossType === 'protector') && this.chargeState === 'charging';
+      const isDashHit = isShieldCharge || this.flyerDashState === 'dashing';
+      if (isDashHit) {
         game._applyFriendlyKnockback(contactTarget, this, kbDir * 22, -5, 14);
-        const chargeDmg = Math.round(this.contactDmg * 1.5);
+        const chargeDmg = Math.round(this.contactDmg * (isShieldCharge ? 1.5 : 1.15));
         game._damageFriendlyTarget(contactTarget, chargeDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
-        this.chargeState = 'recoil';
-        this.chargeTimer = 0;
-        this.vx = -this.facing * speed * 3;
-        this.vy = -8;
+        if (isShieldCharge) {
+          this.chargeState = 'recoil';
+          this.chargeTimer = 0;
+          this.vx = -this.facing * speed * 3;
+          this.vy = -8;
+        }
       } else {
         game._applyFriendlyKnockback(contactTarget, this, kbDir * 18, -9, 12);
-        game._damageFriendlyTarget(contactTarget, this.contactDmg, this.element || null, { type: this.bossType, element: this.element, isBoss: true });
+        game._damageFriendlyTarget(contactTarget, Math.max(1, Math.round(this.contactDmg * 0.35)), this.element || null, { type: this.bossType, element: this.element, isBoss: true });
       }
       this.contactTick = 45;
     }
@@ -4666,8 +4944,8 @@ class Boss extends Enemy {
       const barY = sy - 24;
       ctx.fillStyle = '#400';
       ctx.fillRect(barX, barY, barW, barH);
-      const displayRatio = this.displayHp / this.maxHp;
-      const hpRatio = this.hp / this.maxHp;
+      const displayRatio = Math.max(0, Math.min(1, this.displayHp / Math.max(1, this.maxHp)));
+      const hpRatio = Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)));
       if (displayRatio > hpRatio) {
         ctx.fillStyle = '#f66';
         ctx.fillRect(barX, barY, barW * displayRatio, barH);

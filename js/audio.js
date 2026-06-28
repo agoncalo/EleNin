@@ -33,6 +33,10 @@ const SFX = {
     monsterHurt: ['assets/sfx/monster_hurt_1.wav', 'assets/sfx/monster_hurt_2.wav'],
     monsterDeath: ['assets/sfx/monster_death.wav'],
     playerDeath: ['assets/sfx/player_death.wav'],
+    nuke: ['assets/sfx/nuke.wav'],
+    alarmSecondary: ['assets/sfx/alarm_secondary.wav'],
+    alarmMiniboss: ['assets/sfx/alarm_miniboss.wav'],
+    alarmBoss: ['assets/sfx/alarm_boss.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -274,6 +278,36 @@ const SFX = {
   bossSpawn() {
     this.thump(48, 0.18, 0.36);
     this.filteredNoise(0.38, 0.12, 'lowpass', 300, 1.0, 0.004);
+  },
+  nuke(volume = 0.86) {
+    this.sample('nuke', () => {
+      this.thump(32, 0.26, 0.55);
+      this.filteredNoise(0.75, 0.22, 'lowpass', 260, 0.85, 0.002);
+      setTimeout(() => this.thump(26, 0.18, 0.42), 110);
+    }, volume);
+  },
+  alarmSecondary(volume = 0.72) {
+    this.sample('alarmSecondary', () => {
+      this.metal(1120, 0.08, 0.10);
+      setTimeout(() => this.metal(1480, 0.07, 0.10), 110);
+      setTimeout(() => this.tone(920, 'triangle', 0.16, 0.05, -140, 0.002), 230);
+    }, volume);
+  },
+  alarmMiniboss(volume = 0.78) {
+    this.sample('alarmMiniboss', () => {
+      this.thump(64, 0.14, 0.18);
+      this.tone(520, 'sawtooth', 0.20, 0.07, -180, 0.002);
+      setTimeout(() => this.tone(440, 'sawtooth', 0.24, 0.08, -160, 0.002), 180);
+      setTimeout(() => this.metal(780, 0.07, 0.12), 360);
+    }, volume);
+  },
+  alarmBoss(volume = 0.84) {
+    this.sample('alarmBoss', () => {
+      this.thump(38, 0.22, 0.32);
+      this.filteredNoise(0.42, 0.14, 'lowpass', 330, 0.8, 0.003);
+      setTimeout(() => this.thump(32, 0.20, 0.35), 210);
+      setTimeout(() => this.tone(210, 'sawtooth', 0.45, 0.09, -90, 0.004), 340);
+    }, volume);
   },
   wave() { this.play(440, 'triangle', 0.15, 0.1); setTimeout(() => this.play(660, 'triangle', 0.15, 0.1), 120); setTimeout(() => this.play(880, 'triangle', 0.2, 0.1), 240); },
   armor() {

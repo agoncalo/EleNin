@@ -154,6 +154,9 @@ class Player {
     this.staggerChainSegments = [];
     this.staggerChainEchoes = [];
     this.staggerChainMarks = [];
+    this.staggerChainCombo = 0;
+    this.staggerChainComboTimer = 0;
+    this.staggerChainComboPop = 0;
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -606,6 +609,9 @@ class Player {
     this.staggerChainSegments = [];
     this.staggerChainEchoes = [];
     this.staggerChainMarks = [];
+    this.staggerChainCombo = 0;
+    this.staggerChainComboTimer = 0;
+    this.staggerChainComboPop = 0;
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
@@ -857,7 +863,9 @@ class Player {
                   i % 2 === 0 ? '#f93' : '#f44', 8 + randInt(0, 6), 3, 14
                 ));
               }
-              SFX.bossSpawn();
+              game.effects.push(new ScreenFlash('#fff4cf', 0.58, 18));
+              game.effects.push(new ScreenFlash('#ff3b1f', 0.22, 26));
+              SFX.nuke();
               triggerHitstop(12);
             } else {
               damageInRadius(game, m.targetX, m.targetY, 80, this.type.attackDamage + this.bonusElemental + 6, m.targetX);
@@ -2318,6 +2326,9 @@ class Player {
           }
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'shadow', 'chain');
           if (nearest === game.boss && nearest.dead) {
+            game.effects.push(new ScreenFlash('#f4e8ff', 0.50, 18));
+            game.effects.push(new ScreenFlash('#5b147c', 0.24, 28));
+            SFX.nuke(0.82);
             game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', game.camera));
           }
           this.chainLastHit = nearest;
@@ -2405,6 +2416,9 @@ class Player {
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
           if (nearest === game.boss && nearest.dead) {
             this.stormLightningFlash = 35;
+            game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
+            game.effects.push(new ScreenFlash('#ffe033', 0.22, 24));
+            SFX.nuke(0.82);
             game.effects.push(new KanjiEffect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', game.camera));
           }
           this.stormChainHit.add(nearest);
@@ -2487,6 +2501,9 @@ class Player {
             loopTarget.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
             if (loopTarget === game.boss && loopTarget.dead) {
               this.stormLightningFlash = 35;
+              game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
+              game.effects.push(new ScreenFlash('#ffe033', 0.22, 24));
+              SFX.nuke(0.82);
               game.effects.push(new KanjiEffect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', game.camera));
             }
             this.stormChainHit.add(loopTarget);
@@ -2596,6 +2613,9 @@ class Player {
             nearest.takeDamage(Math.max(1, Math.ceil((nearest.maxHp || nearest.hp || 1) * 0.4)), game, this.x + this.w / 2, null, 'chain');
           }
           this.staggerChainHit.add(nearest);
+          this.staggerChainCombo = Math.max(2, (this.staggerChainCombo || 1) + 1);
+          this.staggerChainComboTimer = 90;
+          this.staggerChainComboPop = 1;
           this._spawnChainCut(nearest);
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, skullTarget ? '#c04fff' : '#f4f0ff', skullTarget ? 14 : 9, skullTarget ? 5 : 3, 18));
@@ -2616,6 +2636,13 @@ class Player {
           for (const m of this.staggerChainMarks || []) m.life = Math.min(m.life, 90);
         }
       }
+    }
+    if (this.staggerChainComboTimer > 0) {
+      this.staggerChainComboTimer--;
+      this.staggerChainComboPop = Math.max(0, (this.staggerChainComboPop || 0) - 0.08);
+    } else if (!this.staggerChaining) {
+      this.staggerChainCombo = 0;
+      this.staggerChainComboPop = 0;
     }
 
     // Stagger chain afterimage decay (all ninja types)
@@ -2991,7 +3018,9 @@ class Player {
     this.stormChaining = false;
     for (const a of this.stormAfterimages) a.life = 15;
     this.stormLightningFlash = 60;
-    SFX.bossSpawn();
+    game.effects.push(new ScreenFlash('#fffff0', 0.70, 18));
+    game.effects.push(new ScreenFlash('#ffe033', 0.32, 34));
+    SFX.nuke();
     triggerHitstop(12);
     // Kill all enemies on screen
     for (const e of game.enemies) {
@@ -3356,6 +3385,11 @@ class Player {
       amount = Math.max(1, Math.round(amount * 0.5));
     }
     if (!bypassArmor) amount = Math.max(1, amount - this.bonusArmor);
+    if (this.hp >= this.maxHp && amount >= this.hp && this.hp > 1) {
+      amount = this.hp - 1;
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'ONE HP!', '#ffe033'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ffe033', 14, 4, 16));
+    }
     this.hp -= amount;
     this.lastDamageAmount = amount;
     this.invincibleTimer = 45;
@@ -5188,7 +5222,9 @@ class CrystalCastle {
         game.boss.stunTimer = Math.max(game.boss.stunTimer, 60);
       }
     }
-    SFX.parry();
+    game.effects.push(new ScreenFlash('#f4fbff', 0.60, 20));
+    game.effects.push(new ScreenFlash('#9fe8ff', 0.28, 30));
+    SFX.nuke();
   }
   render(ctx, cam) {
     if (this.done) return;

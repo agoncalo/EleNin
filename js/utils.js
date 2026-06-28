@@ -681,3 +681,120 @@ function drawItemIcon(ctx, itemId, cx, cy, size, color) {
 
   ctx.restore();
 }
+
+function drawEnemySilhouettePath(ctx, x, y, w, h, type) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  ctx.beginPath();
+  if (type === 'walker') {
+    ctx.moveTo(x + w * 0.42, y + h * 0.10);
+    ctx.quadraticCurveTo(x + w * 0.58, y + h * 0.02, x + w * 0.70, y + h * 0.18);
+    ctx.lineTo(x + w * 0.66, y + h * 0.46);
+    ctx.lineTo(x + w * 0.82, y + h * 0.78);
+    ctx.lineTo(x + w * 0.63, y + h * 0.80);
+    ctx.lineTo(x + w * 0.56, y + h * 0.98);
+    ctx.lineTo(x + w * 0.44, y + h * 0.98);
+    ctx.lineTo(x + w * 0.37, y + h * 0.80);
+    ctx.lineTo(x + w * 0.18, y + h * 0.78);
+    ctx.lineTo(x + w * 0.34, y + h * 0.46);
+    ctx.lineTo(x + w * 0.30, y + h * 0.18);
+    ctx.closePath();
+  } else if (type === 'shooter') {
+    ctx.moveTo(x + w * 0.18, y + h * 0.32);
+    ctx.lineTo(x + w * 0.44, y + h * 0.16);
+    ctx.lineTo(x + w * 0.78, y + h * 0.22);
+    ctx.lineTo(x + w * 1.02, y + h * 0.38);
+    ctx.lineTo(x + w * 0.72, y + h * 0.52);
+    ctx.lineTo(x + w * 0.62, y + h * 0.94);
+    ctx.lineTo(x + w * 0.42, y + h * 0.94);
+    ctx.lineTo(x + w * 0.32, y + h * 0.58);
+    ctx.lineTo(x + w * 0.02, y + h * 0.50);
+    ctx.closePath();
+  } else if (type === 'flyer') {
+    ctx.moveTo(cx - w * 0.16, cy - h * 0.32);
+    ctx.quadraticCurveTo(cx - w * 0.70, cy - h * 0.68, cx - w * 1.05, cy + h * 0.10);
+    ctx.quadraticCurveTo(cx - w * 0.58, cy + h * 0.02, cx - w * 0.26, cy + h * 0.34);
+    ctx.quadraticCurveTo(cx, cy + h * 0.56, cx + w * 0.26, cy + h * 0.34);
+    ctx.quadraticCurveTo(cx + w * 0.58, cy + h * 0.02, cx + w * 1.05, cy + h * 0.10);
+    ctx.quadraticCurveTo(cx + w * 0.70, cy - h * 0.68, cx + w * 0.16, cy - h * 0.32);
+    ctx.quadraticCurveTo(cx, cy - h * 0.48, cx - w * 0.16, cy - h * 0.32);
+    ctx.closePath();
+  } else if (type === 'flyshooter') {
+    ctx.moveTo(x - w * 0.10, y + h * 0.42);
+    ctx.lineTo(x + w * 0.20, y + h * 0.16);
+    ctx.lineTo(x + w * 0.62, y + h * 0.14);
+    ctx.lineTo(x + w * 1.10, y + h * 0.38);
+    ctx.lineTo(x + w * 0.78, y + h * 0.58);
+    ctx.lineTo(x + w * 0.66, y + h * 0.86);
+    ctx.lineTo(x + w * 0.50, y + h * 0.64);
+    ctx.lineTo(x + w * 0.26, y + h * 0.86);
+    ctx.lineTo(x + w * 0.22, y + h * 0.58);
+    ctx.closePath();
+  } else if (type === 'shielded' || type === 'protector') {
+    ctx.moveTo(cx, y + h * 0.02);
+    ctx.lineTo(x + w * 0.84, y + h * 0.14);
+    ctx.lineTo(x + w * 0.92, y + h * 0.52);
+    ctx.quadraticCurveTo(x + w * 0.76, y + h * 0.92, cx, y + h * 1.02);
+    ctx.quadraticCurveTo(x + w * 0.24, y + h * 0.92, x + w * 0.08, y + h * 0.52);
+    ctx.lineTo(x + w * 0.16, y + h * 0.14);
+    ctx.closePath();
+  } else if (type === 'charger') {
+    ctx.moveTo(x + w * 0.08, y + h * 0.52);
+    ctx.quadraticCurveTo(x + w * 0.20, y + h * 0.16, x + w * 0.52, y + h * 0.12);
+    ctx.lineTo(x + w * 0.72, y + h * 0.22);
+    ctx.lineTo(x + w * 1.06, y + h * 0.06);
+    ctx.lineTo(x + w * 0.94, y + h * 0.40);
+    ctx.quadraticCurveTo(x + w * 0.96, y + h * 0.78, x + w * 0.58, y + h * 0.88);
+    ctx.lineTo(x + w * 0.66, y + h * 1.02);
+    ctx.lineTo(x + w * 0.42, y + h * 0.94);
+    ctx.lineTo(x + w * 0.18, y + h * 1.02);
+    ctx.lineTo(x + w * 0.28, y + h * 0.82);
+    ctx.closePath();
+  } else if (type === 'bouncer') {
+    ctx.moveTo(x + w * 0.25, y + h * 0.18);
+    ctx.lineTo(x + w * 0.55, y + h * 0.04);
+    ctx.lineTo(x + w * 0.82, y + h * 0.22);
+    ctx.lineTo(x + w * 0.78, y + h * 0.58);
+    ctx.quadraticCurveTo(cx, y + h * 0.86, x + w * 0.22, y + h * 0.58);
+    ctx.closePath();
+    ctx.moveTo(x + w * 0.20, y + h * 0.70);
+    ctx.lineTo(x - w * 0.02, y + h * 1.02);
+    ctx.lineTo(x + w * 0.36, y + h * 0.86);
+    ctx.closePath();
+    ctx.moveTo(x + w * 0.80, y + h * 0.70);
+    ctx.lineTo(x + w * 1.02, y + h * 1.02);
+    ctx.lineTo(x + w * 0.64, y + h * 0.86);
+    ctx.closePath();
+  } else if (type === 'jumper') {
+    ctx.moveTo(x + w * 0.34, y + h * 0.08);
+    ctx.quadraticCurveTo(cx, y - h * 0.04, x + w * 0.66, y + h * 0.08);
+    ctx.lineTo(x + w * 0.78, y + h * 0.54);
+    ctx.lineTo(x + w * 1.05, y + h * 0.90);
+    ctx.lineTo(x + w * 0.62, y + h * 0.78);
+    ctx.lineTo(x + w * 0.56, y + h * 1.04);
+    ctx.lineTo(x + w * 0.44, y + h * 1.04);
+    ctx.lineTo(x + w * 0.38, y + h * 0.78);
+    ctx.lineTo(x - w * 0.05, y + h * 0.90);
+    ctx.lineTo(x + w * 0.22, y + h * 0.54);
+    ctx.closePath();
+  } else if (type === 'deflector') {
+    ctx.moveTo(x + w * 0.02, y + h * 0.24);
+    ctx.lineTo(cx, y - h * 0.10);
+    ctx.lineTo(x + w * 0.98, y + h * 0.24);
+    ctx.lineTo(x + w * 0.78, y + h * 0.36);
+    ctx.lineTo(x + w * 0.68, y + h * 0.96);
+    ctx.quadraticCurveTo(cx, y + h * 1.04, x + w * 0.32, y + h * 0.96);
+    ctx.lineTo(x + w * 0.22, y + h * 0.36);
+    ctx.closePath();
+  } else if (type === 'attacker') {
+    ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
+  } else {
+    ctx.moveTo(x + w * 0.30, y + h * 0.08);
+    ctx.quadraticCurveTo(cx, y - h * 0.06, x + w * 0.74, y + h * 0.13);
+    ctx.lineTo(x + w * 0.88, y + h * 0.72);
+    ctx.quadraticCurveTo(x + w * 0.66, y + h * 1.00, x + w * 0.46, y + h * 0.88);
+    ctx.quadraticCurveTo(x + w * 0.26, y + h * 1.00, x + w * 0.12, y + h * 0.70);
+    ctx.lineTo(x + w * 0.18, y + h * 0.26);
+    ctx.closePath();
+  }
+}
