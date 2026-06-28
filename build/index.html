@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-28 12:09 UTC
-console.log("EleNin build: 2026-06-28 12:09 UTC");
+// BUILD TIMESTAMP: 2026-06-28 12:18 UTC
+console.log("EleNin build: 2026-06-28 12:18 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -2526,7 +2526,8 @@ const SFX = {
   },
   chain() {
     this.play(700, 'square', 0.05, 0.08, 200);
-    this.sample('chain', () => this.chainSwish());
+    this.chainSwish();
+    this.sample('chain', null, 0.72);
   },
   slam() {
     this.thump(52, 0.22, 0.26);

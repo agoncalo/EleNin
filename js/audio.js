@@ -258,7 +258,8 @@ const SFX = {
   },
   chain() {
     this.play(700, 'square', 0.05, 0.08, 200);
-    this.sample('chain', () => this.chainSwish());
+    this.chainSwish();
+    this.sample('chain', null, 0.72);
   },
   slam() {
     this.thump(52, 0.22, 0.26);
