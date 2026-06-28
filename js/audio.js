@@ -214,7 +214,7 @@ const SFX = {
   },
   enemyHurt() {
     const now = audioCtx.currentTime;
-    if (now - this._lastMonsterHurtAt < 0.12) return;
+    if (now - this._lastMonsterHurtAt < 0.5) return;
     this._lastMonsterHurtAt = now;
     this.sample('monsterHurt', () => {
       this.filteredNoise(0.12, 0.07, 'bandpass', 360, 1.2, 0.001);
@@ -223,7 +223,7 @@ const SFX = {
   },
   enemyDie() {
     const now = audioCtx.currentTime;
-    if (now - this._lastMonsterDeathAt < 0.08) return;
+    if (now - this._lastMonsterDeathAt < 0.5) return;
     this._lastMonsterDeathAt = now;
     this.sample('monsterDeath', () => {
       this.thump(70, 0.16, 0.23);
