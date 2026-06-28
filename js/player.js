@@ -2184,7 +2184,7 @@ class Player {
         if (this.hp <= 0) { this.hp = 0; if (!this._pendingDamage) this._pendingDamage = { amount: 0, element: 'lightning', killerInfo: { type: 'paralyse', element: 'lightning', isBoss: false } }; }
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'STUNNED!', '#ff0'));
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 5, 2, 8));
-        SFX.play(200, 'square', 0.2, 0.15, 0);
+        SFX.shock();
       } else {
         this.shadowAttackHit = false;
         this.attack(game);
@@ -3246,7 +3246,7 @@ class Player {
       this.bubbleRide.hp -= amount;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
       game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, element || null));
-      SFX.playerHurt();
+      SFX.playerHurt(this.ninjaType);
       triggerHitstop(3);
       return;
     }
@@ -3316,9 +3316,8 @@ class Player {
       SFX.counterSwish();
       return;
     }
-    if (this.ninjaType === 'wind' && this.windPower >= 10 && typeof SFX !== 'undefined' && SFX.play) {
-      SFX.play(80, 'sawtooth', 0.18, 0.22, -60);
-      SFX.noise(0.18, 0.18);
+    if (this.ninjaType === 'wind' && this.windPower >= 10 && typeof SFX !== 'undefined' && SFX.windCrash) {
+      SFX.windCrash();
     }
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
@@ -3330,7 +3329,7 @@ class Player {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 4, 2, 8));
       triggerHitstop(4);
       triggerScreenShake(2, 6);
-      SFX.playerHurt();
+      SFX.playerHurt(this.ninjaType);
       return;
     }
     if (this.shield > 0) {
@@ -3343,7 +3342,7 @@ class Player {
         this.invincibleTimer = 45;
         this.lastDamageTick = game.tick;
         this.windPower = 0;
-        SFX.playerHurt();
+        SFX.playerHurt(this.ninjaType);
         triggerHitstop(6);
         game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, absorbed, element || null));
         this.applyElementalStatus(element, game);
@@ -3390,7 +3389,7 @@ class Player {
     }
     // Mana charge on taking damage
     this.mana = Math.min(this.mana + 0.5, this.maxMana);
-    SFX.playerHurt();
+    SFX.playerHurt(this.ninjaType);
     triggerHitstop(6);
     triggerScreenShake(4, 8);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));

@@ -4022,6 +4022,8 @@ class Boss extends Enemy {
     if (_fading) ctx.globalAlpha = this.friendlyFade / 120;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
+    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'flyer', 'flyshooter'];
+    const usesCounterpartArt = counterpartBossTypes.includes(this.bossType);
 
     // Aura glow
     ctx.fillStyle = this.phase === 2 ? 'rgba(255,50,50,0.25)' : 'rgba(200,50,50,0.12)';

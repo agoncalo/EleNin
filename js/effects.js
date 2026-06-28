@@ -739,9 +739,7 @@ function checkX2OrbBreak(pl, game, ex, ey) {
     }
     game.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 20, 'x2 Orb BROKE!', '#f44'));
     // Glass shatter sound
-    SFX.play(1200, 'square', 0.06, 0.12, -800);
-    SFX.noise(0.15, 0.12);
-    SFX.play(800, 'triangle', 0.1, 0.08, -400);
+    SFX.glassBreak();
   }
 }
 
