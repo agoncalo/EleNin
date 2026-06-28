@@ -3429,6 +3429,7 @@ class Player {
       }
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
+      SFX.playerDie();
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
       game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));

@@ -439,6 +439,8 @@ class AngledDeathFade {
     this.maxLife = this.life;
     this.done = false;
     this.boss = !!opts.boss;
+    this.splat = !!opts.splat;
+    this.splatted = false;
     this.angle = opts.angle !== undefined ? opts.angle : ((Math.random() < 0.5 ? -1 : 1) * (0.16 + Math.random() * 0.22));
     this.vx = (Math.random() < 0.5 ? -1 : 1) * (this.boss ? 0.45 : 0.25);
     this.vy = this.boss ? -0.18 : -0.08;
@@ -455,11 +457,49 @@ class AngledDeathFade {
       });
     }
   }
-  update() {
+  _findSplatY(game, x) {
+    let bestY = null;
+    if (!game || !game.platforms) return this.y + this.h + 10;
+    for (const p of game.platforms) {
+      if (p.thin) continue;
+      if (x >= p.x - 10 && x <= p.x + p.w + 10 && p.y >= this.y + this.h * 0.35) {
+        if (bestY === null || p.y < bestY) bestY = p.y;
+      }
+    }
+    return bestY === null ? this.y + this.h + 10 : bestY;
+  }
+  _leaveBossSplat(game) {
+    if (!game) return;
+    const cx = this.x + this.w / 2;
+    const cy = this._findSplatY(game, cx) - 2;
+    if (game.bloodStains) {
+      const count = 16;
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const dist = Math.random() * this.w * 0.78;
+        const stainX = cx + Math.cos(a) * dist;
+        const stainY = cy + Math.sin(a) * dist * 0.24;
+        game.bloodStains.push(new BloodStain(stainX, stainY, 1.15 + Math.random() * 1.5, 'floor'));
+      }
+      if (typeof GAME_OBJECT_LIMITS !== 'undefined' && game.bloodStains.length > GAME_OBJECT_LIMITS.bloodStains) {
+        game.bloodStains.splice(0, game.bloodStains.length - GAME_OBJECT_LIMITS.bloodStains);
+      }
+    }
+    game.effects.push(new BloodSpill(cx, this.y + this.h * 0.62, cx - (this.vx || 1) * 16, 2.8));
+    game.effects.push(new Effect(cx, cy - 8, '#8b1018', 26, 5, 24));
+    game.effects.push(new Effect(cx, cy - 10, '#260306', 16, 3, 22));
+    triggerScreenShake(10, 18);
+  }
+  update(game) {
+    if (this.splat && !this.splatted && this.life <= 34) {
+      this.splatted = true;
+      this._leaveBossSplat(game);
+    }
     this.life--;
-    this.x += this.vx;
-    this.y += this.vy;
-    this.angle += 0.012 * Math.sign(this.angle || 1);
+    const age = this.maxLife - this.life;
+    this.x += this.vx * (this.boss ? 0.72 : 1);
+    this.y += this.vy + (this.splat ? Math.min(1.35, age / 52) : 0);
+    this.angle += (this.splat ? 0.017 : 0.012) * Math.sign(this.angle || 1);
     if (this.life <= 0) this.done = true;
   }
   _drawSilhouette(ctx) {
@@ -516,11 +556,21 @@ class AngledDeathFade {
   }
   render(ctx, cam) {
     const fade = Math.max(0, this.life / this.maxLife);
+    const age = this.maxLife - this.life;
+    const deathT = this.maxLife ? age / this.maxLife : 1;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
     ctx.save();
     ctx.translate(sx + this.w / 2, sy + this.h / 2);
     ctx.rotate(this.angle);
+    if (this.splat) {
+      const sag = 1 + Math.min(0.38, deathT * 0.42);
+      const crush = this.splatted ? 0.78 : 1;
+      ctx.scale(1 + deathT * 0.1, sag * crush);
+      if (!this.splatted) {
+        ctx.translate(Math.sin(age * 0.18) * 1.7, Math.sin(age * 0.11) * 1.2);
+      }
+    }
     ctx.globalAlpha = 0.78 * fade;
     ctx.fillStyle = this.color;
     this._drawSilhouette(ctx);

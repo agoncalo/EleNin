@@ -1622,6 +1622,7 @@ class Enemy {
 
     this.hp -= amount;
     if (!shieldBlocked) this.flashTimer = 6;
+    if (this.hp > 0) SFX.enemyHurt();
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     if (game && (sourceType === 'sword' || sourceType === 'shuriken' || sourceType === 'chain')) {
@@ -3976,13 +3977,13 @@ class Boss extends Enemy {
   onDeath(game) {
     SFX.bossDie();
     const chainKilled = game && game.player && game.player.staggerChaining;
-    triggerHitstop(chainKilled ? 58 : 10);
+    triggerHitstop(chainKilled ? 44 : 10);
     triggerScreenShake(8, 15);
-    game.effects.push(new AngledDeathFade(this.x, this.y, this.w, this.h, '#8b1018', { type: this.bossType, boss: true, life: 84 }));
+    game.effects.push(new AngledDeathFade(this.x, this.y, this.w, this.h, '#8b1018', { type: this.bossType, boss: true, life: 118, splat: true }));
     if (chainKilled) {
       game.effects.push(new ScreenFlash('#fff', 0.35, 18));
     }
-    game.bossDeathRewardDelay = Math.max(game.bossDeathRewardDelay || 0, 180);
+    game.bossDeathRewardDelay = Math.max(game.bossDeathRewardDelay || 0, 220);
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
     /*

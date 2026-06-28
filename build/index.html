@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-28 12:18 UTC
-console.log("EleNin build: 2026-06-28 12:18 UTC");
+// BUILD TIMESTAMP: 2026-06-28 15:02 UTC
+console.log("EleNin build: 2026-06-28 15:02 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -2290,12 +2290,17 @@ const SFX = {
   muted: false,
   pulseGain: 2.25,
   _samplesReady: false,
+  _lastMonsterHurtAt: -999,
+  _lastMonsterDeathAt: -999,
   samplePaths: {
     shuriken: ['assets/sfx/shuriken_toss.wav', 'assets/sfx/shuriken.wav'],
     struck: ['assets/sfx/struck.wav'],
     shieldStruck: ['assets/sfx/shield_struck.wav'],
     hurtMale: ['assets/sfx/hurt_male.wav'],
     hurtFemale: ['assets/sfx/hurt_female.wav'],
+    monsterHurt: ['assets/sfx/monster_hurt_1.wav', 'assets/sfx/monster_hurt_2.wav'],
+    monsterDeath: ['assets/sfx/monster_death.wav'],
+    playerDeath: ['assets/sfx/player_death.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -2475,10 +2480,24 @@ const SFX = {
       this.filteredNoise(0.035, 0.04, 'highpass', 2700, 0.8, 0.001);
     });
   },
+  enemyHurt() {
+    const now = audioCtx.currentTime;
+    if (now - this._lastMonsterHurtAt < 0.12) return;
+    this._lastMonsterHurtAt = now;
+    this.sample('monsterHurt', () => {
+      this.filteredNoise(0.12, 0.07, 'bandpass', 360, 1.2, 0.001);
+      this.tone(120 + Math.random() * 35, 'sawtooth', 0.16, 0.045, -55, 0.002);
+    }, 0.58);
+  },
   enemyDie() {
-    this.thump(70, 0.16, 0.23);
-    this.filteredNoise(0.28, 0.12, 'lowpass', 520, 0.8, 0.003);
-    this.filteredNoise(0.16, 0.055, 'bandpass', 1300, 1.2, 0.001);
+    const now = audioCtx.currentTime;
+    if (now - this._lastMonsterDeathAt < 0.08) return;
+    this._lastMonsterDeathAt = now;
+    this.sample('monsterDeath', () => {
+      this.thump(70, 0.16, 0.23);
+      this.filteredNoise(0.28, 0.12, 'lowpass', 520, 0.8, 0.003);
+      this.filteredNoise(0.16, 0.055, 'bandpass', 1300, 1.2, 0.001);
+    }, 0.72);
   },
   playerHurt(ninjaType) {
     const gender = this.hurtVoiceForNinja(ninjaType);
@@ -2486,6 +2505,13 @@ const SFX = {
       this.vocalGrunt(gender);
       this.filteredNoise(0.09, 0.045, 'bandpass', 760, 1.2, 0.001);
     }, 0.45);
+  },
+  playerDie() {
+    this.sample('playerDeath', () => {
+      this.vocalGrunt('male');
+      this.thump(54, 0.18, 0.34);
+      this.filteredNoise(0.34, 0.11, 'lowpass', 480, 0.8, 0.004);
+    }, 0.72);
   },
   jump() {
     this.play(260, 'square', 0.1, 0.06, 180);
@@ -4078,6 +4104,8 @@ class AngledDeathFade {
     this.maxLife = this.life;
     this.done = false;
     this.boss = !!opts.boss;
+    this.splat = !!opts.splat;
+    this.splatted = false;
     this.angle = opts.angle !== undefined ? opts.angle : ((Math.random() < 0.5 ? -1 : 1) * (0.16 + Math.random() * 0.22));
     this.vx = (Math.random() < 0.5 ? -1 : 1) * (this.boss ? 0.45 : 0.25);
     this.vy = this.boss ? -0.18 : -0.08;
@@ -4094,11 +4122,49 @@ class AngledDeathFade {
       });
     }
   }
-  update() {
+  _findSplatY(game, x) {
+    let bestY = null;
+    if (!game || !game.platforms) return this.y + this.h + 10;
+    for (const p of game.platforms) {
+      if (p.thin) continue;
+      if (x >= p.x - 10 && x <= p.x + p.w + 10 && p.y >= this.y + this.h * 0.35) {
+        if (bestY === null || p.y < bestY) bestY = p.y;
+      }
+    }
+    return bestY === null ? this.y + this.h + 10 : bestY;
+  }
+  _leaveBossSplat(game) {
+    if (!game) return;
+    const cx = this.x + this.w / 2;
+    const cy = this._findSplatY(game, cx) - 2;
+    if (game.bloodStains) {
+      const count = 16;
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const dist = Math.random() * this.w * 0.78;
+        const stainX = cx + Math.cos(a) * dist;
+        const stainY = cy + Math.sin(a) * dist * 0.24;
+        game.bloodStains.push(new BloodStain(stainX, stainY, 1.15 + Math.random() * 1.5, 'floor'));
+      }
+      if (typeof GAME_OBJECT_LIMITS !== 'undefined' && game.bloodStains.length > GAME_OBJECT_LIMITS.bloodStains) {
+        game.bloodStains.splice(0, game.bloodStains.length - GAME_OBJECT_LIMITS.bloodStains);
+      }
+    }
+    game.effects.push(new BloodSpill(cx, this.y + this.h * 0.62, cx - (this.vx || 1) * 16, 2.8));
+    game.effects.push(new Effect(cx, cy - 8, '#8b1018', 26, 5, 24));
+    game.effects.push(new Effect(cx, cy - 10, '#260306', 16, 3, 22));
+    triggerScreenShake(10, 18);
+  }
+  update(game) {
+    if (this.splat && !this.splatted && this.life <= 34) {
+      this.splatted = true;
+      this._leaveBossSplat(game);
+    }
     this.life--;
-    this.x += this.vx;
-    this.y += this.vy;
-    this.angle += 0.012 * Math.sign(this.angle || 1);
+    const age = this.maxLife - this.life;
+    this.x += this.vx * (this.boss ? 0.72 : 1);
+    this.y += this.vy + (this.splat ? Math.min(1.35, age / 52) : 0);
+    this.angle += (this.splat ? 0.017 : 0.012) * Math.sign(this.angle || 1);
     if (this.life <= 0) this.done = true;
   }
   _drawSilhouette(ctx) {
@@ -4155,11 +4221,21 @@ class AngledDeathFade {
   }
   render(ctx, cam) {
     const fade = Math.max(0, this.life / this.maxLife);
+    const age = this.maxLife - this.life;
+    const deathT = this.maxLife ? age / this.maxLife : 1;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
     ctx.save();
     ctx.translate(sx + this.w / 2, sy + this.h / 2);
     ctx.rotate(this.angle);
+    if (this.splat) {
+      const sag = 1 + Math.min(0.38, deathT * 0.42);
+      const crush = this.splatted ? 0.78 : 1;
+      ctx.scale(1 + deathT * 0.1, sag * crush);
+      if (!this.splatted) {
+        ctx.translate(Math.sin(age * 0.18) * 1.7, Math.sin(age * 0.11) * 1.2);
+      }
+    }
     ctx.globalAlpha = 0.78 * fade;
     ctx.fillStyle = this.color;
     this._drawSilhouette(ctx);
@@ -11399,6 +11475,7 @@ class Player {
       }
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
+      SFX.playerDie();
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
       game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
@@ -15692,6 +15769,7 @@ class Enemy {
 
     this.hp -= amount;
     if (!shieldBlocked) this.flashTimer = 6;
+    if (this.hp > 0) SFX.enemyHurt();
     const atkEl = attackElement || (game && game.player ? NINJA_ATTACK_ELEMENTS[game.player.ninjaType] : null);
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, atkEl));
     if (game && (sourceType === 'sword' || sourceType === 'shuriken' || sourceType === 'chain')) {
@@ -18046,13 +18124,13 @@ class Boss extends Enemy {
   onDeath(game) {
     SFX.bossDie();
     const chainKilled = game && game.player && game.player.staggerChaining;
-    triggerHitstop(chainKilled ? 58 : 10);
+    triggerHitstop(chainKilled ? 44 : 10);
     triggerScreenShake(8, 15);
-    game.effects.push(new AngledDeathFade(this.x, this.y, this.w, this.h, '#8b1018', { type: this.bossType, boss: true, life: 84 }));
+    game.effects.push(new AngledDeathFade(this.x, this.y, this.w, this.h, '#8b1018', { type: this.bossType, boss: true, life: 118, splat: true }));
     if (chainKilled) {
       game.effects.push(new ScreenFlash('#fff', 0.35, 18));
     }
-    game.bossDeathRewardDelay = Math.max(game.bossDeathRewardDelay || 0, 180);
+    game.bossDeathRewardDelay = Math.max(game.bossDeathRewardDelay || 0, 220);
     // Track boss kill for bestiary
     recordBestiaryKill(this.bossType, false, true);
     /*

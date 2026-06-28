@@ -22,12 +22,17 @@ const SFX = {
   muted: false,
   pulseGain: 2.25,
   _samplesReady: false,
+  _lastMonsterHurtAt: -999,
+  _lastMonsterDeathAt: -999,
   samplePaths: {
     shuriken: ['assets/sfx/shuriken_toss.wav', 'assets/sfx/shuriken.wav'],
     struck: ['assets/sfx/struck.wav'],
     shieldStruck: ['assets/sfx/shield_struck.wav'],
     hurtMale: ['assets/sfx/hurt_male.wav'],
     hurtFemale: ['assets/sfx/hurt_female.wav'],
+    monsterHurt: ['assets/sfx/monster_hurt_1.wav', 'assets/sfx/monster_hurt_2.wav'],
+    monsterDeath: ['assets/sfx/monster_death.wav'],
+    playerDeath: ['assets/sfx/player_death.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -207,10 +212,24 @@ const SFX = {
       this.filteredNoise(0.035, 0.04, 'highpass', 2700, 0.8, 0.001);
     });
   },
+  enemyHurt() {
+    const now = audioCtx.currentTime;
+    if (now - this._lastMonsterHurtAt < 0.12) return;
+    this._lastMonsterHurtAt = now;
+    this.sample('monsterHurt', () => {
+      this.filteredNoise(0.12, 0.07, 'bandpass', 360, 1.2, 0.001);
+      this.tone(120 + Math.random() * 35, 'sawtooth', 0.16, 0.045, -55, 0.002);
+    }, 0.58);
+  },
   enemyDie() {
-    this.thump(70, 0.16, 0.23);
-    this.filteredNoise(0.28, 0.12, 'lowpass', 520, 0.8, 0.003);
-    this.filteredNoise(0.16, 0.055, 'bandpass', 1300, 1.2, 0.001);
+    const now = audioCtx.currentTime;
+    if (now - this._lastMonsterDeathAt < 0.08) return;
+    this._lastMonsterDeathAt = now;
+    this.sample('monsterDeath', () => {
+      this.thump(70, 0.16, 0.23);
+      this.filteredNoise(0.28, 0.12, 'lowpass', 520, 0.8, 0.003);
+      this.filteredNoise(0.16, 0.055, 'bandpass', 1300, 1.2, 0.001);
+    }, 0.72);
   },
   playerHurt(ninjaType) {
     const gender = this.hurtVoiceForNinja(ninjaType);
@@ -218,6 +237,13 @@ const SFX = {
       this.vocalGrunt(gender);
       this.filteredNoise(0.09, 0.045, 'bandpass', 760, 1.2, 0.001);
     }, 0.45);
+  },
+  playerDie() {
+    this.sample('playerDeath', () => {
+      this.vocalGrunt('male');
+      this.thump(54, 0.18, 0.34);
+      this.filteredNoise(0.34, 0.11, 'lowpass', 480, 0.8, 0.004);
+    }, 0.72);
   },
   jump() {
     this.play(260, 'square', 0.1, 0.06, 180);
