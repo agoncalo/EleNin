@@ -252,6 +252,95 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
   }
 }
 
+class ClassOrb {
+  constructor(x, y, ninjaType, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.w = 44;
+    this.h = 44;
+    this.ninjaType = NINJA_TYPES[ninjaType] ? ninjaType : 'fire';
+    this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
+    this.pickupCooldown = opts.pickupCooldown || 0;
+    this.done = false;
+  }
+
+  update(game) {
+    if (this.done) return;
+    if (this.pickupCooldown > 0) this.pickupCooldown--;
+    this.bobTimer += 0.055;
+    const pl = game.player;
+    if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
+    if (pl.ninjaType === this.ninjaType) return;
+    const oldType = pl.ninjaType;
+    if (!pl.switchNinja(this.ninjaType)) return;
+    this.done = true;
+    SFX.pickup();
+    game.classOrbs.push(new ClassOrb(this.x, this.y, oldType, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+    const nt = NINJA_TYPES[this.ninjaType];
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new ScreenFlash(nt.accentColor || nt.color, 0.18, 12));
+    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, nt.accentColor || nt.color, 120, 12));
+    game.effects.push(new Effect(cx, cy, nt.accentColor || nt.color, 26, 6, 22));
+    game.effects.push(new TextEffect(cx, cy - 42, nt.name.toUpperCase() + ' ORB', nt.accentColor || nt.color));
+  }
+
+  render(ctx, cam) {
+    if (this.done) return;
+    const nt = NINJA_TYPES[this.ninjaType] || NINJA_TYPES.fire;
+    const color = nt.color || '#f93';
+    const accent = nt.accentColor || color;
+    const sx = this.x + this.w / 2 - cam.x;
+    const sy = this.y + this.h / 2 + Math.sin(this.bobTimer) * 7 - cam.y;
+    const pulse = 1 + Math.sin(this.bobTimer * 1.7) * 0.08;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(pulse, pulse);
+    ctx.globalAlpha = this.pickupCooldown > 0 ? 0.72 : 1;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 24 + Math.sin(this.bobTimer * 2) * 6;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(0, -12);
+    ctx.lineTo(11, 0);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(-11, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.ninjaType.substring(0, 1).toUpperCase(), 0, 1);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '900 11px monospace';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(nt.name.toUpperCase(), sx, sy - 38);
+    ctx.fillStyle = accent;
+    ctx.fillText('SWAP ORB', sx, sy + 46);
+    ctx.restore();
+  }
+}
+
 class HeartPickupOrb extends TimedPickupOrb {
   constructor(x, y) {
     super(x, y, 'heart', { life: 900, bobSpeed: 0.05, w: 22, h: 22 });

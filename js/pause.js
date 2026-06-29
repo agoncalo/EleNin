@@ -364,7 +364,6 @@ function updatePopup() {
         localStorage.removeItem(ACHIEVEMENTS_KEY);
         localStorage.removeItem(BESTIARY_KEY);
         localStorage.removeItem(VAULT_KEY);
-        localStorage.removeItem('elenin_lastNinja');
         achievementData = {};
         bestiaryData = {};
         vaultData = {};
@@ -795,14 +794,14 @@ function renderGuidePopup(ctx) {
     ctx.fillRect(tx, tabY, 88, 22);
     ctx.fillStyle = sel ? '#fff' : '#888';
     ctx.font = sel ? 'bold 10px monospace' : '10px monospace';
-    ctx.fillText(`${i + 1}:${tk.substring(0, 5)}`, tx + 6, tabY + 15);
+    ctx.fillText(tk.substring(0, 7), tx + 6, tabY + 15);
   }
 
   // Stats
   let cy = tabY + 42;
   ctx.font = '12px monospace';
   ctx.fillStyle = '#ccc';
-  ctx.fillText(`ATK: ${Math.round(nt.attackDamage)}  SPD: ${Math.round(nt.speed * 10) / 10}  JUMP: ${Math.round(Math.abs(nt.jumpPower) * 10) / 10}  KEY: [${nt.key}]`, bx + 24, cy);
+  ctx.fillText(`ATK: ${Math.round(nt.attackDamage)}  SPD: ${Math.round(nt.speed * 10) / 10}  JUMP: ${Math.round(Math.abs(nt.jumpPower) * 10) / 10}  FOUND AS A CLASS ORB`, bx + 24, cy);
 
   cy += 24;
   ctx.fillStyle = '#ffd700';

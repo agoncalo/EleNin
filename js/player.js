@@ -12,7 +12,7 @@ class Player {
     this.maxShield = 0;
     this.displayHp = 20;
     this.displayShield = 0;
-    this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
+    this.ninjaType = 'fire';
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
@@ -578,10 +578,9 @@ class Player {
   }
 
   switchNinja(type) {
-    if (this.ninjaType === type) return;
-    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
+    if (this.ninjaType === type) return false;
+    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
     this.ninjaType = type;
-    try { localStorage.setItem('elenin_lastNinja', type); } catch(e) {}
     this.comboMeter = 0;
     this.comboTimer = 0;
     this.fireArmor = false;
@@ -615,6 +614,7 @@ class Player {
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
+    return true;
   }
 
   _applyStaggerChainStatus(target, game) {

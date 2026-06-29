@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-28 21:35 UTC
-console.log("EleNin build: 2026-06-28 21:35 UTC");
+// BUILD TIMESTAMP: 2026-06-29 01:56 UTC
+console.log("EleNin build: 2026-06-29 01:56 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -3510,30 +3510,6 @@ const BOSS_MUSIC = {
 // General boss tracks cycled for non-specific bosses
 const GENERAL_BOSS_TRACKS = ['boss', 'boss2', 'boss3'];
 
-function makeMinibossMusicTrack(baseName) {
-  const base = MUSIC_TRACKS[baseName];
-  if (!base) return null;
-  const ch = base.ch.map(src => {
-    const copy = Object.assign({}, src);
-    copy.p = src.p.slice();
-    if (copy.t === 'k' || copy.t === 's') copy.v = Math.min(0.14, (copy.v || 0.06) * 1.18);
-    else if (copy.t === 'h') copy.v = Math.min(0.06, (copy.v || 0.02) * 1.35);
-    else copy.v = Math.min(0.07, (copy.v || 0.04) * 0.82);
-    return copy;
-  });
-  ch.push(
-    { t: 'k', v: 0.055, p: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0] },
-    { t: 'h', v: 0.018, p: [1,0,1,0, 1,0,1,1, 1,0,1,0, 1,1,1,0] },
-    { w: 'sawtooth', v: 0.022, d: 0.08, p: [45,0,0,0, 0,0,45,0, 43,0,0,0, 0,0,43,0] }
-  );
-  return { bpm: base.bpm + 5, len: base.len, ch };
-}
-
-['stage1', 'stage2', 'stage3', 'tower', 'arena'].forEach(name => {
-  const track = makeMinibossMusicTrack(name);
-  if (track) MUSIC_TRACKS[name + '_miniboss'] = track;
-});
-
 // ── Sequencer Engine ─────────────────────────────────────────
 const Music = {
   playing: false,
@@ -3814,14 +3790,10 @@ function setupMouseInput(canvas) {
 // Mouse position tracking (canvas-relative)
 let canvasMouseX = -1, canvasMouseY = -1;
 
-// Mouse wheel for ninja switching
-let mouseWheelNinja = 0;
+// Mouse wheel reserved for non-class actions.
 function setupMouseWheel(canvas) {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
-    if (e.deltaY > 0) mouseWheelNinja = (mouseWheelNinja + 1) % 7;
-    else mouseWheelNinja = (mouseWheelNinja + 6) % 7;
-    justPressed['WheelSwitch'] = true;
   }, { passive: false });
 }
 
@@ -8243,6 +8215,95 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
   }
 }
 
+class ClassOrb {
+  constructor(x, y, ninjaType, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.w = 44;
+    this.h = 44;
+    this.ninjaType = NINJA_TYPES[ninjaType] ? ninjaType : 'fire';
+    this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
+    this.pickupCooldown = opts.pickupCooldown || 0;
+    this.done = false;
+  }
+
+  update(game) {
+    if (this.done) return;
+    if (this.pickupCooldown > 0) this.pickupCooldown--;
+    this.bobTimer += 0.055;
+    const pl = game.player;
+    if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
+    if (pl.ninjaType === this.ninjaType) return;
+    const oldType = pl.ninjaType;
+    if (!pl.switchNinja(this.ninjaType)) return;
+    this.done = true;
+    SFX.pickup();
+    game.classOrbs.push(new ClassOrb(this.x, this.y, oldType, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+    const nt = NINJA_TYPES[this.ninjaType];
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new ScreenFlash(nt.accentColor || nt.color, 0.18, 12));
+    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, nt.accentColor || nt.color, 120, 12));
+    game.effects.push(new Effect(cx, cy, nt.accentColor || nt.color, 26, 6, 22));
+    game.effects.push(new TextEffect(cx, cy - 42, nt.name.toUpperCase() + ' ORB', nt.accentColor || nt.color));
+  }
+
+  render(ctx, cam) {
+    if (this.done) return;
+    const nt = NINJA_TYPES[this.ninjaType] || NINJA_TYPES.fire;
+    const color = nt.color || '#f93';
+    const accent = nt.accentColor || color;
+    const sx = this.x + this.w / 2 - cam.x;
+    const sy = this.y + this.h / 2 + Math.sin(this.bobTimer) * 7 - cam.y;
+    const pulse = 1 + Math.sin(this.bobTimer * 1.7) * 0.08;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(pulse, pulse);
+    ctx.globalAlpha = this.pickupCooldown > 0 ? 0.72 : 1;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 24 + Math.sin(this.bobTimer * 2) * 6;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(0, -12);
+    ctx.lineTo(11, 0);
+    ctx.lineTo(0, 12);
+    ctx.lineTo(-11, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.ninjaType.substring(0, 1).toUpperCase(), 0, 1);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '900 11px monospace';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(nt.name.toUpperCase(), sx, sy - 38);
+    ctx.fillStyle = accent;
+    ctx.fillText('SWAP ORB', sx, sy + 46);
+    ctx.restore();
+  }
+}
+
 class HeartPickupOrb extends TimedPickupOrb {
   constructor(x, y) {
     super(x, y, 'heart', { life: 900, bobSpeed: 0.05, w: 22, h: 22 });
@@ -8330,7 +8391,7 @@ class Player {
     this.maxShield = 0;
     this.displayHp = 20;
     this.displayShield = 0;
-    this.ninjaType = localStorage.getItem('elenin_lastNinja') || 'fire';
+    this.ninjaType = 'fire';
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
@@ -8896,10 +8957,9 @@ class Player {
   }
 
   switchNinja(type) {
-    if (this.ninjaType === type) return;
-    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
+    if (this.ninjaType === type) return false;
+    if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
     this.ninjaType = type;
-    try { localStorage.setItem('elenin_lastNinja', type); } catch(e) {}
     this.comboMeter = 0;
     this.comboTimer = 0;
     this.fireArmor = false;
@@ -8933,6 +8993,7 @@ class Player {
     // Set mana capacity per ninja
     this.maxMana = (MANA_CAPS[type] || 2) + this.bonusMana;
     this.mana = this.maxMana;
+    return true;
   }
 
   _applyStaggerChainStatus(target, game) {
@@ -17401,9 +17462,7 @@ class Enemy {
         break;
       }
       case 'flyer':
-        ctx.fillStyle = '#bdb';
-        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
-        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
+      case 'flyshooter':
         if (this.flyerDashState === 'prepare') {
           const pulse = Math.sin(this.flyerDashTimer * 0.5) * 0.4 + 0.6;
           ctx.globalAlpha = pulse;
@@ -17412,13 +17471,6 @@ class Enemy {
           ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
           ctx.globalAlpha = 1;
         }
-        break;
-      case 'flyshooter':
-        ctx.fillStyle = '#dba';
-        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
-        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
-        ctx.fillStyle = '#fa4';
-        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h / 2 - 2, 6, 4);
         break;
       case 'protector': {
         // --- Armored Knight ---
@@ -18742,6 +18794,9 @@ class Boss extends Enemy {
     }
     */
     game.bossRewardItem = null;
+    if (game && game._dropRandomClassOrb) {
+      game._dropRandomClassOrb(this.x + this.w / 2, this.y + this.h / 2);
+    }
   }
 
   render(ctx, cam, game) {
@@ -19841,7 +19896,6 @@ function updatePopup() {
         localStorage.removeItem(ACHIEVEMENTS_KEY);
         localStorage.removeItem(BESTIARY_KEY);
         localStorage.removeItem(VAULT_KEY);
-        localStorage.removeItem('elenin_lastNinja');
         achievementData = {};
         bestiaryData = {};
         vaultData = {};
@@ -20272,14 +20326,14 @@ function renderGuidePopup(ctx) {
     ctx.fillRect(tx, tabY, 88, 22);
     ctx.fillStyle = sel ? '#fff' : '#888';
     ctx.font = sel ? 'bold 10px monospace' : '10px monospace';
-    ctx.fillText(`${i + 1}:${tk.substring(0, 5)}`, tx + 6, tabY + 15);
+    ctx.fillText(tk.substring(0, 7), tx + 6, tabY + 15);
   }
 
   // Stats
   let cy = tabY + 42;
   ctx.font = '12px monospace';
   ctx.fillStyle = '#ccc';
-  ctx.fillText(`ATK: ${Math.round(nt.attackDamage)}  SPD: ${Math.round(nt.speed * 10) / 10}  JUMP: ${Math.round(Math.abs(nt.jumpPower) * 10) / 10}  KEY: [${nt.key}]`, bx + 24, cy);
+  ctx.fillText(`ATK: ${Math.round(nt.attackDamage)}  SPD: ${Math.round(nt.speed * 10) / 10}  JUMP: ${Math.round(Math.abs(nt.jumpPower) * 10) / 10}  FOUND AS A CLASS ORB`, bx + 24, cy);
 
   cy += 24;
   ctx.fillStyle = '#ffd700';
@@ -20911,6 +20965,7 @@ function renderAchievementsPopup(ctx) {
     ctx.textAlign = 'left';
   }
 }
+
 // === js/game.js ===
 // ── Main Menu Options ────────────────────────────────────────
 const MAIN_MENU_OPTIONS = ['Play', 'Controls', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
@@ -20977,6 +21032,7 @@ class Game {
     this.shurikenPickups = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -21404,12 +21460,14 @@ class Game {
   _spawnRouteEscapeTarget(event) {
     const type = event.enemyType || 'charger';
     const dir = Math.random() < 0.5 ? 1 : -1;
-    const x = dir > 0 ? -80 : this.levelW + 80;
-    const e = new Enemy(x, 0, type, true, 1, this._roomPowerLevel() + 0.5);
-    const anchor = this._objectiveAnchor(dir > 0 ? 90 : this.levelW - 90, e.w, e.h);
-    e.y = Math.round(anchor.y);
+    const e = new Enemy(0, 0, type, true, 1, this._roomPowerLevel() + 0.5);
+    const ground = this._mainGroundPlatform();
+    const laneY = ground ? ground.y - e.h : 480 - e.h;
+    e.x = dir > 0 ? 12 : Math.max(12, this.levelW - e.w - 12);
+    e.y = Math.round(laneY);
     e.isRouteEscapeTarget = true;
     e.routeEscapeDir = dir;
+    e.routeEscapePlatform = ground || null;
     const playerRunSpeed = this._playerRunSpeed();
     e.routeEscapeSpeed = Math.min(playerRunSpeed * 0.92, 2.5 + Math.min(1.4, (this.currentRouteStep || 0) * 0.16));
     e.routeEscapeBaseY = e.y;
@@ -21421,6 +21479,15 @@ class Game {
     this.enemies.push(e);
     event.target = e;
     this.effects.push(new TextEffect(e.x + e.w / 2, e.y - 18, 'ESCAPING!', e.routeObjectiveColor));
+  }
+
+  _mainGroundPlatform() {
+    let best = null;
+    for (const p of this.platforms) {
+      if (!p || p.thin || p.h > 80) continue;
+      if (!best || p.y > best.y || (p.y === best.y && p.w > best.w)) best = p;
+    }
+    return best;
   }
 
   _spawnRouteBombCarriage(event) {
@@ -21507,19 +21574,35 @@ class Game {
 
   _updateRouteEscapeGrounding(target) {
     if (!target || target.flying) return;
-    const prevY = target.y;
-    target.vy = Math.min(MAX_FALL, (target.vy || 0) + GRAVITY);
-    target.y += target.vy;
+    if (target.routeEscapePlatform) {
+      target.y = target.routeEscapePlatform.y - target.h;
+      target.vy = 0;
+      target.grounded = true;
+      target.routeEscapeBaseY = target.y;
+      return;
+    }
+    const footX = target.x + target.w / 2;
+    const currentFloorY = target.y + target.h;
+    let bestY = null;
+    let bestDelta = Infinity;
     for (const p of this.platforms) {
       if (!p || p.w < Math.max(48, target.w * 0.7) || p.h > 28) continue;
-      if (!rectOverlap(target, p)) continue;
-      if (target.vy >= 0 && prevY + target.h <= p.y + 8) {
-        target.y = p.y - target.h;
-        target.vy = 0;
-        target.routeEscapeBaseY = target.y;
-        return;
+      if (footX < p.x - target.w * 0.35 || footX > p.x + p.w + target.w * 0.35) continue;
+      const delta = Math.abs(p.y - currentFloorY);
+      if (delta > 14) continue;
+      if (bestY === null || delta < bestDelta) {
+        bestY = p.y;
+        bestDelta = delta;
       }
     }
+    if (bestY !== null) {
+      target.y = bestY - target.h;
+      target.vy = 0;
+      target.routeEscapeBaseY = target.y;
+      return;
+    }
+    target.y = target.routeEscapeBaseY || target.y;
+    target.vy = 0;
   }
 
   _flashObjectiveIndicator() {
@@ -24095,6 +24178,7 @@ class Game {
     this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.classOrbs = [];
     this.fireTrails = [];
     const oldLevelType = this.levelType;
     this.buildLevel();
@@ -24149,9 +24233,11 @@ class Game {
     this.orbs = [];
     this.shurikenPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    if (this.player.ninjaType !== 'fire') this.player.switchNinja('fire');
     this.player.deathTimer = 0;
     this.player.x = this.levelType === 'tower' ? 380 : 100;
     this.player.y = this.levelType === 'tower' ? 400 : 300;
@@ -24628,6 +24714,7 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -24697,6 +24784,29 @@ class Game {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
     this._updateHeartPickups();
+  }
+
+  _dropRandomClassOrb(x, y) {
+    if (!this.classOrbs) this.classOrbs = [];
+    const current = this.player ? this.player.ninjaType : 'fire';
+    const pool = NINJA_ORDER.filter(type => type !== current);
+    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'fire';
+    this._dropClassOrb(type, x, y, 80);
+  }
+
+  _dropClassOrb(type, x, y, pickupCooldown = 0) {
+    if (!NINJA_TYPES[type]) return;
+    if (!this.classOrbs) this.classOrbs = [];
+    const orb = new ClassOrb(
+      Math.max(24, Math.min(this.levelW - 68, x - 22)),
+      Math.max(-520, Math.min(this.levelH - 70, y - 22)),
+      type,
+      { pickupCooldown }
+    );
+    this.classOrbs.push(orb);
+    const nt = NINJA_TYPES[type];
+    this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, nt.accentColor || nt.color, 150, 14));
+    this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, nt.name.toUpperCase() + ' ORB DROPPED', nt.accentColor || nt.color));
   }
 
   _mapAreaBounds() {
@@ -24948,6 +25058,7 @@ class Game {
     compactLiveArray(this.bloodStains, keepNotDone, GAME_OBJECT_LIMITS.bloodStains);
     compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
     compactLiveArray(this.bossItems, keepNotDone);
+    compactLiveArray(this.classOrbs, keepNotDone);
   }
 
   _updateCameraFollow() {
@@ -25238,6 +25349,16 @@ class Game {
     return null;
   }
 
+  _currentObjectiveIndicatorTargets() {
+    const md = this.missionDirector;
+    if (md && md.minibosses && md.minibosses.length) {
+      const squad = md.minibosses.filter(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex && e.missionMinibossRole === 'squad');
+      if (squad.length > 1) return squad.map(e => ({ entity: e, label: 'KILL', color: '#ffb347' }));
+    }
+    const single = this._currentObjectiveIndicatorTarget();
+    return single ? [single] : [];
+  }
+
   _missionMinibossIndicatorTarget() {
     const md = this.missionDirector;
     if (!md) return null;
@@ -25257,8 +25378,11 @@ class Game {
   }
 
   _renderObjectiveTargetIndicator(ctx, cam) {
-    const targetInfo = this._currentObjectiveIndicatorTarget();
-    if (!targetInfo || !targetInfo.entity) return;
+    const targetInfos = this._currentObjectiveIndicatorTargets();
+    if (!targetInfos.length) return;
+    for (let targetIndex = 0; targetIndex < targetInfos.length; targetIndex++) {
+    const targetInfo = targetInfos[targetIndex];
+    if (!targetInfo || !targetInfo.entity) continue;
     const target = targetInfo.entity;
     const color = targetInfo.color || '#ffe033';
     const cx = target.x + target.w / 2 - cam.x;
@@ -25272,7 +25396,7 @@ class Game {
     const introScale = 1 + introEase * 4.2;
 
     ctx.save();
-    if (intro > 0) {
+    if (intro > 0 && targetIndex === 0) {
       ctx.globalAlpha = introEase * 0.22;
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -25376,6 +25500,7 @@ class Game {
       ctx.fillText(targetInfo.label, 0, labelY);
     }
     ctx.restore();
+    }
   }
 
   _renderSomberShaderLayer(ctx) {
@@ -25553,27 +25678,6 @@ class Game {
       return;
     }
 
-    // Ninja switching
-    if (consumePress('Digit1') || consumePress('Numpad1')) this.player.switchNinja('fire');
-    if (consumePress('Digit2') || consumePress('Numpad2')) this.player.switchNinja('earth');
-    if (consumePress('Digit3') || consumePress('Numpad3')) this.player.switchNinja('bubble');
-    if (consumePress('Digit4') || consumePress('Numpad4')) this.player.switchNinja('shadow');
-    if (consumePress('Digit5') || consumePress('Numpad5')) this.player.switchNinja('crystal');
-    if (consumePress('Digit6') || consumePress('Numpad6')) this.player.switchNinja('wind');
-    if (consumePress('Digit7')) this.player.switchNinja('storm');
-    if (justPressed['WheelSwitch']) {
-      justPressed['WheelSwitch'] = false;
-      this.player.switchNinja(NINJA_ORDER[mouseWheelNinja]);
-    }
-    if (gpJust[GP_LB]) {
-      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 6) % 7]);
-    }
-    if (gpJust[GP_RB]) {
-      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 1) % 7]);
-    }
-
     // Cheat: + to skip wave (grant average stats for the wave being skipped)
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       this.cheated = true;
@@ -25704,6 +25808,7 @@ class Game {
     for (const l of this.stageLanterns) l.update(this);
     for (const o of this.orbs) o.update(this);
     for (const bi of this.bossItems) bi.update(this);
+    for (const co of this.classOrbs) co.update(this);
 
     this._updateFieldPickups();
 
@@ -26696,9 +26801,7 @@ class Game {
       else if (this.levelType === 'arena') stageTrack = 'arena';
       else if (this.wave <= 3) stageTrack = 'stage1';
       else if (this.wave <= 7) stageTrack = 'stage2';
-      const md = this.missionDirector;
-      const minibossActive = md && this._missionMinibossAlive();
-      Music.play(minibossActive ? stageTrack + '_miniboss' : stageTrack);
+      Music.play(stageTrack);
     }
 
     if (this.menuActive) {
@@ -26964,6 +27067,7 @@ class Game {
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
+    for (const co of this.classOrbs) co.render(ctx, cam);
 
     for (const sp of this.shurikenPickups) sp.render(ctx, cam, this);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
@@ -27811,13 +27915,6 @@ class Game {
     this._renderSomberShaderLayer(ctx);
   }
 
-  _missionMinibossAlive() {
-    const md = this.missionDirector;
-    if (!md) return false;
-    if ((md.minibosses || []).some(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex)) return true;
-    return !!(md.miniboss && !md.miniboss.dead);
-  }
-
   _renderStaggerChainCombo(ctx) {
     const pl = this.player;
     const combo = pl ? (pl.staggerChainCombo || 0) : 0;
@@ -27891,7 +27988,6 @@ class Game {
     const cam = this.camera;
     const pl = this.player;
     const t = pl.type;
-    const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
     // Timer (top left)
     {
@@ -27935,9 +28031,6 @@ class Game {
     }
 
     this._renderStaggerChainCombo(ctx);
-
-    // Ninja bar at top, status bars stacked up from bottom
-    const ninjaBarY = 4;
 
     // ── Bottom HUD ──
     // Y anchors (all measured from bottom)
@@ -28107,28 +28200,6 @@ class Game {
       ctx.fillText('SHIELD', centerX, shY + shH + 8);
       ctx.textAlign = 'left';
       ctx.restore();
-    }
-
-    // Ninja selection bar
-    const ninjaBarX = CANVAS_W / 2 - 182;
-    for (let i = 0; i < 7; i++) {
-      const nt = NINJA_TYPES[ninjaKeys[i]];
-      const bx = ninjaBarX + i * 52;
-      const selected = pl.ninjaType === ninjaKeys[i];
-      ctx.fillStyle = selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.5)';
-      ctx.fillRect(bx, ninjaBarY, 48, 28);
-      if (selected) {
-        ctx.strokeStyle = nt.color;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(bx, ninjaBarY, 48, 28);
-      }
-      ctx.fillStyle = nt.color;
-      ctx.fillRect(bx + 4, ninjaBarY + 4, 12, 12);
-      ctx.fillStyle = '#fff';
-      ctx.font = '10px monospace';
-      ctx.fillText(`${i + 1}`, bx + 20, ninjaBarY + 14);
-      ctx.font = '8px monospace';
-      ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, ninjaBarY + 23);
     }
 
     // Boss Items display (left side, vertically centered)

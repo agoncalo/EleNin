@@ -2946,9 +2946,7 @@ class Enemy {
         break;
       }
       case 'flyer':
-        ctx.fillStyle = '#bdb';
-        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
-        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
+      case 'flyshooter':
         if (this.flyerDashState === 'prepare') {
           const pulse = Math.sin(this.flyerDashTimer * 0.5) * 0.4 + 0.6;
           ctx.globalAlpha = pulse;
@@ -2957,13 +2955,6 @@ class Enemy {
           ctx.fillText('!', sx + this.w / 2 - 3, sy - 8);
           ctx.globalAlpha = 1;
         }
-        break;
-      case 'flyshooter':
-        ctx.fillStyle = '#dba';
-        ctx.fillRect(sx - 5, sy + 4, 5, this.h - 8);
-        ctx.fillRect(sx + this.w, sy + 4, 5, this.h - 8);
-        ctx.fillStyle = '#fa4';
-        ctx.fillRect(this.facing > 0 ? sx + this.w : sx - 6, sy + this.h / 2 - 2, 6, 4);
         break;
       case 'protector': {
         // --- Armored Knight ---
@@ -4287,6 +4278,9 @@ class Boss extends Enemy {
     }
     */
     game.bossRewardItem = null;
+    if (game && game._dropRandomClassOrb) {
+      game._dropRandomClassOrb(this.x + this.w / 2, this.y + this.h / 2);
+    }
   }
 
   render(ctx, cam, game) {

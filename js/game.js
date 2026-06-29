@@ -63,6 +63,7 @@ class Game {
     this.shurikenPickups = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -490,12 +491,14 @@ class Game {
   _spawnRouteEscapeTarget(event) {
     const type = event.enemyType || 'charger';
     const dir = Math.random() < 0.5 ? 1 : -1;
-    const x = dir > 0 ? -80 : this.levelW + 80;
-    const e = new Enemy(x, 0, type, true, 1, this._roomPowerLevel() + 0.5);
-    const anchor = this._objectiveAnchor(dir > 0 ? 90 : this.levelW - 90, e.w, e.h);
-    e.y = Math.round(anchor.y);
+    const e = new Enemy(0, 0, type, true, 1, this._roomPowerLevel() + 0.5);
+    const ground = this._mainGroundPlatform();
+    const laneY = ground ? ground.y - e.h : 480 - e.h;
+    e.x = dir > 0 ? 12 : Math.max(12, this.levelW - e.w - 12);
+    e.y = Math.round(laneY);
     e.isRouteEscapeTarget = true;
     e.routeEscapeDir = dir;
+    e.routeEscapePlatform = ground || null;
     const playerRunSpeed = this._playerRunSpeed();
     e.routeEscapeSpeed = Math.min(playerRunSpeed * 0.92, 2.5 + Math.min(1.4, (this.currentRouteStep || 0) * 0.16));
     e.routeEscapeBaseY = e.y;
@@ -507,6 +510,15 @@ class Game {
     this.enemies.push(e);
     event.target = e;
     this.effects.push(new TextEffect(e.x + e.w / 2, e.y - 18, 'ESCAPING!', e.routeObjectiveColor));
+  }
+
+  _mainGroundPlatform() {
+    let best = null;
+    for (const p of this.platforms) {
+      if (!p || p.thin || p.h > 80) continue;
+      if (!best || p.y > best.y || (p.y === best.y && p.w > best.w)) best = p;
+    }
+    return best;
   }
 
   _spawnRouteBombCarriage(event) {
@@ -593,19 +605,35 @@ class Game {
 
   _updateRouteEscapeGrounding(target) {
     if (!target || target.flying) return;
-    const prevY = target.y;
-    target.vy = Math.min(MAX_FALL, (target.vy || 0) + GRAVITY);
-    target.y += target.vy;
+    if (target.routeEscapePlatform) {
+      target.y = target.routeEscapePlatform.y - target.h;
+      target.vy = 0;
+      target.grounded = true;
+      target.routeEscapeBaseY = target.y;
+      return;
+    }
+    const footX = target.x + target.w / 2;
+    const currentFloorY = target.y + target.h;
+    let bestY = null;
+    let bestDelta = Infinity;
     for (const p of this.platforms) {
       if (!p || p.w < Math.max(48, target.w * 0.7) || p.h > 28) continue;
-      if (!rectOverlap(target, p)) continue;
-      if (target.vy >= 0 && prevY + target.h <= p.y + 8) {
-        target.y = p.y - target.h;
-        target.vy = 0;
-        target.routeEscapeBaseY = target.y;
-        return;
+      if (footX < p.x - target.w * 0.35 || footX > p.x + p.w + target.w * 0.35) continue;
+      const delta = Math.abs(p.y - currentFloorY);
+      if (delta > 14) continue;
+      if (bestY === null || delta < bestDelta) {
+        bestY = p.y;
+        bestDelta = delta;
       }
     }
+    if (bestY !== null) {
+      target.y = bestY - target.h;
+      target.vy = 0;
+      target.routeEscapeBaseY = target.y;
+      return;
+    }
+    target.y = target.routeEscapeBaseY || target.y;
+    target.vy = 0;
   }
 
   _flashObjectiveIndicator() {
@@ -3181,6 +3209,7 @@ class Game {
     this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.classOrbs = [];
     this.fireTrails = [];
     const oldLevelType = this.levelType;
     this.buildLevel();
@@ -3235,9 +3264,11 @@ class Game {
     this.orbs = [];
     this.shurikenPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    if (this.player.ninjaType !== 'fire') this.player.switchNinja('fire');
     this.player.deathTimer = 0;
     this.player.x = this.levelType === 'tower' ? 380 : 100;
     this.player.y = this.levelType === 'tower' ? 400 : 300;
@@ -3714,6 +3745,7 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.classOrbs = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -3783,6 +3815,29 @@ class Game {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
     this._updateHeartPickups();
+  }
+
+  _dropRandomClassOrb(x, y) {
+    if (!this.classOrbs) this.classOrbs = [];
+    const current = this.player ? this.player.ninjaType : 'fire';
+    const pool = NINJA_ORDER.filter(type => type !== current);
+    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'fire';
+    this._dropClassOrb(type, x, y, 80);
+  }
+
+  _dropClassOrb(type, x, y, pickupCooldown = 0) {
+    if (!NINJA_TYPES[type]) return;
+    if (!this.classOrbs) this.classOrbs = [];
+    const orb = new ClassOrb(
+      Math.max(24, Math.min(this.levelW - 68, x - 22)),
+      Math.max(-520, Math.min(this.levelH - 70, y - 22)),
+      type,
+      { pickupCooldown }
+    );
+    this.classOrbs.push(orb);
+    const nt = NINJA_TYPES[type];
+    this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, nt.accentColor || nt.color, 150, 14));
+    this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, nt.name.toUpperCase() + ' ORB DROPPED', nt.accentColor || nt.color));
   }
 
   _mapAreaBounds() {
@@ -4034,6 +4089,7 @@ class Game {
     compactLiveArray(this.bloodStains, keepNotDone, GAME_OBJECT_LIMITS.bloodStains);
     compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
     compactLiveArray(this.bossItems, keepNotDone);
+    compactLiveArray(this.classOrbs, keepNotDone);
   }
 
   _updateCameraFollow() {
@@ -4324,6 +4380,16 @@ class Game {
     return null;
   }
 
+  _currentObjectiveIndicatorTargets() {
+    const md = this.missionDirector;
+    if (md && md.minibosses && md.minibosses.length) {
+      const squad = md.minibosses.filter(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex && e.missionMinibossRole === 'squad');
+      if (squad.length > 1) return squad.map(e => ({ entity: e, label: 'KILL', color: '#ffb347' }));
+    }
+    const single = this._currentObjectiveIndicatorTarget();
+    return single ? [single] : [];
+  }
+
   _missionMinibossIndicatorTarget() {
     const md = this.missionDirector;
     if (!md) return null;
@@ -4343,8 +4409,11 @@ class Game {
   }
 
   _renderObjectiveTargetIndicator(ctx, cam) {
-    const targetInfo = this._currentObjectiveIndicatorTarget();
-    if (!targetInfo || !targetInfo.entity) return;
+    const targetInfos = this._currentObjectiveIndicatorTargets();
+    if (!targetInfos.length) return;
+    for (let targetIndex = 0; targetIndex < targetInfos.length; targetIndex++) {
+    const targetInfo = targetInfos[targetIndex];
+    if (!targetInfo || !targetInfo.entity) continue;
     const target = targetInfo.entity;
     const color = targetInfo.color || '#ffe033';
     const cx = target.x + target.w / 2 - cam.x;
@@ -4358,7 +4427,7 @@ class Game {
     const introScale = 1 + introEase * 4.2;
 
     ctx.save();
-    if (intro > 0) {
+    if (intro > 0 && targetIndex === 0) {
       ctx.globalAlpha = introEase * 0.22;
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -4462,6 +4531,7 @@ class Game {
       ctx.fillText(targetInfo.label, 0, labelY);
     }
     ctx.restore();
+    }
   }
 
   _renderSomberShaderLayer(ctx) {
@@ -4639,27 +4709,6 @@ class Game {
       return;
     }
 
-    // Ninja switching
-    if (consumePress('Digit1') || consumePress('Numpad1')) this.player.switchNinja('fire');
-    if (consumePress('Digit2') || consumePress('Numpad2')) this.player.switchNinja('earth');
-    if (consumePress('Digit3') || consumePress('Numpad3')) this.player.switchNinja('bubble');
-    if (consumePress('Digit4') || consumePress('Numpad4')) this.player.switchNinja('shadow');
-    if (consumePress('Digit5') || consumePress('Numpad5')) this.player.switchNinja('crystal');
-    if (consumePress('Digit6') || consumePress('Numpad6')) this.player.switchNinja('wind');
-    if (consumePress('Digit7')) this.player.switchNinja('storm');
-    if (justPressed['WheelSwitch']) {
-      justPressed['WheelSwitch'] = false;
-      this.player.switchNinja(NINJA_ORDER[mouseWheelNinja]);
-    }
-    if (gpJust[GP_LB]) {
-      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 6) % 7]);
-    }
-    if (gpJust[GP_RB]) {
-      const idx = NINJA_ORDER.indexOf(this.player.ninjaType);
-      this.player.switchNinja(NINJA_ORDER[(idx + 1) % 7]);
-    }
-
     // Cheat: + to skip wave (grant average stats for the wave being skipped)
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       this.cheated = true;
@@ -4790,6 +4839,7 @@ class Game {
     for (const l of this.stageLanterns) l.update(this);
     for (const o of this.orbs) o.update(this);
     for (const bi of this.bossItems) bi.update(this);
+    for (const co of this.classOrbs) co.update(this);
 
     this._updateFieldPickups();
 
@@ -5782,9 +5832,7 @@ class Game {
       else if (this.levelType === 'arena') stageTrack = 'arena';
       else if (this.wave <= 3) stageTrack = 'stage1';
       else if (this.wave <= 7) stageTrack = 'stage2';
-      const md = this.missionDirector;
-      const minibossActive = md && this._missionMinibossAlive();
-      Music.play(minibossActive ? stageTrack + '_miniboss' : stageTrack);
+      Music.play(stageTrack);
     }
 
     if (this.menuActive) {
@@ -6050,6 +6098,7 @@ class Game {
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
+    for (const co of this.classOrbs) co.render(ctx, cam);
 
     for (const sp of this.shurikenPickups) sp.render(ctx, cam, this);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
@@ -6897,13 +6946,6 @@ class Game {
     this._renderSomberShaderLayer(ctx);
   }
 
-  _missionMinibossAlive() {
-    const md = this.missionDirector;
-    if (!md) return false;
-    if ((md.minibosses || []).some(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex)) return true;
-    return !!(md.miniboss && !md.miniboss.dead);
-  }
-
   _renderStaggerChainCombo(ctx) {
     const pl = this.player;
     const combo = pl ? (pl.staggerChainCombo || 0) : 0;
@@ -6977,7 +7019,6 @@ class Game {
     const cam = this.camera;
     const pl = this.player;
     const t = pl.type;
-    const ninjaKeys = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
     // Timer (top left)
     {
@@ -7021,9 +7062,6 @@ class Game {
     }
 
     this._renderStaggerChainCombo(ctx);
-
-    // Ninja bar at top, status bars stacked up from bottom
-    const ninjaBarY = 4;
 
     // ── Bottom HUD ──
     // Y anchors (all measured from bottom)
@@ -7193,28 +7231,6 @@ class Game {
       ctx.fillText('SHIELD', centerX, shY + shH + 8);
       ctx.textAlign = 'left';
       ctx.restore();
-    }
-
-    // Ninja selection bar
-    const ninjaBarX = CANVAS_W / 2 - 182;
-    for (let i = 0; i < 7; i++) {
-      const nt = NINJA_TYPES[ninjaKeys[i]];
-      const bx = ninjaBarX + i * 52;
-      const selected = pl.ninjaType === ninjaKeys[i];
-      ctx.fillStyle = selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.5)';
-      ctx.fillRect(bx, ninjaBarY, 48, 28);
-      if (selected) {
-        ctx.strokeStyle = nt.color;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(bx, ninjaBarY, 48, 28);
-      }
-      ctx.fillStyle = nt.color;
-      ctx.fillRect(bx + 4, ninjaBarY + 4, 12, 12);
-      ctx.fillStyle = '#fff';
-      ctx.font = '10px monospace';
-      ctx.fillText(`${i + 1}`, bx + 20, ninjaBarY + 14);
-      ctx.font = '8px monospace';
-      ctx.fillText(ninjaKeys[i].substring(0, 4), bx + 20, ninjaBarY + 23);
     }
 
     // Boss Items display (left side, vertically centered)

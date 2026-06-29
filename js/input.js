@@ -40,14 +40,10 @@ function setupMouseInput(canvas) {
 // Mouse position tracking (canvas-relative)
 let canvasMouseX = -1, canvasMouseY = -1;
 
-// Mouse wheel for ninja switching
-let mouseWheelNinja = 0;
+// Mouse wheel reserved for non-class actions.
 function setupMouseWheel(canvas) {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
-    if (e.deltaY > 0) mouseWheelNinja = (mouseWheelNinja + 1) % 7;
-    else mouseWheelNinja = (mouseWheelNinja + 6) % 7;
-    justPressed['WheelSwitch'] = true;
   }, { passive: false });
 }
 
