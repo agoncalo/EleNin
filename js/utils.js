@@ -710,6 +710,17 @@ function drawEnemySilhouettePath(ctx, x, y, w, h, type) {
     ctx.lineTo(x + w * 0.32, y + h * 0.58);
     ctx.lineTo(x + w * 0.02, y + h * 0.50);
     ctx.closePath();
+  } else if (type === 'rocketeer') {
+    ctx.moveTo(x + w * 0.12, y + h * 0.42);
+    ctx.lineTo(x + w * 0.34, y + h * 0.16);
+    ctx.lineTo(x + w * 0.76, y + h * 0.16);
+    ctx.lineTo(x + w * 1.14, y + h * 0.30);
+    ctx.lineTo(x + w * 0.86, y + h * 0.50);
+    ctx.lineTo(x + w * 0.70, y + h * 0.92);
+    ctx.lineTo(x + w * 0.45, y + h * 0.98);
+    ctx.lineTo(x + w * 0.28, y + h * 0.62);
+    ctx.lineTo(x - w * 0.08, y + h * 0.58);
+    ctx.closePath();
   } else if (type === 'flyer') {
     ctx.moveTo(cx - w * 0.16, cy - h * 0.32);
     ctx.quadraticCurveTo(cx - w * 0.70, cy - h * 0.68, cx - w * 1.05, cy + h * 0.10);

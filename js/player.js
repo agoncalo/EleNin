@@ -31,7 +31,7 @@ class Player {
 
     // Ultimate system
     this.ultimateCharge = 0;
-    this.ultimateMax = 500;
+    this.ultimateMax = 750;
     this.ultimateReady = false;
     this.ultimateActive = false;
     this.ultimateTimer = 0;
@@ -201,10 +201,12 @@ class Player {
     this.bubbleShieldMax = 300; // 5 seconds
     this.elementalArmor = 0;
     this.elementalArmorMax = 100;
-    this.elementalArmorBlockCost = 34;
+    this.elementalArmorBlockCost = 28;
+    this.elementalArmorPerDamage = 5;
 
     // Pending damage (highest prevails per frame)
     this._pendingDamage = null; // { amount, element, killerInfo }
+    this.oneShotProtectionUsed = false;
 
     // Ground slam
     this.slamming = false;
@@ -559,7 +561,7 @@ class Player {
         game.camera.y = this.y + this.h / 2 - CANVAS_H / 2;
         SFX.bossSpawn();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
-        this.invincibleTimer = 300;
+        this.invincibleTimer = 45;
         break;
 
       case 'storm':
@@ -584,8 +586,9 @@ class Player {
   addUltimateCharge(amount) {
     this.addAmmo(Math.max(1, Math.round((amount || 1) / 5)));
     const def = this.currentWeaponDef();
-    this.ultimateCharge = 0;
-    this.ultimateReady = !!(def && def.crashPower);
+    if (!def || !def.crashPower || this.ultimateActive) return;
+    this.ultimateCharge = Math.min(this.ultimateMax, (this.ultimateCharge || 0) + Math.max(1, Math.round((amount || 1) * 0.75)));
+    this.ultimateReady = this.ultimateCharge >= this.ultimateMax;
   }
 
   currentWeaponDef() {
@@ -624,6 +627,34 @@ class Player {
     this._setChainInvulnerability(2);
   }
 
+  _sanitizeInvulnerabilityState() {
+    const protectedByUltimate = this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle;
+    const protectedByChain = this._isChainInvulnerable();
+    const staleLongInvuln = this.invincibleTimer > 180 && !protectedByUltimate && !protectedByChain && this.deathTimer <= 0;
+    if (staleLongInvuln) this.invincibleTimer = 0;
+  }
+
+  _ensureDeathState(game) {
+    if (this.hp > 0 || this.deathTimer > 0) return;
+    this.hp = 0;
+    this.invincibleTimer = 0;
+    this.deathTimer = 180;
+    this.vx = 0;
+    this.vy = 0;
+    if (typeof SFX !== 'undefined' && SFX.playerDie) SFX.playerDie();
+    if (game && game.effects) {
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
+      game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
+      game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
+    }
+  }
+
+  _legacyBossItemsEnabled() {
+    return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
+  }
+
   equipWeapon(weaponId, game, opts = {}) {
     const def = WEAPON_ITEMS[weaponId];
     if (!def) return false;
@@ -647,7 +678,7 @@ class Player {
     } else {
       this.ninjaType = 'basic';
       this.ultimateCharge = 0;
-      this.ultimateReady = !!def.crashPower;
+      this.ultimateReady = false;
     }
     if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 34, def.name.toUpperCase(), def.accentColor || def.color));
     return true;
@@ -685,6 +716,13 @@ class Player {
     const def = this._spendItemAmmo(game);
     if (!def) return;
     this.itemUseFlash = 12;
+    if ((def.family || def.crashPower) === 'bubble') {
+      this.statusFloat = Math.max(this.statusFloat || 0, 90);
+      if (game) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'FLOAT', def.accentColor || def.color || '#aef'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, def.accentColor || '#aef', 10, 3, 14));
+      }
+    }
     if (def.power && def.power !== 'basic') {
       const oldType = this.ninjaType;
       this.ninjaType = def.power;
@@ -785,9 +823,14 @@ class Player {
       p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'grenade') {
-      const p = new Projectile(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player');
-      p.w = 14; p.h = 14; p.life = 95; p.bouncy = true; p.bouncesLeft = 1; p.gravScale = 1.05; p.explosive = true; p.explosionRadius = 76;
-      game.projectiles.push(applyProjectileTheme(p));
+      const g = new Grenade(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player', {
+        element: family === 'storm' ? 'lightning' : undefined,
+        gravScale: 0.9, fuseTimer: 54, bouncesLeft: 1, explodeRadius: 76
+      });
+      g.w = 14; g.h = 14;
+      g.weaponFamily = family;
+      g.accentColor = accent;
+      game.grenades.push(g);
       triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
       const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
@@ -810,6 +853,11 @@ class Player {
       return false;
     }
     if (this.ultCutscene || this.ultimateActive) return false;
+    if ((this.ultimateCharge || 0) < (this.ultimateMax || 1)) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'CRASH NOT READY', def.accentColor || def.color));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return false;
+    }
     const consumed = this.heldItem;
     this.itemCrashPalette = Object.assign({}, def);
     this.heldItem = null;
@@ -817,7 +865,6 @@ class Player {
     this.itemAmmoMax = 0;
     this.ninjaType = def.crashPower;
     this.ultimateReady = true;
-    this.ultimateCharge = this.ultimateMax;
     if (game && game._liveWeaponPickups && game._spawnEmergencyWeaponPickup && game._liveWeaponPickups().length <= 0) {
       game._spawnEmergencyWeaponPickup(0);
     }
@@ -1006,8 +1053,10 @@ class Player {
   update(game) {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
+    this._ensureDeathState(game);
     this._updateActionCharges();
     this._maintainChainInvulnerability();
+    this._sanitizeInvulnerabilityState();
 
     // HP no longer fuels actions; attack and magic use separate recharge pips.
     this.focusRegenTimer = 0;
@@ -1068,6 +1117,7 @@ class Player {
     // ── Ultimate active updates ──
     if (this.ultimateActive) {
       this.ultimateTimer--;
+      if (this.invincibleTimer > 0) this.invincibleTimer--;
 
       // Fire: update meteors
       if (this.ninjaType === 'fire') {
@@ -1515,6 +1565,8 @@ class Player {
           this.bubbleUlt = null;
           this.windBow = null;
           this.fireMeteors = [];
+          this.fireArmor = false;
+          this.fireArmorTimer = 0;
           this.shadowUltBuff = false;
           this.shadowDarkness = 0;
           this.shadowEyesTimer = 0;
@@ -3477,28 +3529,53 @@ class Player {
     }
   }
 
-  applyElementalStatus(element, game) {
-    if (!element) return;
-    const statusElements = { fire: true, water: true, crystal: true, wind: true, lightning: true, ghost: true, spiky: true };
-    if (!statusElements[element]) return;
-    const armorMax = this.elementalArmorMax || 100;
-    const armorCost = this.elementalArmorBlockCost || Math.ceil(armorMax / 3);
-    if ((this.elementalArmor || 0) >= armorCost) {
-      this.elementalArmor = Math.max(0, (this.elementalArmor || 0) - armorCost);
-      const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'STATUS BLOCKED', color));
-      game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, color, 64, 8));
+  _isElementalDamage(element) {
+    return !!({ fire: true, water: true, crystal: true, wind: true, lightning: true, ghost: true, spiky: true }[element]);
+  }
+
+  _spendElementalArmorForDamage(amount, element, game) {
+    if (!this._isElementalDamage(element) || (this.elementalArmor || 0) <= 0 || amount <= 0) return amount;
+    const costPerDamage = Math.max(1, this.elementalArmorPerDamage || 5);
+    const armor = this.elementalArmor || 0;
+    const blocked = Math.min(amount, Math.floor(armor / costPerDamage));
+    if (blocked <= 0) return amount;
+    const spent = Math.min(armor, blocked * costPerDamage);
+    this.elementalArmor = Math.max(0, armor - spent);
+    const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
+    if (game && game.effects) {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, color, 12, 4, 14));
-      return;
+      game.effects.push(new DamageNumber(this.x + this.w / 2, this.y - 10, blocked, element || null));
+      if (this.elementalArmor <= 0) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'ARMOR BROKEN', color));
     }
+    return Math.max(0, amount - blocked);
+  }
+
+  _spendElementalArmorForStatus(element, game) {
+    if (!this._isElementalDamage(element) || (this.elementalArmor || 0) <= 0) return false;
+    const armorCost = Math.min(this.elementalArmor || 0, this.elementalArmorBlockCost || 28);
+    this.elementalArmor = Math.max(0, (this.elementalArmor || 0) - armorCost);
+    const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
+    if (game && game.effects) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'ELEMENT BLOCK', color));
+      game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, color, 58, 7));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, color, 10, 3, 12));
+    }
+    return true;
+  }
+
+  applyElementalStatus(element, game, opts = {}) {
+    if (!element) return;
+    if (!this._isElementalDamage(element)) return;
+    if (!opts.skipArmor && this._spendElementalArmorForStatus(element, game)) return;
     // Elemental Charms: immune to matching affliction
     const charmImmunity = {
       fire: 'charmFire', water: 'charmWater', crystal: 'charmCrystal',
       wind: 'charmWind', lightning: 'charmLightning', ghost: 'charmGhost', spiky: 'charmSpiky'
     };
-    if (charmImmunity[element] && this.items[charmImmunity[element]]) return;
+    const legacyItemsOn = this._legacyBossItemsEnabled();
+    if (legacyItemsOn && charmImmunity[element] && this.items[charmImmunity[element]]) return;
     // Protective Charm: halve duration
-    const dMul = this.items.protectiveCharm ? 0.5 : 1;
+    const dMul = legacyItemsOn && this.items.protectiveCharm ? 0.5 : 1;
     if (element === 'fire') {
       this.statusBurn = Math.round(180 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
@@ -3530,8 +3607,14 @@ class Player {
     if (this.godMode) return;
     if (game && game.boss && game.boss.dead && (game.bossDeathRewardDelay || 0) > 0) return;
     const ultimateFormActive = this.ultimateActive || this.ultCutscene;
-    if (ultimateFormActive && this.earthGolem) return;
-    if (ultimateFormActive && this.crystalCastle) return;
+    if (ultimateFormActive && this.earthGolem) {
+      this.earthGolem.hp = Math.max(0, (this.earthGolem.hp || 0) - Math.max(1, Math.round(amount || 1)));
+      if (this.earthGolem.hp <= 0) this.earthGolem = null;
+      amount = Math.max(1, Math.ceil((amount || 1) * 0.35));
+    }
+    if (ultimateFormActive && this.crystalCastle) {
+      amount = Math.max(1, Math.ceil((amount || 1) * 0.45));
+    }
     if (ultimateFormActive && this.bubbleRide) {
       this.bubbleRide.hp -= amount;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
@@ -3543,7 +3626,7 @@ class Player {
     if (this.invincibleTimer > 0) {
       if (!(this.windDashing && element)) return;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
+    if (this._isChainInvulnerable()) return;
     // Queue damage — highest prevails per frame
     if (!this._pendingDamage || amount > this._pendingDamage.amount) {
       this._pendingDamage = { amount, element, killerInfo };
@@ -3572,13 +3655,14 @@ class Player {
       return;
     }
     // Leather Boots: 5% evasion
-    if (this.items.leatherBoots && Math.random() < 0.05) {
+    const legacyItemsOn = this._legacyBossItemsEnabled();
+    if (legacyItemsOn && this.items.leatherBoots && Math.random() < 0.05) {
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'DODGE', '#a86'));
       triggerHitstop(2);
       return;
     }
     // The Code: rechargeable counter-attack — negate damage, huge counter swing
-    if (this.items.theCode && this.codeCounterCharge >= this.codeCounterMax) {
+    if (legacyItemsOn && this.items.theCode && this.codeCounterCharge >= this.codeCounterMax) {
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       // Cancel any current swing and force a powerful counter
       this.attacking = false;
@@ -3616,7 +3700,11 @@ class Player {
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
+    if (this._isChainInvulnerable()) return;
+    if (this.fireArmor && this.fireArmorTimer > 0) {
+      amount = Math.max(1, Math.ceil(amount * 0.45));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 8, 3, 10));
+    }
     // Bubble shield orb — blocks all external damage while active
     if (this.bubbleShieldTimer > 0) {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 10, 4, 14));
@@ -3643,15 +3731,28 @@ class Player {
         return;
       }
     }
+    const beforeElementalArmor = amount;
+    amount = this._spendElementalArmorForDamage(amount, element, game);
+    if (amount <= 0) {
+      this.lastDamageAmount = beforeElementalArmor;
+      this.invincibleTimer = 30;
+      this.lastDamageTick = game.tick;
+      this.windPower = 0;
+      SFX.playerHurt(this.ninjaType);
+      triggerHitstop(4);
+      triggerScreenShake(2, 6);
+      return;
+    }
     const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
     // Elemental Charms: halve damage from matching element
     const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
-    if (element && charmMap[element] && this.items[charmMap[element]]) {
+    if (legacyItemsOn && element && charmMap[element] && this.items[charmMap[element]]) {
       amount = Math.max(1, Math.round(amount * 0.5));
     }
     if (!bypassArmor) amount = Math.max(1, amount - this.bonusArmor);
-    if (this.hp >= this.maxHp && amount >= this.hp && this.hp > 1) {
+    if (!this.oneShotProtectionUsed && this.hp >= this.maxHp && amount >= this.hp && this.hp > 1) {
       amount = this.hp - 1;
+      this.oneShotProtectionUsed = true;
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'ONE HP!', '#ffe033'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ffe033', 14, 4, 16));
     }
@@ -3693,9 +3794,9 @@ class Player {
     triggerScreenShake(4, 8);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, element || null));
-    this.applyElementalStatus(element, game);
+    this.applyElementalStatus(element, game, { skipArmor: true });
     // Spiked Armor: damage all nearby enemies when taking damage
-    if (this.items.spikedArmor) {
+    if (legacyItemsOn && this.items.spikedArmor) {
       const spikeDmg = amount;
       const sx = this.x + this.w / 2, sy = this.y + this.h / 2;
       game.effects.push(new Effect(sx, sy, '#f80', 18, 5, 15));
@@ -3717,7 +3818,7 @@ class Player {
     }
     if (this.hp <= 0) {
       // Death's Key: revive once per run
-      if (this.items.deathsKey && !this.deathsKeyUsed) {
+      if (legacyItemsOn && this.items.deathsKey && !this.deathsKeyUsed) {
         this.deathsKeyUsed = true;
         this.hp = Math.round(this.maxHp * 0.5);
         this.invincibleTimer = 120;

@@ -20,8 +20,8 @@ class Enemy {
     this.contactDmg = Math.max(1, Math.round(_ehp * (big ? 0.55 : 0.40) + _arm));
     const darkTypeColors = {
       walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
-      charger: '#241716', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
-      attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35'
+      rocketeer: '#243447', charger: '#241716', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
+      attacker: '#4a1f24', satellite: '#263a55', flyer: '#312032', flyshooter: '#242a35'
     };
     this.color = darkTypeColors[type] || base.color;
     this.facing = Math.random() < 0.5 ? -1 : 1;
@@ -29,6 +29,9 @@ class Enemy {
     this.contactTick = 0;
     this.shootTimer = randInt(0, 40);
     this.jumpTimer = randInt(0, 40);
+    this.wallJumpCooldown = 0;
+    this.platformIntentCooldown = randInt(10, 45);
+    this.platformDropTimer = 0;
     this.patrolLeft = x - 100;
     this.patrolRight = x + 100;
     this.flashTimer = 0;
@@ -38,7 +41,7 @@ class Enemy {
     this.resistTimer = 0;
     this.burnTimer = 0;
     this.soakTimer = 0;
-    this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
+    this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker' || type === 'satellite');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : (type === 'protector') ? (big ? 10 : 8) : 0;
     this.shieldMax = this.shieldHp;
     this.shieldBump = 0;
@@ -52,8 +55,10 @@ class Enemy {
     this.chargeTrails = [];
     this.hoverPhase = Math.random() * Math.PI * 2;
     // Per-instance preferred range offset so ranged enemies spread out
-    this.rangeOffset = (type === 'shooter' || type === 'bouncer') ? Math.floor(Math.random() * 80) - 40 : 0;
-    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
+    this.rangeOffset = (type === 'shooter' || type === 'bouncer' || type === 'rocketeer') ? Math.floor(Math.random() * 80) - 40 : 0;
+    this.guardOffset = Math.floor(Math.random() * 120) - 60;
+    this.defensiveDashCooldown = randInt(20, 70);
+    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'rocketeer' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
     this.iceSliding = false;
@@ -71,6 +76,11 @@ class Enemy {
     if (type === 'deflector') {
       this.w = big ? 52 : 40;
       this.h = big ? 52 : 40;
+    }
+    // Spears are larger readable guards, not tiny cars.
+    if (type === 'walker') {
+      this.w = big ? 54 : 36;
+      this.h = big ? 54 : 42;
     }
     // Charger: low horizontal rectangle that commits to one lane.
     if (type === 'charger') {
@@ -103,6 +113,11 @@ class Enemy {
       this.h = big ? 44 : 36;
       this.attackerAuraRadius = big ? 240 : 180;
     }
+    if (type === 'satellite') {
+      this.w = big ? 72 : 54;
+      this.h = big ? 42 : 32;
+      this.satelliteBeamCooldown = randInt(45, 100);
+    }
     // Elemental variant
     this.element = null;
     this.elementColors = null;
@@ -125,8 +140,8 @@ class Enemy {
   _initCombatBars(healthScale) {
     const normalHits = {
       walker: 8, shooter: 8, jumper: 9, bouncer: 10, charger: 12,
-      shielded: 11, deflector: 14, protector: 16, attacker: 7,
-      flyer: 8, flyshooter: 9
+      shielded: 11, deflector: 14, protector: 16, rocketeer: 11, attacker: 7,
+      satellite: 18, flyer: 8, flyshooter: 9
     };
     const scale = 1 + Math.max(0, (this.wave || 1) - 1) * 0.12;
     const mapScale = healthScale && healthScale !== this.wave ? Math.min(1.35, Math.max(1, Math.sqrt(healthScale))) : 1;
@@ -210,6 +225,18 @@ class Enemy {
   }
 
   _finishByStanceChain(game) {
+    if (this.shieldHp > 0) {
+      const fromX = game && game.player ? game.player.x + game.player.w / 2 : this.x + this.w / 2;
+      this._chipShield(game, fromX, 1, { effectSize: this.bossType ? 11 : 10 });
+      this.disableTimer = 0;
+      this.stance = this.maxStance || 0;
+      this.staggerBar = 0;
+      this.stunTimer = Math.max(this.stunTimer || 0, this.bossType ? 80 : 50);
+      if (game && game.effects) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'SHIELD CUT', '#f4f0ff'));
+      }
+      return false;
+    }
     if (game) {
       const cx = this.x + this.w / 2;
       const cy = this.y + this.h / 2;
@@ -238,7 +265,192 @@ class Enemy {
   }
 
   _needsDistance() {
-    return this.type === 'shooter' || this.type === 'bouncer' || this.type === 'flyshooter';
+    return this.type === 'shooter' || this.type === 'bouncer' || this.type === 'rocketeer' || this.type === 'flyshooter' || this.type === 'satellite';
+  }
+
+  _guardAnchor(game) {
+    if (!game) return null;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const candidates = [];
+    const add = (entity, weight) => {
+      if (!entity || entity.dead) return;
+      const ex = entity.x + entity.w / 2;
+      const ey = entity.y + entity.h / 2;
+      candidates.push({ x: ex, y: ey, weight: weight || 1 });
+    };
+    if (game.missionDirector) {
+      const rt = game.missionDirector.routeEvent;
+      if (rt && rt.target) add(rt.target, 0.35);
+    }
+    add(game.samurai, 0.45);
+    add(game.protectBuilding, 0.35);
+    add(game.boss && !game.boss.dead ? game.boss : null, 0.55);
+    for (const e of game.enemies || []) {
+      if (e === this || e.dead) continue;
+      if (e.type === 'shooter' || e.type === 'bouncer' || e.type === 'rocketeer' || e.type === 'flyshooter' || e.type === 'attacker' || e.type === 'satellite') add(e, 0.65);
+    }
+    if (!candidates.length) return { x: this.patrolLeft + 100, y: cy };
+    candidates.sort((a, b) => {
+      const da = Math.hypot(a.x - cx, a.y - cy) * a.weight;
+      const db = Math.hypot(b.x - cx, b.y - cy) * b.weight;
+      return da - db;
+    });
+    return candidates[0];
+  }
+
+  _defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, opts = {}) {
+    const pl = game.player;
+    const pcx = pl.x + pl.w / 2;
+    const pcy = pl.y + pl.h / 2;
+    if (this.vy >= 0 && this.vy < 1 && Math.abs(pcx - cx) > 6) this.facing = pcx > cx ? 1 : -1;
+    if (this.defensiveDashCooldown > 0) this.defensiveDashCooldown--;
+    const playerDist = Math.hypot(pcx - cx, pcy - cy);
+    const anchor = this._guardAnchor(game);
+    const desiredX = anchor ? anchor.x + (this.guardOffset || 0) : cx;
+    const dx = desiredX - cx;
+    const guardRadius = opts.guardRadius || 38;
+    const aggroRange = opts.aggroRange || 260;
+    if (!playerStealthed && playerDist < aggroRange && Math.abs(pcy - cy) < (opts.aggroYRange || 120)) {
+      const dir = Math.sign(pcx - cx) || this.facing || 1;
+      this.facing = dir;
+      const closeBias = playerDist < (opts.triggerRange || 110) ? 0.35 : 1;
+      this.vx = dir * speed * (opts.aggroSpeed || 0.9) * closeBias * windResist;
+    } else if (Math.abs(dx) > guardRadius) {
+      this.vx = Math.sign(dx) * speed * (opts.guardSpeed || 0.42) * windResist;
+    } else {
+      this.vx = Math.sin(((game.tick || 0) + this.guardOffset * 7) * 0.035) * speed * 0.18 * windResist;
+    }
+    const verticalTarget = (playerDist < aggroRange || !anchor) ? { x: pcx, y: pcy } : anchor;
+    const targetAbove = verticalTarget && verticalTarget.y < cy - (opts.platformRise || 44);
+    const targetReachableX = verticalTarget && Math.abs(verticalTarget.x - cx) < (opts.platformXRange || 270);
+    if (!playerStealthed && targetAbove && targetReachableX && this.defensiveDashCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+      const dir = Math.sign(verticalTarget.x - cx) || this.facing || 1;
+      this.facing = dir;
+      this.vy = opts.platformJumpVy || opts.jumpVy || -10.5;
+      this.vx = dir * speed * (opts.platformDashMult || opts.dashMult || 3.0) * windResist;
+      this.defensiveDashCooldown = opts.platformCooldown || opts.cooldown || randInt(60, 100);
+      if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 8, 3, 12));
+      return;
+    }
+    if (!playerStealthed && playerDist < (opts.triggerRange || 110) && Math.abs(pcy - cy) < (opts.yRange || 70) && this.defensiveDashCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+      const dir = Math.sign(pcx - cx) || this.facing || 1;
+      this.facing = dir;
+      this.vy = opts.jumpVy || -8.5;
+      this.vx = dir * speed * (opts.dashMult || 3.0) * windResist;
+      this.defensiveDashCooldown = opts.cooldown || randInt(55, 95);
+      if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 7, 3, 10));
+    }
+  }
+
+  _tryLeaperWallJump(game, px, speed, windResist) {
+    if (this.type !== 'jumper' || this.wallJumpCooldown > 0) return false;
+    if (this.onPlatform && this.vy >= 0 && this.vy < 1) return false;
+    const margin = 8;
+    const centerY = this.y + this.h / 2;
+    let wallDir = 0;
+
+    if (this.x <= margin && this.vx < 0) wallDir = 1;
+    else if (this.x + this.w >= game.levelW - margin && this.vx > 0) wallDir = -1;
+
+    if (!wallDir) {
+      for (const p of game.platforms || []) {
+        if (p.thin) continue;
+        const verticalOverlap = centerY > p.y - this.h * 0.45 && centerY < p.y + p.h + this.h * 0.35;
+        if (!verticalOverlap) continue;
+        const hitLeftSide = this.vx > 0 && this.x + this.w >= p.x - margin && this.x + this.w <= p.x + margin;
+        const hitRightSide = this.vx < 0 && this.x <= p.x + p.w + margin && this.x >= p.x + p.w - margin;
+        if (hitLeftSide) { wallDir = -1; this.x = p.x - this.w - 1; break; }
+        if (hitRightSide) { wallDir = 1; this.x = p.x + p.w + 1; break; }
+      }
+    }
+
+    if (!wallDir) return false;
+    this.facing = wallDir;
+    const targetBias = px > this.x + this.w / 2 ? 1 : -1;
+    const pushDir = targetBias === wallDir ? wallDir : wallDir * 0.85;
+    this.vx = pushDir * speed * (this.big ? 3.1 : 3.45) * windResist;
+    this.vy = this.big ? -12.4 : -11.2;
+    this.wallJumpCooldown = this.big ? 20 : 16;
+    this.jumpTimer = 0;
+    if (game.effects) {
+      game.effects.push(new Effect(
+        wallDir > 0 ? this.x : this.x + this.w,
+        this.y + this.h * 0.48,
+        this.element ? this.elementColors.accent : '#d8b4ff',
+        7,
+        3,
+        10
+      ));
+    }
+    return true;
+  }
+
+  _canUseThinPlatforms() {
+    if (this.flying || this.type === 'charger' || this.type === 'attacker' || this.type === 'satellite') return false;
+    if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') return false;
+    return true;
+  }
+
+  _platformMobility(game, px, py, speed, windResist, playerStealthed) {
+    if (!game || this.flying || playerStealthed || this.stunTimer > 0 || this.knockbackTimer > 0) return;
+    if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState !== 'idle') return;
+    if (this.type === 'attacker' || this.type === 'satellite') return;
+    if (this.platformIntentCooldown > 0) this.platformIntentCooldown--;
+    if (this.platformIntentCooldown > 0) return;
+    this.platformIntentCooldown = randInt(12, 28);
+
+    const grounded = this.vy >= -0.2 && this.vy < 1 && !!this.onPlatform;
+    if (!grounded) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dx = px - cx;
+    const targetAbove = py < cy - 58;
+    const targetBelow = py > cy + 72;
+    const targetDir = Math.sign(dx) || this.facing || 1;
+    const mobileJumpers = this.type === 'jumper' || this.type === 'bouncer' || this.type === 'deflector';
+    const heavyGuard = this.type === 'shielded' || this.type === 'protector';
+    const canJumpToPlatforms = mobileJumpers || heavyGuard;
+
+    if (targetAbove && canJumpToPlatforms) {
+      const reachable = (game.platforms || []).some(p => {
+        if (p.y >= this.y - 18 || p.y < this.y - 150) return false;
+        const horizontalReach = cx > p.x - 120 && cx < p.x + p.w + 120;
+        const targetNearPlatform = px > p.x - 80 && px < p.x + p.w + 80;
+        return horizontalReach || targetNearPlatform;
+      });
+      if (reachable || Math.abs(dx) < 260) {
+        this.facing = targetDir;
+        this.vy = mobileJumpers ? (this.big ? -12.8 : -11.4) : heavyGuard ? -10.2 : -9.8;
+        this.vx = targetDir * speed * (mobileJumpers ? 2.8 : heavyGuard ? 2.0 : 2.25) * windResist;
+        this.jumpTimer = 0;
+        if (game.effects && mobileJumpers) game.effects.push(new Effect(cx, this.y + this.h, '#d8b4ff', 6, 3, 9));
+        return;
+      }
+    }
+
+    const p = this.onPlatform;
+    const canDrop = p && (p.thin || p.playerDropThrough || p.h <= 12) && p.y < 460;
+    if (targetBelow && canDrop && (Math.abs(dx) < Math.max(120, p.w * 0.65) || Math.sign(dx) === Math.sign(this.vx || targetDir))) {
+      this.platformDropTimer = 18;
+      this.onPlatform = null;
+      this.y += 3;
+      this.vy = Math.max(this.vy, 1.5);
+      this.facing = targetDir;
+      this.vx = targetDir * speed * (mobileJumpers ? 1.7 : 1.15) * windResist;
+      return;
+    }
+
+    const edgePad = 18;
+    const nearingLeft = p && cx < p.x + edgePad && this.vx < 0;
+    const nearingRight = p && cx > p.x + p.w - edgePad && this.vx > 0;
+    if ((nearingLeft || nearingRight) && Math.abs(dx) > 120 && !heavyGuard && canJumpToPlatforms) {
+      this.facing = targetDir;
+      this.vy = mobileJumpers ? (this.big ? -11.8 : -10.6) : -8.7;
+      this.vx = targetDir * speed * (mobileJumpers ? 2.6 : 1.9) * windResist;
+      this.jumpTimer = 0;
+    }
   }
 
   _tryLightningTeleport(game) {
@@ -292,7 +504,6 @@ class Enemy {
     if (this.windPhaseCooldown <= 0) {
       this.windPhaseTimer = this.big ? 75 : 55;
       this.windPhaseCooldown = randInt(180, 300);
-      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PHASE', '#bfb'));
     }
   }
 
@@ -314,10 +525,6 @@ class Enemy {
       this.spikySpikeCooldown = randInt(150, 260);
       if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SPIKES', '#f86'));
     }
-  }
-
-  _windPhaseWarning() {
-    return this.element === 'wind' && this.windPhaseTimer <= 0 && this.windPhaseCooldown <= 60;
   }
 
   _spikySpikeWarning() {
@@ -620,8 +827,11 @@ class Enemy {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
 
-    // Gravity (not for flyers, not for floating)
-    if (this.floatTimer > 0) {
+    // Gravity (not for flyers, not for floating). Disabled flyers should hold
+    // their skull-marked position instead of float-drifting off-screen.
+    if (this.disableTimer > 0 && this.flying) {
+      this.vy = 0;
+    } else if (this.floatTimer > 0) {
       this.floatTimer--;
       this.vy -= 0.15; // gentle upward drift
       if (this.vy < -3) this.vy = -3;
@@ -637,24 +847,17 @@ class Enemy {
       if (towardPlayer) windResist = 0.45;
     }
 
+    if (this.wallJumpCooldown > 0) this.wallJumpCooldown--;
+    if (this.platformDropTimer > 0) this.platformDropTimer--;
     if (this.stunTimer > 0) { this.stunTimer--; this.vx *= 0.9; }
     else switch (this.type) {
       case 'walker':
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
-        this.vx = this.facing * speed * windResist;
-        if (this.vy >= 0 && this.vy < 1) {
-          if (this.x <= this.patrolLeft) this.facing = 1;
-          if (this.x >= this.patrolRight) this.facing = -1;
-        }
-        // Lunge at player if facing them and close
-        if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-          const wDist = Math.abs(px - cx);
-          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-          if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-            this.vy = -8;
-            this.vx = this.facing * speed * 2.5;
-          }
-        }
+        this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+          guardRadius: 44, guardSpeed: 0.58, triggerRange: 155, yRange: 96, aggroRange: 340,
+          aggroSpeed: 1.15, platformJumpVy: -12.4, platformDashMult: 3.65,
+          jumpVy: -11.2, dashMult: 3.75, cooldown: 55, color: '#d8d0b8'
+        });
         break;
       case 'shooter': {
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
@@ -688,6 +891,52 @@ class Enemy {
           if (d < 400 && d > 0) {
             const col = this.element ? this.elementColors.accent : '#ff4';
             game.hitLines.push(new HitLine(cx, cy, (dx / d) * 4, (dy / d) * 4, col, this.contactDmg, 'enemy', { element: this.element }));
+          }
+        }
+        break;
+      }
+      case 'rocketeer': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
+        const rDist = Math.abs(px - cx);
+        if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
+        const rRetreat = 190 + this.rangeOffset;
+        const rComfort = 320 + this.rangeOffset;
+        const rBuf = 24;
+        if (!this._rangeState) this._rangeState = 'comfort';
+        if (this._rangeState === 'comfort') {
+          if (rDist < rRetreat - rBuf) this._rangeState = 'retreat';
+          else if (rDist > rComfort + rBuf) this._rangeState = 'approach';
+        } else if (this._rangeState === 'retreat') {
+          if (rDist > rRetreat + rBuf) this._rangeState = 'comfort';
+        } else {
+          if (rDist < rComfort - rBuf) this._rangeState = 'comfort';
+        }
+        if (this._rangeState === 'retreat') {
+          this.vx = -this.facing * speed * 0.78 * windResist;
+        } else if (this._rangeState === 'comfort') {
+          const tick = game ? game.tick : 0;
+          this.vx = Math.sin((tick + this.rangeOffset * 9) * 0.035) * speed * 0.24 * windResist;
+        } else {
+          this.vx = this.facing * speed * 0.48 * windResist;
+        }
+        this.shootTimer++;
+        if (this.shootTimer >= (this.big ? 115 : 145)) {
+          this.shootTimer = 0;
+          const dx = px - cx, dy = py - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 620 && d > 0) {
+            const col = this.element ? this.elementColors.accent : '#79d8ff';
+            const leadX = Math.max(36, Math.min(game.levelW - 36, px + (targetBox.vx || 0) * 12 + randInt(-22, 22)));
+            const leadY = Math.max(game.camera.y + 35, Math.min(500, py + randInt(-10, 18)));
+            game.hitLines.push(new EnergyBlastCircle(leadX, leadY, this.big ? 72 : 58, col, this.contactDmg, 'enemy', {
+              element: this.element,
+              maxTimer: this.big ? 58 : 66,
+              flashDur: 18,
+              sourceType: 'rocketeer',
+              originX: cx,
+              originY: cy - 8
+            }));
+            game.effects.push(new Effect(cx, cy - 4, col, 8, 3, 10));
           }
         }
         break;
@@ -780,7 +1029,7 @@ class Enemy {
           if (this.chargeState === 'prepare') {
             this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
             this.chargeTimer++;
-            if (this.chargeTimer >= 25) {
+            if (this.chargeTimer >= 16) {
               this.chargeState = 'charging';
               this.chargeTimer = 0;
               game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#5ff', 8, 4, 12));
@@ -792,7 +1041,7 @@ class Enemy {
             if (this.chargeTimer >= 18) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 85;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
@@ -805,9 +1054,9 @@ class Enemy {
           } else if (this.chargeState === 'stunned') {
             this.vx = 0;
             this.chargeTimer++;
-            if (this.chargeTimer >= 180) {
+            if (this.chargeTimer >= 90) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 80;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -815,46 +1064,43 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 15 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 80;
               this.vx = 0;
             }
           } else {
             // idle — walk toward player
-            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.5 * windResist;
-            if (shDist < 120 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
+            this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+              guardRadius: 52, guardSpeed: 0.50, triggerRange: 165, yRange: 98, aggroRange: 360,
+              aggroSpeed: 1.0, platformJumpVy: -11.8, platformDashMult: 3.9,
+              jumpVy: -10.4, dashMult: 4.2, cooldown: 65, color: '#5ff'
+            });
+            if (shDist < 165 && Math.abs(py - cy) < 90 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
               const cdx = px - cx, cdy = py - cy;
               const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
               this._chargeVx = (cdx / cd) * speed * 5;
-              this._chargeVy = (cdy / cd) * speed * 5;
+              this._chargeVy = Math.min((cdy / cd) * speed * 5, -2.5);
               this.vx = 0;
             }
           }
         } else {
           // Shield broken — behave like walker
-          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
-          if (this.vy >= 0 && this.vy < 1) {
-            if (this.x <= this.patrolLeft) this.facing = 1;
-            if (this.x >= this.patrolRight) this.facing = -1;
-          }
-          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-            const wDist = Math.abs(px - cx);
-            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            }
-          }
+          this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+            guardRadius: 46, guardSpeed: 0.54, triggerRange: 145, yRange: 86, aggroRange: 330,
+            aggroSpeed: 1.0, platformJumpVy: -11.6, platformDashMult: 3.3,
+            jumpVy: -10.2, dashMult: 3.25, cooldown: 60, color: '#d8d0b8'
+          });
         }
         break;
       }
       case 'deflector': {
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         // A Friend's Letter and objective Ronin allies fight on the player's side.
-        if (this.friendly || game.player.items.friendsLetter) {
-          if (game.player.items.friendsLetter) this.friendly = true;
+        const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+        if (this.friendly || (legacyItemsOn && game.player.items.friendsLetter)) {
+          if (legacyItemsOn && game.player.items.friendsLetter) this.friendly = true;
           // Face nearest non-friendly enemy
           let nearDist = Infinity, nearE = null;
           for (const other of game.enemies) {
@@ -940,7 +1186,7 @@ class Enemy {
           if (this.chargeState === 'prepare') {
             this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
             this.chargeTimer++;
-            if (this.chargeTimer >= 35) {
+            if (this.chargeTimer >= 22) {
               this.chargeState = 'charging';
               this.chargeTimer = 0;
               game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f8', 8, 4, 12));
@@ -952,7 +1198,7 @@ class Enemy {
             if (this.chargeTimer >= 20) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 100;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
@@ -965,9 +1211,9 @@ class Enemy {
           } else if (this.chargeState === 'stunned') {
             this.vx = 0;
             this.chargeTimer++;
-            if (this.chargeTimer >= 180) {
+            if (this.chargeTimer >= 105) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 95;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -975,38 +1221,63 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 18 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 95;
               this.vx = 0;
             }
           } else {
             // idle — walk slowly toward player
-            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.4 * windResist;
-            if (pDist < 140 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
+            this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+              guardRadius: 62, guardSpeed: 0.42, triggerRange: 175, yRange: 104, aggroRange: 380,
+              aggroSpeed: 0.9, platformJumpVy: -11.2, platformDashMult: 3.4,
+              jumpVy: -9.8, dashMult: 3.65, cooldown: 80, color: '#4f8'
+            });
+            if (pDist < 175 && Math.abs(py - cy) < 90 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
               const cdx = px - cx, cdy = py - cy;
               const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
               this._chargeVx = (cdx / cd) * speed * 4.5;
-              this._chargeVy = (cdy / cd) * speed * 4.5;
+              this._chargeVy = Math.min((cdy / cd) * speed * 4.5, -2.2);
               this.vx = 0;
             }
           }
         } else {
           // Shield broken — behave like walker
-          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
-          if (this.vy >= 0 && this.vy < 1) {
-            if (this.x <= this.patrolLeft) this.facing = 1;
-            if (this.x >= this.patrolRight) this.facing = -1;
-          }
-          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-            const wDist = Math.abs(px - cx);
-            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            }
-          }
+          this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+            guardRadius: 56, guardSpeed: 0.46, triggerRange: 155, yRange: 90, aggroRange: 350,
+            aggroSpeed: 0.9, platformJumpVy: -10.8, platformDashMult: 3.1,
+            jumpVy: -9.8, dashMult: 3.0, cooldown: 75, color: '#d8d0b8'
+          });
+        }
+        break;
+      }
+      case 'satellite': {
+        this.hoverPhase += 0.035;
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; break; }
+        const pl = game.player;
+        const pcx = pl.x + pl.w / 2;
+        const pcy = pl.y + pl.h / 2;
+        const targetY = Math.max(game.camera.y + 58, Math.min(210, pcy - 210));
+        const targetX = Math.max(60, Math.min(game.levelW - 60, pcx + Math.sin((game.tick + this.guardOffset) * 0.018) * 120));
+        this.facing = pcx > cx ? 1 : -1;
+        this.vx += Math.sign(targetX - cx) * 0.12;
+        this.vx *= 0.92;
+        this.vy += Math.sign(targetY - cy) * 0.08;
+        this.vy = this.vy * 0.9 + Math.sin(this.hoverPhase) * 0.08;
+        if (this.satelliteBeamCooldown > 0) this.satelliteBeamCooldown--;
+        if (this.satelliteBeamCooldown <= 0) {
+          this.satelliteBeamCooldown = this.big ? 150 : 185;
+          const col = this.element ? this.elementColors.accent : '#8fd6ff';
+          game.hitLines.push(new SatelliteBeam(this, col, this.contactDmg, 'enemy', {
+            element: this.element,
+            telegraphDur: this.big ? 32 : 38,
+            activeDur: 60,
+            fadeDur: 22,
+            width: this.big ? 24 : 19,
+            sourceType: 'satellite'
+          }));
+          game.effects.push(new Effect(cx, cy, col, 9, 3, 12));
         }
         break;
       }
@@ -1045,12 +1316,11 @@ class Enemy {
             const sdx = px - auraCx, sdy = py - auraCy;
             const sd = Math.sqrt(sdx * sdx + sdy * sdy);
             if (sd > 0 && sd < 500) {
-              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(auraCx, auraCy, (sdx / sd) * 4, (sdy / sd) * 4, col, this.contactDmg, 'enemy', {
+                element: this.element, maxTimer: this.big ? 38 : 46, flashDur: 20, activeDur: 18,
+                width: this.big ? 18 : 14, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
             }
           }
@@ -1091,12 +1361,11 @@ class Enemy {
             const sdx = px - auraCx, sdy = py - auraCy;
             const sd = Math.sqrt(sdx * sdx + sdy * sdy);
             if (sd > 0 && sd < 500) {
-              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(auraCx, auraCy, (sdx / sd) * 4, (sdy / sd) * 4, col, this.contactDmg, 'enemy', {
+                element: this.element, maxTimer: this.big ? 38 : 46, flashDur: 20, activeDur: 18,
+                width: this.big ? 18 : 14, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
             }
           }
@@ -1307,6 +1576,25 @@ class Enemy {
     }
     if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
 
+    this._platformMobility(game, px, py, speed, windResist, playerStealthed);
+
+    // Defensive melee clumps near anchors, but should not stack into one blob.
+    if (this.type === 'walker' || this.type === 'shielded' || this.type === 'protector') {
+      for (const other of game.enemies) {
+        if (other === this || other.dead || (other.type !== 'walker' && other.type !== 'shielded' && other.type !== 'protector')) continue;
+        const ox = other.x + other.w / 2;
+        const oy = other.y + other.h / 2;
+        const dx = cx - ox;
+        const dy = cy - oy;
+        const minDist = (this.w + other.w) * 0.42;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 0.01 && d2 < minDist * minDist && Math.abs(dy) < Math.max(this.h, other.h) * 0.8) {
+          const d = Math.sqrt(d2);
+          this.vx += (dx / d) * 0.45;
+        }
+      }
+    }
+
     // Apply velocity
     this.x += this.vx;
     this.y += this.vy;
@@ -1314,9 +1602,11 @@ class Enemy {
     // Platform collision (ground enemies only)
     const isChargeDashing = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
     if (!this.flying) {
+      this._tryLeaperWallJump(game, px, speed, windResist);
       this.onPlatform = null;
       for (const p of game.platforms) {
-        if (p.thin) continue;
+        if (this.platformDropTimer > 0 && (p.thin || p.playerDropThrough || p.h <= 12)) continue;
+        if (p.thin && !this._canUseThinPlatforms()) continue;
         if (isChargeDashing && p.y < 460) continue;
         if (rectOverlap(this, p)) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
@@ -1328,7 +1618,7 @@ class Enemy {
       }
       if (this.edgeAware && this.onPlatform && this.onPlatform.w >= 80) {
         const p = this.onPlatform;
-        const isRanged = (this.type === 'shooter' || this.type === 'bouncer');
+        const isRanged = (this.type === 'shooter' || this.type === 'bouncer' || this.type === 'rocketeer');
         const retreating = isRanged && Math.sign(this.vx) !== this.facing && Math.abs(this.vx) > 0.1;
         if (this.type === 'shielded' || this.type === 'protector') {
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
@@ -1366,17 +1656,12 @@ class Enemy {
             }
           }
         } else if (this.type === 'walker') {
-          // Walkers: jump off ledge toward player instead of turning
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
           const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
-          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
-            if (!playerStealthed && facingPlayer && this.vy >= 0 && this.vy < 1) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            } else {
-              this.facing = -this.facing;
-            }
+            this.vx = 0;
+            if (atLeftEdge) this.x = p.x + 8 - this.w / 2;
+            if (atRightEdge) this.x = p.x + p.w - 8 - this.w / 2;
           }
         } else {
           if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
@@ -1523,23 +1808,24 @@ class Enemy {
         }
       }
     }
-    // Attacker: invulnerable while enemies are in its aura
+    // Attacker: protected while enemies are in its aura, but no longer fully invulnerable.
     if (this.type === 'attacker' && this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 5, 2, 6));
-      return false;
+      amount = Math.max(1, Math.round(amount * 0.35));
     }
-    // Protector aura: non-protector enemies near a protector can't be damaged
+    // Protector aura: active only while its shield holds, and reduces damage instead of denying it.
     if (this.type !== 'protector' && this.type !== 'attacker' && game) {
       for (const other of game.enemies) {
-        if (other.dead || other.type !== 'protector' || other === this) continue;
+        if (other.dead || other.type !== 'protector' || other === this || other.shieldHp <= 0) continue;
         const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
         const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
           this.flashTimer = 4;
           other.deflectFlash = 0;
           game.effects.push(new Effect(this.x + this.w / 2, this.y - 4, '#4f8', 5, 2, 6));
-          return false;
+          amount = Math.max(1, Math.round(amount * 0.45));
+          break;
         }
       }
     }
@@ -1549,32 +1835,22 @@ class Enemy {
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
+    if (sourceType === 'chain') {
+      this.stunTimer = Math.max(this.stunTimer || 0, this.big ? 55 : 40);
+      this.vx *= 0.35;
+      this.vy *= 0.35;
+    }
 
     // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
     const combatDamage = this._damageProfile(amount, sourceType);
     if (!hasActiveShield) this._applyStanceDamage(combatDamage.stance, game);
     amount = combatDamage.hp;
 
-    // Shielded / Protector: swords and boulders remove shield pips
+    // Shielded / Protector: heavy strikes and chain strikes remove shield pips
     let shieldBlocked = false;
-    if ((sourceType === 'sword' || sourceType === 'boulder' || sourceType === 'shuriken') && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'boulder' || sourceType === 'shuriken' || sourceType === 'chain') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
-      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
-      this.shieldHp -= pickaxeHits;
-      this.shieldFlash = 6;
-      this.shieldBump = 6;
-      const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#f3d06a' : '#5ff';
-      const shAng = this.shieldAngle;
-      game.effects.push(new Effect(
-        this.x + this.w / 2 + Math.cos(shAng) * this.w * 0.6, this.y + this.h / 2 + Math.sin(shAng) * this.w * 0.6, shieldColor, 5, 2, 8
-      ));
-      if (this.shieldHp <= 0) {
-        this.shieldHp = 0;
-        this.stunTimer = Math.max(this.stunTimer, 90);
-        this.chargeState = 'idle';
-        this.chargeTimer = 0;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
-      }
+      this._chipShield(game, fromX, 1, { effectSize: sourceType === 'chain' ? 10 : 5 });
       amount = Math.max(1, Math.round(amount * 0.25));
       this._applyStanceDamage(0.5, game);
     }
@@ -1650,7 +1926,7 @@ class Enemy {
       ));
     }
     // Weight system: heavier enemies resist knockback more
-    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
+    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, rocketeer: 1.1, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
     const isBoss = this instanceof Boss;
     let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
@@ -1668,7 +1944,7 @@ class Enemy {
         this.flyerDashTimer = 0;
       }
     } else {
-      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
+      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, rocketeer: 4, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
       let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
       this.vx = dir * kb;
       this.knockbackTimer = Math.max(this.knockbackTimer, 6);
@@ -1726,7 +2002,8 @@ class Enemy {
     if (this.element) {
       const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
       const charmKey = charmMap[this.element];
-      if (charmKey && game.player.items[charmKey]) {
+      const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+      if (legacyItemsOn && charmKey && game.player.items[charmKey]) {
         const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.1));
         game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
         game.effects.push(new TextEffect(game.player.x + game.player.w / 2, game.player.y - 10, '+' + healAmt, '#4f4'));
@@ -1925,6 +2202,41 @@ class Enemy {
     return Math.abs(diff) < Math.PI / 2;
   }
 
+  _chipShield(game, fromX, chipAmount = 1, opts = {}) {
+    if (this.shieldHp <= 0) return false;
+    const isProtector = this.type === 'protector' || this.bossType === 'protector';
+    const isBossShield = !!this.bossType;
+    const legacyItemsOn = !game || !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+    const pickaxeBonus = legacyItemsOn && game && game.player && game.player.items && game.player.items.pickaxe ? 1 : 0;
+    const chip = Math.max(1, Math.round(chipAmount) + pickaxeBonus);
+    const shieldColor = isProtector ? '#f3d06a' : '#5ff';
+    const effectScale = isBossShield ? 0.7 : 0.6;
+    const shAng = this.shieldAngle || 0;
+
+    this.shieldHp = Math.max(0, this.shieldHp - chip);
+    this.shieldFlash = 6;
+    this.shieldBump = isBossShield ? 8 : 6;
+
+    if (game && game.effects) {
+      game.effects.push(new Effect(
+        this.x + this.w / 2 + Math.cos(shAng) * this.w * effectScale,
+        this.y + this.h / 2 + Math.sin(shAng) * this.w * effectScale,
+        shieldColor,
+        opts.effectSize || 8,
+        3,
+        10
+      ));
+      if (this.shieldHp <= 0) {
+        this.stunTimer = Math.max(this.stunTimer || 0, isBossShield ? 120 : 90);
+        this.chargeState = 'idle';
+        this.chargeTimer = 0;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
+      }
+    }
+    if (typeof SFX !== 'undefined' && SFX.armor) SFX.armor();
+    return true;
+  }
+
   _renderEnemySilhouette(ctx, sx, sy, color, type) {
     const cx = sx + this.w / 2;
     const cy = sy + this.h / 2;
@@ -1968,6 +2280,15 @@ class Enemy {
       ctx.closePath();
     } else if (type === 'attacker') {
       ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
+    } else if (type === 'satellite') {
+      ctx.moveTo(cx - w * 0.48, cy - h * 0.18);
+      ctx.lineTo(cx - w * 0.22, cy - h * 0.42);
+      ctx.lineTo(cx + w * 0.22, cy - h * 0.42);
+      ctx.lineTo(cx + w * 0.48, cy - h * 0.18);
+      ctx.lineTo(cx + w * 0.36, cy + h * 0.30);
+      ctx.lineTo(cx, cy + h * 0.48);
+      ctx.lineTo(cx - w * 0.36, cy + h * 0.30);
+      ctx.closePath();
     } else if (type === 'shooter') {
       ctx.moveTo(sx + w * 0.18, sy + h * 0.22);
       ctx.quadraticCurveTo(cx, sy - h * 0.02, sx + w * 0.82, sy + h * 0.22);
@@ -2304,6 +2625,12 @@ class Enemy {
     ctx.lineJoin = 'round';
 
     if (type === 'walker') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.35;
+      const spearGripX = cx - dir * w * 0.10;
+      const spearGripY = sy + h * 0.52;
+      const spearAngle = Math.atan2(aimY - spearGripY, aimX - spearGripX);
       ctx.strokeStyle = '#17100c';
       ctx.lineWidth = 4 * strokeScale;
       ctx.beginPath();
@@ -2318,50 +2645,104 @@ class Enemy {
       ctx.fill();
       ctx.fillStyle = '#2b201c';
       ctx.fillRect(cx - w * 0.16, sy + h * 0.34, w * 0.32, h * 0.30);
+      ctx.save();
+      ctx.translate(spearGripX, spearGripY);
+      ctx.rotate(spearAngle);
       ctx.strokeStyle = '#5b3a20';
-      ctx.lineWidth = 4.2 * strokeScale;
+      ctx.lineWidth = 5.2 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.44, sy + h * 0.55);
-      ctx.lineTo(cx + dir * w * 1.24, sy + h * 0.30);
+      ctx.moveTo(-w * 0.45, 0);
+      ctx.lineTo(w * 1.45, 0);
       ctx.stroke();
       ctx.strokeStyle = '#eadfbe';
-      ctx.lineWidth = 1.2 * strokeScale;
+      ctx.lineWidth = 1.4 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.34, sy + h * 0.51);
-      ctx.lineTo(cx + dir * w * 1.08, sy + h * 0.31);
+      ctx.moveTo(-w * 0.30, -2);
+      ctx.lineTo(w * 1.22, -2);
       ctx.stroke();
       ctx.fillStyle = '#d7dee0';
       ctx.strokeStyle = '#111';
-      ctx.lineWidth = 1.5 * strokeScale;
+      ctx.lineWidth = 1.6 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx + dir * w * 1.34, sy + h * 0.28);
-      ctx.lineTo(cx + dir * w * 1.02, sy + h * 0.18);
-      ctx.lineTo(cx + dir * w * 1.10, sy + h * 0.32);
-      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.46);
+      ctx.moveTo(w * 1.58, 0);
+      ctx.lineTo(w * 1.20, -9);
+      ctx.lineTo(w * 1.30, 0);
+      ctx.lineTo(w * 1.20, 9);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.restore();
     } else if (type === 'shooter') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.45;
+      const gunX = cx - dir * w * 0.12;
+      const gunY = sy + h * 0.47;
+      const gunAngle = Math.atan2(aimY - gunY, aimX - gunX);
       ctx.fillStyle = '#161c28';
       ctx.fillRect(sx + w * 0.30, sy + h * 0.30, w * 0.34, h * 0.52);
       ctx.fillStyle = '#39465b';
       ctx.beginPath();
       ctx.ellipse(cx, sy + h * 0.24, w * 0.26, h * 0.11, 0.1, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.translate(gunX, gunY);
+      ctx.rotate(gunAngle);
       ctx.strokeStyle = '#0b0e13';
       ctx.lineWidth = 5 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.18, sy + h * 0.48);
-      ctx.lineTo(cx + dir * w * 1.18, sy + h * 0.42);
+      ctx.moveTo(-w * 0.12, 0);
+      ctx.lineTo(w * 1.24, 0);
       ctx.stroke();
       ctx.strokeStyle = '#8793a4';
       ctx.lineWidth = 2 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx + dir * w * 0.18, sy + h * 0.44);
-      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.40);
+      ctx.moveTo(w * 0.18, -2);
+      ctx.lineTo(w * 1.08, -2);
       ctx.stroke();
       ctx.fillStyle = '#cfd6d9';
-      ctx.fillRect(cx + dir * w * 1.12 - (dir < 0 ? 5 : 0), sy + h * 0.37, 5, 7);
+      ctx.fillRect(w * 1.13, -4, 6, 8);
+      ctx.restore();
+    } else if (type === 'rocketeer') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.20;
+      const tubeX = cx - dir * w * 0.18;
+      const tubeY = sy + h * 0.30;
+      const aimAngle = Math.atan2(aimY - tubeY, aimX - tubeX);
+      const tubeAngle = (dir >= 0 ? 0 : Math.PI) + aimAngle * 0.35 - dir * 0.22;
+      const glow = this.element ? this.elementColors.accent : '#79d8ff';
+      ctx.fillStyle = '#162331';
+      ctx.fillRect(sx + w * 0.28, sy + h * 0.34, w * 0.42, h * 0.46);
+      ctx.fillStyle = '#536475';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.22, w * 0.24, h * 0.13, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#10151d';
+      ctx.lineWidth = 5.5 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.12, sy + h * 0.64);
+      ctx.lineTo(cx - dir * w * 0.34, sy + h * 1.02);
+      ctx.moveTo(cx + dir * w * 0.18, sy + h * 0.66);
+      ctx.lineTo(cx + dir * w * 0.46, sy + h * 1.02);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(tubeX, tubeY);
+      ctx.rotate(tubeAngle);
+      ctx.fillStyle = '#0c1118';
+      ctx.strokeStyle = '#7d8ea0';
+      ctx.lineWidth = 2 * strokeScale;
+      ctx.fillRect(-w * 0.22, -h * 0.13, w * 1.28, h * 0.26);
+      ctx.strokeRect(-w * 0.22, -h * 0.13, w * 1.28, h * 0.26);
+      ctx.fillStyle = glow;
+      ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 0.12);
+      ctx.beginPath();
+      ctx.arc(w * 1.06, 0, h * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#dcecff';
+      ctx.fillRect(w * 0.18, -h * 0.04, w * 0.36, h * 0.08);
+      ctx.restore();
     } else if (type === 'flyer') {
       const flap = Math.sin(t * 0.25) * 5;
       ctx.fillStyle = '#e8e0c8';
@@ -2403,6 +2784,31 @@ class Enemy {
       ctx.closePath();
       ctx.fill();
       ctx.globalAlpha = 1;
+    } else if (type === 'satellite') {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 0.08);
+      ctx.fillStyle = '#6e86a8';
+      ctx.fillRect(sx + w * 0.18, sy + h * 0.28, w * 0.64, h * 0.18);
+      ctx.fillStyle = '#111923';
+      ctx.fillRect(sx + w * 0.28, sy + h * 0.16, w * 0.44, h * 0.34);
+      ctx.strokeStyle = '#9fb6d8';
+      ctx.lineWidth = 3 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.18, sy + h * 0.38);
+      ctx.lineTo(sx - w * 0.20, sy + h * 0.20);
+      ctx.moveTo(sx + w * 0.82, sy + h * 0.38);
+      ctx.lineTo(sx + w * 1.20, sy + h * 0.20);
+      ctx.stroke();
+      ctx.save();
+      ctx.globalAlpha = 0.25 + pulse * 0.25;
+      ctx.fillStyle = this.element ? this.elementColors.accent : '#8fd6ff';
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.18, sy + h * 0.55);
+      ctx.lineTo(cx + w * 0.18, sy + h * 0.55);
+      ctx.lineTo(cx + w * 0.30, sy + h * 1.12);
+      ctx.lineTo(cx - w * 0.30, sy + h * 1.12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     } else if (type === 'shielded' || type === 'protector') {
       ctx.fillStyle = type === 'protector' ? '#143224' : '#30412c';
       ctx.fillRect(sx + w * 0.27, sy + h * 0.18, w * 0.46, h * 0.58);
@@ -2549,7 +2955,7 @@ class Enemy {
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'flyer', 'flyshooter'];
+    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'flyer', 'flyshooter'];
     const usesCounterpartArt = counterpartBossTypes.includes(this.bossType);
 
     // Spawn pop-in scale
@@ -2602,7 +3008,8 @@ class Enemy {
         ctx.globalAlpha = 0.35 + 0.1 * Math.sin((game ? game.tick : 0) * 0.08);
       } else if (windPhasing) {
         ctx.save();
-        ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
+        const phase = Math.max(0, this.windPhaseTimer / (this.big ? 75 : 55));
+        ctx.globalAlpha = 0.1 + phase * 0.28;
       }
       const baseColor = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
       this._renderEnemySilhouette(ctx, sx, sy, baseColor, this.type);
@@ -2632,9 +3039,9 @@ class Enemy {
       ctx.restore();
     }
 
-    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
-      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
-      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+    if (this._spikySpikeWarning()) {
+      const warnColor = '#f86';
+      const label = 'SPIKES SOON';
       const pulse = 0.35 + 0.35 * Math.sin((game ? game.tick : 0) * 0.35);
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -2646,22 +3053,6 @@ class Enemy {
       ctx.font = 'bold 9px monospace';
       ctx.fillStyle = warnColor;
       //ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 16);
-      ctx.restore();
-    }
-
-    if (this.element === 'wind' && this.windPhaseTimer > 0) {
-      ctx.save();
-      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
-      ctx.globalAlpha = 0.25 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
-      ctx.strokeStyle = '#bfb';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
-      ctx.setLineDash([]);
-      ctx.font = 'bold 9px monospace';
-      ctx.fillStyle = '#bfb';
-      //ctx.fillText('PHASE', sx + this.w / 2 - 14, sy - 14);
-      ctx.fillRect(sx, sy - 6, this.w * phase, 2);
       ctx.restore();
     }
 
@@ -3062,7 +3453,7 @@ class Enemy {
         }
 
         // Aura circle
-        if (this.auraRadius > 0) {
+        if (this.auraRadius > 0 && this.shieldHp > 0) {
           ctx.save();
           ctx.globalAlpha = 0.08 + 0.04 * Math.sin((game ? game.tick : 0) * 0.04);
           ctx.strokeStyle = '#4f8';
@@ -3138,7 +3529,7 @@ class Enemy {
     }
 
     // Melee sword
-    if (this.contactTick > 20 && this.type !== 'shooter' && this.type !== 'flyshooter' && this.type !== 'attacker') {
+    if (this.contactTick > 20 && this.type !== 'shooter' && this.type !== 'rocketeer' && this.type !== 'flyshooter' && this.type !== 'attacker') {
       const sl = this.big ? 16 : 12;
       const sw = this.big ? 4 : 3;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;
@@ -3150,13 +3541,15 @@ class Enemy {
     }
 
     // HP bar (floating above head)
-    if (this.hp < this.maxHp) {
+    const forceHpBar = this.isMissionMiniboss || this.missionMinibossRole || this.isRouteEscapeTarget;
+    if (this.hp < this.maxHp || forceHpBar) {
       const barW = this.w + 6;
       const barX = sx + this.w / 2 - barW / 2;
       const barY = sy - 10;
       ctx.fillStyle = '#400';
       ctx.fillRect(barX, barY, barW, 4);
-      const displayRatio = Math.max(0, Math.min(1, this.displayHp / Math.max(1, this.maxHp)));
+      const displayHp = Number.isFinite(this.displayHp) ? this.displayHp : this.hp;
+      const displayRatio = Math.max(0, Math.min(1, displayHp / Math.max(1, this.maxHp)));
       const hpRatio = Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)));
       if (displayRatio > hpRatio) {
         ctx.fillStyle = '#f66';
@@ -3197,7 +3590,7 @@ class Enemy {
     // Protector aura protection indicator — small shield above protected enemies
     if (this.type !== 'protector' && this.type !== 'attacker' && game) {
       for (const other of game.enemies) {
-        if (other.dead || other.type !== 'protector' || other === this) continue;
+        if (other.dead || other.type !== 'protector' || other === this || other.shieldHp <= 0) continue;
         const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
         const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
@@ -3273,7 +3666,7 @@ class Boss extends Enemy {
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     const bossHits = {
-      walker: 36, shooter: 36, jumper: 40, bouncer: 44, charger: 48,
+      walker: 36, shooter: 36, jumper: 40, bouncer: 44, rocketeer: 46, charger: 48,
       shielded: 48, deflector: 52, protector: 60, attacker: 42,
       flyer: 38, flyshooter: 42
     };
@@ -3307,7 +3700,7 @@ class Boss extends Enemy {
     this.lastY = y;
     const colors = {
       walker: '#c33', shooter: '#cc5', jumper: '#c8c',
-      bouncer: '#c5c', shielded: '#5cc', deflector: '#88a',
+      bouncer: '#c5c', rocketeer: '#79d8ff', shielded: '#5cc', deflector: '#88a',
       protector: '#8a6416', attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35'
     };
     this.color = colors[bossType] || '#c33';
@@ -3536,7 +3929,7 @@ class Boss extends Enemy {
     this.stateTimer++;
     this.actionTimer++;
 
-    const canShoot = (this.bossType === 'shooter' || this.bossType === 'bouncer' || this.bossType === 'flyshooter');
+    const canShoot = (this.bossType === 'shooter' || this.bossType === 'bouncer' || this.bossType === 'rocketeer' || this.bossType === 'flyshooter');
     const isJumpy = (this.bossType === 'jumper');
 
     if (this.flying) {
@@ -3578,12 +3971,11 @@ class Boss extends Enemy {
             this.shootTimer = 0;
             const sd = Math.sqrt(dx * dx + dy * dy);
             if (sd > 0 && sd < 600) {
-              const p = new Projectile(cx, cy, (dx / sd) * 7, (dy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'boss');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(cx, cy, (dx / sd) * 4.5, (dy / sd) * 4.5, col, this.contactDmg, 'boss', {
+                element: this.element, maxTimer: this.phase === 2 ? 34 : 42, flashDur: 22, activeDur: 20,
+                width: this.phase === 2 ? 22 : 18, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(cx, cy, '#f66', 6, 2, 8));
             }
           }
@@ -3701,6 +4093,22 @@ class Boss extends Enemy {
                     bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 75
                   }));
                 }
+              } else if (this.bossType === 'rocketeer') {
+                const rDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
+                const shots = this.phase === 2 ? 2 : 1;
+                const col = this.element ? this.elementColors.accent : '#79d8ff';
+                for (let si = 0; si < shots; si++) {
+                  const offset = (si - (shots - 1) / 2) * 70;
+                  game.hitLines.push(new EnergyBlastCircle(
+                    Math.max(40, Math.min(game.levelW - 40, px + offset + randInt(-20, 20))),
+                    Math.max(game.camera.y + 35, Math.min(500, py + randInt(-8, 18))),
+                    this.phase === 2 ? 86 : 74,
+                    col,
+                    rDmg,
+                    'boss',
+                    { element: this.element, maxTimer: 55, flashDur: 18, sourceType: 'rocketeer', originX: cx, originY: cy - 10 }
+                  ));
+                }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss (flying): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
@@ -3740,7 +4148,8 @@ class Boss extends Enemy {
 
       if (isDeflector) {
         // A Friend's Letter: deflector boss fades out peacefully
-        if (game.player.items.friendsLetter && !this.friendly) {
+        const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+        if (legacyItemsOn && game.player.items.friendsLetter && !this.friendly) {
           this.friendly = true;
           this.friendlyFade = 120;
           this.vx = 0;
@@ -3989,6 +4398,22 @@ class Boss extends Enemy {
                     bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 80
                   }));
                 }
+              } else if (this.bossType === 'rocketeer') {
+                const rDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
+                const shots = this.phase === 2 ? 2 : 1;
+                const col = this.element ? this.elementColors.accent : '#79d8ff';
+                for (let si = 0; si < shots; si++) {
+                  const offset = (si - (shots - 1) / 2) * 72;
+                  game.hitLines.push(new EnergyBlastCircle(
+                    Math.max(40, Math.min(game.levelW - 40, px + offset + randInt(-22, 22))),
+                    Math.max(game.camera.y + 35, Math.min(500, py + randInt(-8, 18))),
+                    this.phase === 2 ? 88 : 76,
+                    col,
+                    rDmg,
+                    'boss',
+                    { element: this.element, maxTimer: 56, flashDur: 18, sourceType: 'rocketeer', originX: cx, originY: cy - 10 }
+                  ));
+                }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss (ground): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
@@ -4165,11 +4590,11 @@ class Boss extends Enemy {
       this.flashTimer = 6;
       amount = Math.max(1, Math.round(amount * 0.5));
     }
-    // Attacker boss: invulnerable when enemies nearby
+    // Attacker boss: protected when enemies are nearby, but still takes reduced damage.
     if (this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
-      return false;
+      amount = Math.max(1, Math.round(amount * 0.35));
     }
 
     const hasActiveBossShield = (this.bossType === 'shielded' || this.bossType === 'protector') && this.shieldHp > 0;
@@ -4180,6 +4605,11 @@ class Boss extends Enemy {
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
+    if (sourceType === 'chain') {
+      this.stunTimer = Math.max(this.stunTimer || 0, 28);
+      this.vx *= 0.45;
+      this.vy *= 0.45;
+    }
 
     // ── Stagger bar ──
     const combatDamage = this._damageProfile(amount, sourceType);
@@ -4188,9 +4618,10 @@ class Boss extends Enemy {
 
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
-    if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'chain') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
-      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+      const legacyItemsOn = !game || !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+      const pickaxeHits = (legacyItemsOn && game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
       this.shieldFlash = 6;
       this.shieldBump = 8;
@@ -4302,7 +4733,7 @@ class Boss extends Enemy {
     if (_fading) ctx.globalAlpha = this.friendlyFade / 120;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'flyer', 'flyshooter'];
+    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'flyer', 'flyshooter'];
     const usesCounterpartArt = counterpartBossTypes.includes(this.bossType);
 
     // Aura glow
@@ -4339,7 +4770,8 @@ class Boss extends Enemy {
     }
     if (windPhasing) {
       ctx.save();
-      ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
+      const phase = Math.max(0, this.windPhaseTimer / (this.big ? 75 : 55));
+      ctx.globalAlpha = 0.1 + phase * 0.28;
     }
 
     // --- Type-specific body rendering ---
@@ -4803,9 +5235,9 @@ class Boss extends Enemy {
       }
     }
 
-    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
-      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
-      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+    if (this._spikySpikeWarning()) {
+      const warnColor = '#f86';
+      const label = 'SPIKES SOON';
       const pulse = 0.35 + 0.25 * Math.sin((game ? game.tick : 0) * 0.35);
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -4816,20 +5248,6 @@ class Boss extends Enemy {
       ctx.fillStyle = warnColor;
       ctx.font = 'bold 10px monospace';
       ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 42);
-    }
-
-    if (this.element === 'wind' && this.windPhaseTimer > 0) {
-      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
-      ctx.save();
-      ctx.globalAlpha = 0.3 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
-      ctx.strokeStyle = '#bfb';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(sx - 5, sy - 5, this.w + 10, this.h + 10);
-      ctx.restore();
-      ctx.fillStyle = '#143';
-      ctx.fillRect(sx, sy - 32, this.w, 4);
-      ctx.fillStyle = '#bfb';
-      ctx.fillRect(sx, sy - 32, this.w * Math.max(0, phase), 4);
     }
 
     if (this._spikySpikesActive()) {
@@ -4894,7 +5312,7 @@ class Boss extends Enemy {
     }
 
     // Protector boss: healing aura ring
-    if (this.bossType === 'protector' && this.auraRadius > 0) {
+    if (this.bossType === 'protector' && this.auraRadius > 0 && this.shieldHp > 0) {
       ctx.save();
       ctx.globalAlpha = 0.15 + 0.05 * Math.sin((game ? game.tick : 0) * 0.05);
       ctx.strokeStyle = '#d6a72e';

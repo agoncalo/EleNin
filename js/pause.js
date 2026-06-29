@@ -40,6 +40,10 @@ function saveVault(data) {
 
 let vaultData = loadVault();
 
+function legacyBossItemsEnabledGlobal() {
+  return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
+}
+
 // â”€â”€ Achievement Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ACHIEVEMENT_DEFS = [
   // Kill milestones
@@ -92,10 +96,10 @@ const ACHIEVEMENT_DEFS = [
   { id: 'ult_wind', name: 'Trimerang Fury', desc: 'Use Wind ultimate', icon: '\uD83C\uDF2C' },
   { id: 'ult_storm', name: 'Lightning Reign', desc: 'Use Storm ultimate', icon: '\u26A1' },
   // Items
-  ...Object.entries(BOSS_ITEMS).map(([id, it]) => ({
+  ...(legacyBossItemsEnabledGlobal() ? Object.entries(BOSS_ITEMS).map(([id, it]) => ({
     id: 'item_' + id, name: it.name, desc: 'Found: ' + it.name, icon: it.icon
-  })),
-  { id: 'item_collector', name: 'Item Collector', desc: 'Find every boss item', icon: '\uD83C\uDFC6' },
+  })) : []),
+  ...(legacyBossItemsEnabledGlobal() ? [{ id: 'item_collector', name: 'Item Collector', desc: 'Find every boss item', icon: '\uD83C\uDFC6' }] : []),
 ];
 
 // â”€â”€ Runtime Tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -202,6 +206,7 @@ function recordCheaterEnding() { unlockAchievement('cheater_ending'); }
 function recordCheatUsed() { unlockAchievement('discovered_cheats'); }
 
 function recordItemFound(itemId) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   if (typeof game !== 'undefined' && game.cheated) return;
   if (!vaultData[itemId]) {
     vaultData[itemId] = Date.now();
@@ -228,7 +233,7 @@ const pauseMenu = {
   itemTooltipIdx: 0,        // which item is selected in tooltip
 };
 
-const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
+const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', ...(legacyBossItemsEnabledGlobal() ? ['Vault'] : []), 'Achievements', 'Music', 'SFX'];
 
 function togglePause() {
   if (pauseMenu.itemTooltipActive) {
@@ -256,6 +261,7 @@ function pauseUpdate() {
 
   // Item tooltip mode
   if (pauseMenu.itemTooltipActive) {
+    if (!legacyBossItemsEnabledGlobal()) { pauseMenu.itemTooltipActive = false; return; }
     const pl = typeof game !== 'undefined' ? game.player : null;
     const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
     if (itemKeys.length === 0) { pauseMenu.itemTooltipActive = false; return; }
@@ -282,7 +288,7 @@ function pauseUpdate() {
   // Left arrow: open item tooltip if items exist
   if (consumePress('ArrowLeft') || consumePress('KeyA')) {
     const pl = typeof game !== 'undefined' ? game.player : null;
-    const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
+    const itemKeys = legacyBossItemsEnabledGlobal() && pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
     if (itemKeys.length > 0) {
       pauseMenu.itemTooltipActive = true;
       pauseMenu.itemTooltipIdx = 0;
@@ -290,14 +296,14 @@ function pauseUpdate() {
     }
   }
   if (consumePress('Enter') || consumePress('Space') || consumePress('KeyZ') || consumePress('KeyJ')) {
-    const sel = pauseMenu.selected;
-    if (sel === 0) { pauseMenu.active = false; return; }
-    if (sel === 1) { pauseMenu.popup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
-    if (sel === 2) { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
-    if (sel === 3) { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
-    if (sel === 4) { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
-    if (sel === 5) { Music.setMuted(!Music.muted); }
-    if (sel === 6) { SFX.muted = !SFX.muted; }
+    const option = PAUSE_OPTIONS[pauseMenu.selected];
+    if (option === 'Resume') { pauseMenu.active = false; return; }
+    if (option === 'Ninja Guide') { pauseMenu.popup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
+    if (option === 'Bestiary') { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
+    if (option === 'Vault') { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
+    if (option === 'Achievements') { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
+    if (option === 'Music') { Music.setMuted(!Music.muted); }
+    if (option === 'SFX') { SFX.muted = !SFX.muted; }
   }
 }
 
@@ -308,6 +314,10 @@ function updatePopup() {
       pauseMenu.bestiaryDetail = false;
       return;
     }
+  }
+  if (pauseMenu.popup === 'vault' && !legacyBossItemsEnabledGlobal()) {
+    pauseMenu.popup = null;
+    return;
   }
   // Close popup
   if (consumePress('Escape') || consumePress('Backspace')) {
@@ -597,7 +607,7 @@ function renderPauseMenu(ctx) {
   ctx.fillStyle = '#666';
   ctx.font = '10px monospace';
   const pl = typeof game !== 'undefined' ? game.player : null;
-  const hasItems = pl && Object.keys(pl.items).filter(k => pl.items[k]).length > 0;
+  const hasItems = legacyBossItemsEnabledGlobal() && pl && Object.keys(pl.items).filter(k => pl.items[k]).length > 0;
   const footerHint = hasItems
     ? 'ESC to close \u2022 \u2190 Items \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select'
     : 'ESC to close \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select';
@@ -612,6 +622,7 @@ function renderPauseMenu(ctx) {
 }
 
 function renderItemTooltip(ctx) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   const pl = typeof game !== 'undefined' ? game.player : null;
   if (!pl) return;
   const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
@@ -1244,6 +1255,7 @@ function renderBestiaryDetail(ctx, bx, by, bw, bh, entry, data) {
 
 // ── Vault Popup ───────────────────────────────────────────────────────
 function renderVaultPopup(ctx) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   const bw = 700, bh = 420;
   const bx = CANVAS_W / 2 - bw / 2;
   const by = CANVAS_H / 2 - bh / 2;

@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-29 13:05 UTC
-console.log("EleNin build: 2026-06-29 13:05 UTC");
+// BUILD TIMESTAMP: 2026-06-29 22:48 UTC
+console.log("EleNin build: 2026-06-29 22:48 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -216,17 +216,19 @@ const NINJA_TYPES = {
 };
 
 // ── Enemy tier system ────────────────────────────────────────
-const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
+const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'satellite', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
   walker:     { color: '#3c4035', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
   shooter:    { color: '#202837', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
   jumper:     { color: '#302231', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
   bouncer:    { color: '#393923', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  rocketeer:  { color: '#243447', hp: 5,  dmg: 5,  bossBase: 205, name: 'Rocketeer' },
   charger:    { color: '#241716', hp: 7,  dmg: 5,  bossBase: 195, name: 'Charger' },
   shielded:   { color: '#3b4a35', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
   deflector:  { color: '#222635', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
   protector:  { color: '#8a6416', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
   attacker:   { color: '#4a1f24', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
+  satellite:  { color: '#263a55', hp: 8,  dmg: 6,  bossBase: 260, name: 'Satellite' },
   flyer:      { color: '#312032', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
   flyshooter: { color: '#242a35', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
 };
@@ -449,8 +451,8 @@ const WAVE_DEFS = [
 
 const BOSS_NAMES = {
   walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
-  bouncer:'BOUNCER', shielded:'GUARDIAN', deflector:'RONIN',
-  protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
+  bouncer:'BOUNCER', rocketeer:'ROCKETEER', shielded:'GUARDIAN', deflector:'RONIN',
+  protector:'AEGIS', attacker:'NEMESIS', satellite:'ORBITAL', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
 const WEAPON_ORDER = [
@@ -801,6 +803,14 @@ const WEAPON_ITEMS = {
   }
 };
 
+for (const weapon of Object.values(WEAPON_ITEMS)) {
+  weapon.ammoMax = Math.max(weapon.ammoCost || 1, Math.round((weapon.ammoMax || 0) * 0.65));
+  weapon.ammoPickup = Math.max(weapon.ammoCost || 1, Math.round((weapon.ammoPickup || 0) * 0.65));
+}
+
+const ENEMY_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
+const BOSS_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
+
 const ROUTE_LANES = ['easy', 'mid', 'hard'];
 const ROUTE_LABELS = {
   easy: 'Route Alpha',
@@ -833,36 +843,22 @@ for (let i = 0; i < ROUTE_STAGE_LAYOUTS.length; i++) {
   ROUTE_STAGE_LAYOUTS[i].laneRows = { easy: 1, mid: 0, hard: -1 };
 }
 const ROUTE_FIXED_BOSSES = ['walker', 'shooter', 'jumper', 'flyer'];
-const ROUTE_BOSS_MATRIX = {
-  easy: {
-    easy: ['bouncer', 'shielded', 'bouncer'],
-    mid: ['shielded', 'deflector', 'protector'],
-    hard: ['deflector', 'attacker', 'protector'],
-  },
-  mid: {
-    easy: ['shielded', 'bouncer', 'deflector'],
-    mid: ['deflector', 'protector', 'attacker'],
-    hard: ['protector', 'attacker', 'flyshooter'],
-  },
-  hard: {
-    easy: ['deflector', 'protector', 'attacker'],
-    mid: ['protector', 'attacker', 'flyshooter'],
-    hard: ['attacker', 'flyshooter', 'flyshooter'],
-  },
+const ROUTE_ELEMENT_START_STEP = {
+  easy: 4,
+  mid: 3,
+  hard: 1,
 };
-const ROUTE_FINAL_BOSSES = {
-  easy: 'shielded',
-  mid: 'flyshooter',
-  hard: 'flyshooter',
-};
-const ROUTE_FINAL_PERFECT_HARD_BOSS = 'attacker';
-const ROUTE_ELEMENTS = {
-  easy: [null, 'water', 'wind', 'crystal'],
-  mid: [null, 'crystal', 'steel', 'ghost'],
-  hard: ['fire', 'spiky', 'lightning', 'ghost'],
-};
+const ROUTE_ELEMENT_SEQUENCE = [
+  ['water', 'wind'],
+  ['water', 'wind'],
+  ['fire', 'crystal'],
+  ['fire', 'crystal'],
+  ['lightning', 'steel', 'spiky'],
+  ['lightning', 'steel', 'spiky'],
+  ['ghost'],
+];
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v28-route';
+const MAP_STORAGE_KEY = 'elenin-map-cache-v32-route-boss-profile';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
@@ -872,9 +868,9 @@ const MAP_AREAS = {
   skies:     { label: 'SKIES',      color: '#0797d8', centerCol: 0,  centerRow: -12 },
 };
 const MAP_ROOM_DEFS = (() => {
-  const bossOrder = ['walker','shooter','jumper','bouncer','shielded','flyer','deflector','protector','attacker','flyshooter'];
+  const bossOrder = ['walker','shooter','jumper','bouncer','rocketeer','shielded','flyer','deflector','protector','attacker','flyshooter'];
   const elementOrder = [null, 'wind', 'water', 'crystal', 'steel', 'spiky', 'fire', 'ghost', 'lightning'];
-  const easyBosses = new Set(['walker','shooter','jumper','bouncer','shielded','flyer']);
+  const easyBosses = new Set(['walker','shooter','jumper','bouncer','rocketeer','shielded','flyer']);
   const specialBosses = new Set(['deflector','protector','attacker']);
   const rooms = [];
   const byArea = {};
@@ -962,18 +958,18 @@ const MAP_ROOM_DEFS = (() => {
     if (area === 'forest' && element === null && boss === 'walker') return 'normal';
     if (boss === 'flyer' || boss === 'flyshooter') return 'plain';
     if (boss === 'shielded' || boss === 'protector') return 'wall';
-    if (boss === 'charger' || boss === 'bouncer') return 'lane';
+    if (boss === 'charger' || boss === 'bouncer' || boss === 'rocketeer') return 'lane';
     if (area === 'castle') return idx % 2 === 0 ? 'wall' : 'lane';
     const layouts = ['normal', 'plain', 'wall', 'lane'];
     return layouts[(idx + (element ? element.length : 0)) % layouts.length];
   };
   const enemyMix = (area, boss, element, idx) => {
     const rangedByArea = {
-      forest: ['shooter'],
-      mountain: ['shooter'],
-      volcano: ['shooter'],
-      castle: ['shooter'],
-      skies: ['flyshooter', 'shooter'],
+      forest: ['shooter', 'rocketeer'],
+      mountain: ['shooter', 'rocketeer'],
+      volcano: ['rocketeer', 'shooter'],
+      castle: ['rocketeer', 'shooter'],
+      skies: ['flyshooter', 'rocketeer', 'shooter'],
     };
     const commonByArea = {
       forest: ['walker', 'jumper', 'charger', 'bouncer', 'flyer'],
@@ -989,7 +985,7 @@ const MAP_ROOM_DEFS = (() => {
       castle: ['deflector', 'protector', 'attacker', 'shielded'],
       skies: ['attacker', 'deflector', 'protector'],
     };
-    const rangedTypes = new Set(['shooter', 'flyshooter']);
+    const rangedTypes = new Set(['shooter', 'rocketeer', 'flyshooter']);
     const specialTypes = new Set(['shielded', 'deflector', 'protector', 'attacker']);
     const pick = list => list[idx % list.length];
     const mix = [];
@@ -1022,7 +1018,7 @@ const MAP_ROOM_DEFS = (() => {
   };
   const objectiveFor = (boss, element, enemyTypes, idx) => {
     const targetType = (enemyTypes || []).find(type => type === boss) || (enemyTypes || [boss])[idx % Math.max(1, (enemyTypes || [boss]).length)];
-    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                        shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                        flyer:'Flyers', flyshooter:'Overlords' }[targetType] || title(targetType);
     const seed = idx + boss.length + (element ? element.length : 0);
@@ -1386,6 +1382,8 @@ const GP_LB = 4;
 const GP_RB = 5;
 
 // ── Boss Item Definitions ────────────────────────────────────
+const LEGACY_BOSS_ITEMS_ENABLED = false;
+
 const BOSS_ITEMS = {
   pickaxe:        { name: 'Pickaxe',          icon: '⛏', color: '#c96', desc: 'Enemy shields take 2 hits instead of one.' },
   tripleShuriken: { name: 'Triple Shuriken',  icon: '✦', color: '#ccc', desc: 'Each shuriken fires 3 projectiles. Halves recharge time.' },
@@ -2712,6 +2710,17 @@ function drawEnemySilhouettePath(ctx, x, y, w, h, type) {
     ctx.lineTo(x + w * 0.42, y + h * 0.94);
     ctx.lineTo(x + w * 0.32, y + h * 0.58);
     ctx.lineTo(x + w * 0.02, y + h * 0.50);
+    ctx.closePath();
+  } else if (type === 'rocketeer') {
+    ctx.moveTo(x + w * 0.12, y + h * 0.42);
+    ctx.lineTo(x + w * 0.34, y + h * 0.16);
+    ctx.lineTo(x + w * 0.76, y + h * 0.16);
+    ctx.lineTo(x + w * 1.14, y + h * 0.30);
+    ctx.lineTo(x + w * 0.86, y + h * 0.50);
+    ctx.lineTo(x + w * 0.70, y + h * 0.92);
+    ctx.lineTo(x + w * 0.45, y + h * 0.98);
+    ctx.lineTo(x + w * 0.28, y + h * 0.62);
+    ctx.lineTo(x - w * 0.08, y + h * 0.58);
     ctx.closePath();
   } else if (type === 'flyer') {
     ctx.moveTo(cx - w * 0.16, cy - h * 0.32);
@@ -7499,6 +7508,12 @@ class Projectile {
     this.done = true;
   }
 
+  _shieldChipAmount() {
+    if (this.explosive) return (this.explosionRadius || 0) >= 100 ? 3 : 2;
+    if (this.weaponFamily === 'earth') return 2;
+    return 1;
+  }
+
   _explode(game) {
     this._exploded = true;
     const cx = this.x + this.w / 2;
@@ -7526,7 +7541,10 @@ class Projectile {
     game.effects.push(new Effect(cx, cy, '#fff2b0', 24, 8, 18));
     game.effects.push(new Effect(cx, cy, '#ff5a22', 32, 7, 22));
     game.effects.push(new ScreenFlash('#fff1c2', 0.24, 10));
-    if (typeof SFX !== 'undefined' && SFX.nuke) SFX.nuke(0.45);
+    if (typeof SFX !== 'undefined') {
+      if (radius >= 120 && SFX.nuke) SFX.nuke(0.55);
+      else if (SFX.slam) SFX.slam();
+    }
     triggerScreenShake(7, 12);
   }
 
@@ -7788,25 +7806,15 @@ class Projectile {
 
           // Kunai is unblockable — skip all shield/deflect checks
           if (!this.isKunai) {
-            // Shielded: block projectiles within shield arc (stops even piercing, no pip loss)
+            // Shielded: block projectiles within shield arc, then chip shield pips.
             if (e.type === 'shielded' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
-              e.shieldFlash = 6;
-              e.shieldBump = 6;
-              const shAng = e.shieldAngle;
-              game.effects.push(new Effect(
-                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
-              ));
+              e._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
               this._dropOrDie(game);
               return;
             }
-            // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
+            // Protector: block projectiles within shield arc, then chip shield pips.
             if (e.type === 'protector' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
-              e.shieldFlash = 6;
-              e.shieldBump = 6;
-              const shAng = e.shieldAngle;
-              game.effects.push(new Effect(
-                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
-              ));
+              e._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
               this._dropOrDie(game);
               return;
             }
@@ -7894,25 +7902,15 @@ class Projectile {
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         // Kunai is unblockable — skip all shield/deflect checks for bosses
         if (!this.isKunai) {
-          // Shielded boss: block projectiles within shield arc (no pip loss)
+          // Shielded boss: block projectiles within shield arc, then chip shield pips.
           if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
-            game.boss.shieldFlash = 6;
-            game.boss.shieldBump = 8;
-            const shAng = game.boss.shieldAngle;
-            game.effects.push(new Effect(
-              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
-            ));
+            game.boss._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
             this._dropOrDie(game);
             return;
           }
-          // Protector boss: block projectiles within shield arc (no pip loss)
+          // Protector boss: block projectiles within shield arc, then chip shield pips.
           if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
-            game.boss.shieldFlash = 6;
-            game.boss.shieldBump = 8;
-            const shAng = game.boss.shieldAngle;
-            game.effects.push(new Effect(
-              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
-            ));
+            game.boss._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
             this._dropOrDie(game);
             return;
           }
@@ -8148,20 +8146,28 @@ class HitLine {
     this.owner = owner;
     opts = opts || {};
     this.element = opts.element || null;
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
     this.maxTimer = opts.maxTimer || 50;
     this.timer = 0;
     this.done = false;
+    this.width = opts.width || 5;
+    this.activeDur = opts.activeDur || 0;
+    this.sourceType = opts.sourceType || 'shooter';
+    this.visualOnly = !!opts.visualOnly;
+    this._hitMap = new Map();
     // Spread support: multiple rays fanned around base direction
     this.count = opts.count || 1;
     this.arc = opts.arc || 0.35;
     // Flash frames after firing before going away
-    this.flashDur = 12;
+    this.flashDur = opts.flashDur || 12;
     this.fired = false;
   }
   update(game) {
     if (this.fired) {
       this.timer++;
-      if (this.timer >= this.flashDur) this.done = true;
+      if (this.activeDur > 0 && this.timer <= this.activeDur && this.timer % 6 === 0) this._damageTargets(game, false);
+      if (this.timer >= Math.max(this.flashDur, this.activeDur)) this.done = true;
       return;
     }
     this.timer++;
@@ -8182,17 +8188,23 @@ class HitLine {
   }
   _fire(game) {
     this.fired = true;
-    this.hitPlayer = false;
     this.timer = 0; // reuse timer for flash countdown
+    this._damageTargets(game, true);
+  }
+  _damageTargets(game, firstHit) {
+    if (this.visualOnly) return;
+    this.hitPlayer = this.hitPlayer || false;
     const angles = this._angles();
     const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
     let hitFriendly = false;
     for (const pl of targets) {
       if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const lastHit = this._hitMap.get(pl) || -999;
+      if (!firstHit && this.timer - lastHit < 12) continue;
       const box = pl.getHurtbox ? pl.getHurtbox() : pl;
       const pcx = box.x + box.w / 2;
       const pcy = box.y + box.h / 2;
-      const threshold = Math.max(box.w, box.h) / 2 + 5;
+      const threshold = Math.max(box.w, box.h) / 2 + 5 + this.width * 0.5;
       for (const a of angles) {
         const dirX = Math.cos(a), dirY = Math.sin(a);
         const tDot = (pcx - this.x) * dirX + (pcy - this.y) * dirY;
@@ -8202,7 +8214,8 @@ class HitLine {
           const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
           if (dist < threshold) {
             const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null,
-              { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
+              { type: this.sourceType || 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
+            this._hitMap.set(pl, this.timer);
             hitFriendly = !!damaged;
             this.hitPlayer = pl === game.player && damaged;
             // Extra impact on top of normal takeDamage feedback
@@ -8219,7 +8232,7 @@ class HitLine {
       if (hitFriendly) break;
     }
     // Miss feedback: origin burst + light shake so the player reads the timing
-    if (!hitFriendly) {
+    if (firstHit && !hitFriendly) {
       triggerHitstop(3);
       triggerScreenShake(3, 8);
       game.effects.push(new Effect(this.x, this.y, this.color, 8, 4, 12));
@@ -8233,13 +8246,13 @@ class HitLine {
 
     if (this.fired) {
       // Brief solid flash on fire — thicker and longer if it hit
-      const fade = 1 - this.timer / this.flashDur;
+      const fade = 1 - this.timer / Math.max(this.flashDur, this.activeDur || 1);
       ctx.save();
       if (this.hitPlayer) {
         // Two-pass: wide white core + colored halo
         ctx.globalAlpha = fade * 0.7;
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = 10;
+        ctx.lineWidth = this.width + 6;
         ctx.shadowColor = this.color;
         ctx.shadowBlur = 40;
         for (const a of angles) {
@@ -8250,12 +8263,12 @@ class HitLine {
         }
         ctx.globalAlpha = fade * 0.95;
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = Math.max(4, this.width * 0.45);
         ctx.shadowBlur = 0;
       } else {
         ctx.globalAlpha = fade * 0.9;
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = this.activeDur > 0 ? this.color : '#fff';
+        ctx.lineWidth = this.activeDur > 0 ? this.width : 4;
         ctx.shadowColor = this.color;
         ctx.shadowBlur = 24;
       }
@@ -8274,7 +8287,7 @@ class HitLine {
     const t = this.timer / this.maxTimer; // 0..1
     // Build-up: dashed → solid, thin → thick, faint → bright
     const alpha = t < 0.6 ? (t / 0.6) * 0.55 : 0.55 + (t - 0.6) / 0.4 * 0.45;
-    const lw = t < 0.7 ? 1 + t * 2 : 3 + (t - 0.7) / 0.3 * 2;
+    const lw = (t < 0.7 ? 1 + t * 2 : 3 + (t - 0.7) / 0.3 * 2) + Math.max(0, this.width - 5) * 0.35;
     const dashLen = Math.max(2, 12 - t * 10);
     const gapLen = Math.max(1, 8 - t * 7);
 
@@ -8310,6 +8323,283 @@ class HitLine {
   }
 }
 
+// ── SatelliteBeam — anchored downward laser with telegraph/active/fade ──
+class SatelliteBeam {
+  constructor(source, color, damage, owner, opts) {
+    opts = opts || {};
+    this.source = source;
+    this.color = color || '#8fd6ff';
+    this.damage = damage || 1;
+    this.owner = owner || 'enemy';
+    this.element = opts.element || null;
+    this.sourceType = opts.sourceType || 'satellite';
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    this.telegraphDur = opts.telegraphDur || 36;
+    this.activeDur = opts.activeDur || 60;
+    this.fadeDur = opts.fadeDur || 20;
+    this.width = opts.width || 20;
+    this.lineLen = opts.lineLen || 720;
+    this.timer = 0;
+    this.done = false;
+    this._hitMap = new Map();
+    this.x = 0;
+    this.y = 0;
+    this._syncToSource();
+  }
+  _syncToSource() {
+    if (!this.source) return;
+    this.x = this.source.x + this.source.w / 2;
+    this.y = this.source.y + this.source.h * 0.92;
+  }
+  update(game) {
+    if (this.source && !this.source.dead) this._syncToSource();
+    this.timer++;
+    const activeStart = this.telegraphDur;
+    const activeEnd = this.telegraphDur + this.activeDur;
+    if (this.timer >= activeStart && this.timer <= activeEnd && this.timer % 8 === 0) {
+      this._damageTargets(game);
+    }
+    if (this.timer >= activeEnd + this.fadeDur) this.done = true;
+  }
+  _damageTargets(game) {
+    if (!game) return;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    let hitFriendly = false;
+    for (const pl of targets) {
+      if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const box = pl.getHurtbox ? pl.getHurtbox() : pl;
+      if (!box) continue;
+      const pcx = box.x + box.w / 2;
+      const pcy = box.y + box.h / 2;
+      const lastHit = this._hitMap.get(pl) || -999;
+      if (this.timer - lastHit < 16) continue;
+      const withinX = Math.abs(pcx - this.x) <= this.width * 0.5 + Math.max(box.w, box.h) * 0.35;
+      const withinY = pcy >= this.y - 4 && pcy <= this.y + this.lineLen;
+      if (withinX && withinY) {
+        const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null, {
+          type: this.sourceType,
+          element: this.element,
+          isBoss: this.owner === 'boss'
+        });
+        this._hitMap.set(pl, this.timer);
+        hitFriendly = hitFriendly || !!damaged;
+        if (damaged) {
+          game.effects.push(new Effect(pcx, pcy, this.color, 10, 4, 12));
+          game.effects.push(new Effect(pcx, pcy, '#fff', 4, 2, 8));
+        }
+      }
+    }
+    if (hitFriendly) {
+      triggerHitstop(5);
+      triggerScreenShake(5, 10);
+    }
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const activeStart = this.telegraphDur;
+    const activeEnd = this.telegraphDur + this.activeDur;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.shadowColor = this.color;
+
+    if (this.timer < activeStart) {
+      const t = this.timer / Math.max(1, this.telegraphDur);
+      const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.55);
+      ctx.globalAlpha = 0.26 + t * 0.42;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 2 + t * 4;
+      ctx.shadowBlur = 6 + t * 18;
+      ctx.setLineDash([5 + pulse * 5, 8 - t * 4]);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.55 + t * 0.35;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy + 6, 8 + t * 10, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (this.timer <= activeEnd) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.34);
+      ctx.globalAlpha = 0.65;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = this.width + 10 + pulse * 5;
+      ctx.shadowBlur = 34;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+      ctx.globalAlpha = 0.96;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = Math.max(5, this.width * 0.45);
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+    } else {
+      const fade = 1 - (this.timer - activeEnd) / Math.max(1, this.fadeDur);
+      ctx.globalAlpha = Math.max(0, fade) * 0.45;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = this.width * (0.6 + fade * 0.4);
+      ctx.shadowBlur = 22 * fade;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── EnergyBlastCircle — telegraphed circular blast hurtbox ─────
+class EnergyBlastCircle {
+  constructor(x, y, radius, color, damage, owner, opts) {
+    opts = opts || {};
+    this.x = x;
+    this.y = y;
+    this.radius = radius || 58;
+    this.color = color || '#8fd6ff';
+    this.warningColor = this.color;
+    this.damage = damage || 1;
+    this.owner = owner || 'enemy';
+    this.element = opts.element || null;
+    this.sourceType = opts.sourceType || 'rocketeer';
+    if (this.element && typeof ELEMENT_COLORS !== 'undefined' && ELEMENT_COLORS[this.element]) {
+      this.color = this.element === 'crystal' ? ELEMENT_COLORS[this.element].body : ELEMENT_COLORS[this.element].accent;
+      this.warningColor = ELEMENT_COLORS[this.element].accent;
+    } else if (!this.element && this.owner === 'boss') {
+      this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+      this.warningColor = this.color;
+    } else if (!this.element && this.owner === 'enemy') {
+      this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+      this.warningColor = this.color;
+    }
+    this.maxTimer = opts.maxTimer || 62;
+    this.flashDur = opts.flashDur || 16;
+    this.timer = 0;
+    this.done = false;
+    this.fired = false;
+    this.hitPlayer = false;
+    this.originX = opts.originX !== undefined ? opts.originX : x;
+    this.originY = opts.originY !== undefined ? opts.originY : y - 180;
+  }
+  update(game) {
+    if (this.fired) {
+      this.timer++;
+      if (this.timer >= this.flashDur) this.done = true;
+      return;
+    }
+    this.timer++;
+    if (this.timer >= this.maxTimer) this._fire(game);
+  }
+  _fire(game) {
+    this.fired = true;
+    this.timer = 0;
+    let hitAny = false;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    for (const target of targets) {
+      if (!target || target.dead || (target === game.player && target.invincibleTimer > 0)) continue;
+      const box = target.getHurtbox ? target.getHurtbox() : target;
+      if (!box) continue;
+      const tx = box.x + box.w / 2;
+      const ty = box.y + box.h / 2;
+      const pad = Math.max(box.w, box.h) * 0.35;
+      if (Math.hypot(tx - this.x, ty - this.y) <= this.radius + pad) {
+        const damaged = game._damageFriendlyTarget(target, this.damage, this.element || null, {
+          type: this.sourceType,
+          element: this.element,
+          isBoss: this.owner === 'boss'
+        });
+        hitAny = hitAny || !!damaged;
+        if (target === game.player && damaged) this.hitPlayer = true;
+        game.effects.push(new Effect(tx, ty, this.color, 12, 4, 14));
+        game.effects.push(new Effect(tx, ty, '#fff', 5, 2, 9));
+      }
+    }
+    triggerScreenShake(hitAny ? 7 : 4, hitAny ? 14 : 9);
+    if (this.hitPlayer) triggerHitstop(9);
+    else triggerHitstop(3);
+    game.effects.push(new Effect(this.x, this.y, this.color, 18, 5, 18));
+    game.effects.push(new Effect(this.x, this.y, '#fff', 8, 3, 12));
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    ctx.save();
+    if (this.fired) {
+      const fade = 1 - this.timer / Math.max(1, this.flashDur);
+      ctx.globalAlpha = 0.34 * fade;
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = 30;
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius * (1.02 + (1 - fade) * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.95 * fade;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    const t = this.timer / this.maxTimer;
+    const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.45);
+    const warningColor = this.warningColor || this.color;
+    ctx.globalAlpha = 0.10 + t * 0.18;
+    ctx.fillStyle = warningColor;
+    ctx.beginPath();
+    ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.5 + t * 0.45;
+    ctx.strokeStyle = warningColor;
+    ctx.lineWidth = 2 + t * 3;
+    ctx.shadowColor = warningColor;
+    ctx.shadowBlur = 8 + t * 18;
+    ctx.setLineDash([8 - t * 4, 7 - t * 3]);
+    ctx.beginPath();
+    ctx.arc(sx, sy, this.radius * (0.92 + pulse * 0.08), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.globalAlpha = 0.72 + t * 0.28;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx - this.radius * 0.35, sy);
+    ctx.lineTo(sx + this.radius * 0.35, sy);
+    ctx.moveTo(sx, sy - this.radius * 0.35);
+    ctx.lineTo(sx, sy + this.radius * 0.35);
+    ctx.stroke();
+
+    const orbT = Math.min(1, t * 1.15);
+    const ox = this.originX - cam.x + (sx - (this.originX - cam.x)) * orbT;
+    const oy = this.originY - cam.y + (sy - (this.originY - cam.y)) * (orbT * orbT);
+    ctx.globalAlpha = 0.95;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(ox, oy, 10 + t * 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(ox, oy, 5 + t * 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ── Grenade — lobbed explosive thrown by bouncers ─────────────
 class Grenade {
   constructor(x, y, vx, vy, color, damage, owner, opts) {
@@ -8321,6 +8611,8 @@ class Grenade {
     this.owner = owner;
     opts = opts || {};
     this.element = opts.element || null;
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
     this.gravScale = opts.gravScale !== undefined ? opts.gravScale : 0.55;
     this.fuseTimer = opts.fuseTimer !== undefined ? opts.fuseTimer : 90;
     this.maxFuse = this.fuseTimer;
@@ -8411,6 +8703,21 @@ class Grenade {
       };
       for (const e of game.enemies) if (!e.dead) dmgEnemy(e);
       if (game.boss && !game.boss.dead) dmgEnemy(game.boss);
+      if (this.weaponFamily === 'storm') {
+        game.hitLines.push(new HitLine(cx, game.camera.y - 30, 0, 5, this.accentColor || '#fff36b', Math.max(1, Math.ceil(this.damage * 0.65)), 'player', {
+          element: 'lightning', maxTimer: 8, flashDur: 18, activeDur: 14, width: 18, sourceType: 'weapon', visualOnly: true
+        }));
+        for (const e of game.enemies) {
+          if (!e.dead && Math.hypot((e.x + e.w / 2) - cx, (e.y + e.h / 2) - cy) <= r) {
+            e.paralyseTimer = Math.max(e.paralyseTimer || 0, 36);
+            e.soakTimer = Math.max(e.soakTimer || 0, 150);
+          }
+        }
+        if (game.boss && !game.boss.dead && Math.hypot((game.boss.x + game.boss.w / 2) - cx, (game.boss.y + game.boss.h / 2) - cy) <= r) {
+          game.boss.paralyseTimer = Math.max(game.boss.paralyseTimer || 0, 20);
+          game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 100);
+        }
+      }
     }
 
     // Explosion VFX
@@ -8425,6 +8732,7 @@ class Grenade {
       ));
     }
     if (!(this.owner === 'enemy' || this.owner === 'boss') && typeof triggerHitstop === 'function') triggerHitstop(5);
+    if (typeof SFX !== 'undefined' && SFX.slam) SFX.slam();
     this.done = true;
   }
   render(ctx, cam) {
@@ -8441,7 +8749,7 @@ class Grenade {
     // Body
     ctx.globalAlpha = flickering ? 0.45 : 0.92;
     ctx.fillStyle = this.color;
-    ctx.shadowColor = flickering ? '#ff0' : this.color;
+    ctx.shadowColor = this.color;
     ctx.shadowBlur = flickering ? 18 : 5;
     ctx.beginPath();
     ctx.arc(0, 0, this.w / 2 + 1, 0, Math.PI * 2);
@@ -8469,9 +8777,9 @@ class Grenade {
       const t = 1 - fuse / (this.maxFuse * 0.55);
       ctx.save();
       ctx.globalAlpha = 0.55 * t;
-      ctx.strokeStyle = '#ff0';
+      ctx.strokeStyle = this.color;
       ctx.lineWidth = 2;
-      ctx.shadowColor = '#ff0';
+      ctx.shadowColor = this.color;
       ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.arc(cx2, cy2, this.w / 2 + 6, -Math.PI / 2, -Math.PI / 2 + t * Math.PI * 2);
@@ -8751,8 +9059,8 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
     return 840;
   }
 
-  static maxOnScreen() {
-    return 1;
+  static maxOnScreen(game) {
+    return game && game.levelElement ? 1 : 0;
   }
 
   update(game) {
@@ -8768,7 +9076,7 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
     const cy = pl.y + pl.h / 2;
     game.effects.push(new SlamRing(cx, cy, '#dff', 76, 9));
     game.effects.push(new Effect(cx, cy, '#dff', 20, 5, 18));
-    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL ARMOR', '#dff'));
+    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL SHIELD', '#dff'));
   }
 
   render(ctx, cam) {
@@ -9093,7 +9401,7 @@ class Player {
 
     // Ultimate system
     this.ultimateCharge = 0;
-    this.ultimateMax = 500;
+    this.ultimateMax = 750;
     this.ultimateReady = false;
     this.ultimateActive = false;
     this.ultimateTimer = 0;
@@ -9263,10 +9571,12 @@ class Player {
     this.bubbleShieldMax = 300; // 5 seconds
     this.elementalArmor = 0;
     this.elementalArmorMax = 100;
-    this.elementalArmorBlockCost = 34;
+    this.elementalArmorBlockCost = 28;
+    this.elementalArmorPerDamage = 5;
 
     // Pending damage (highest prevails per frame)
     this._pendingDamage = null; // { amount, element, killerInfo }
+    this.oneShotProtectionUsed = false;
 
     // Ground slam
     this.slamming = false;
@@ -9621,7 +9931,7 @@ class Player {
         game.camera.y = this.y + this.h / 2 - CANVAS_H / 2;
         SFX.bossSpawn();
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
-        this.invincibleTimer = 300;
+        this.invincibleTimer = 45;
         break;
 
       case 'storm':
@@ -9646,8 +9956,9 @@ class Player {
   addUltimateCharge(amount) {
     this.addAmmo(Math.max(1, Math.round((amount || 1) / 5)));
     const def = this.currentWeaponDef();
-    this.ultimateCharge = 0;
-    this.ultimateReady = !!(def && def.crashPower);
+    if (!def || !def.crashPower || this.ultimateActive) return;
+    this.ultimateCharge = Math.min(this.ultimateMax, (this.ultimateCharge || 0) + Math.max(1, Math.round((amount || 1) * 0.75)));
+    this.ultimateReady = this.ultimateCharge >= this.ultimateMax;
   }
 
   currentWeaponDef() {
@@ -9686,6 +9997,34 @@ class Player {
     this._setChainInvulnerability(2);
   }
 
+  _sanitizeInvulnerabilityState() {
+    const protectedByUltimate = this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle;
+    const protectedByChain = this._isChainInvulnerable();
+    const staleLongInvuln = this.invincibleTimer > 180 && !protectedByUltimate && !protectedByChain && this.deathTimer <= 0;
+    if (staleLongInvuln) this.invincibleTimer = 0;
+  }
+
+  _ensureDeathState(game) {
+    if (this.hp > 0 || this.deathTimer > 0) return;
+    this.hp = 0;
+    this.invincibleTimer = 0;
+    this.deathTimer = 180;
+    this.vx = 0;
+    this.vy = 0;
+    if (typeof SFX !== 'undefined' && SFX.playerDie) SFX.playerDie();
+    if (game && game.effects) {
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
+      game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
+      game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
+    }
+  }
+
+  _legacyBossItemsEnabled() {
+    return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
+  }
+
   equipWeapon(weaponId, game, opts = {}) {
     const def = WEAPON_ITEMS[weaponId];
     if (!def) return false;
@@ -9709,7 +10048,7 @@ class Player {
     } else {
       this.ninjaType = 'basic';
       this.ultimateCharge = 0;
-      this.ultimateReady = !!def.crashPower;
+      this.ultimateReady = false;
     }
     if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 34, def.name.toUpperCase(), def.accentColor || def.color));
     return true;
@@ -9747,6 +10086,13 @@ class Player {
     const def = this._spendItemAmmo(game);
     if (!def) return;
     this.itemUseFlash = 12;
+    if ((def.family || def.crashPower) === 'bubble') {
+      this.statusFloat = Math.max(this.statusFloat || 0, 90);
+      if (game) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'FLOAT', def.accentColor || def.color || '#aef'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, def.accentColor || '#aef', 10, 3, 14));
+      }
+    }
     if (def.power && def.power !== 'basic') {
       const oldType = this.ninjaType;
       this.ninjaType = def.power;
@@ -9847,9 +10193,14 @@ class Player {
       p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'grenade') {
-      const p = new Projectile(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player');
-      p.w = 14; p.h = 14; p.life = 95; p.bouncy = true; p.bouncesLeft = 1; p.gravScale = 1.05; p.explosive = true; p.explosionRadius = 76;
-      game.projectiles.push(applyProjectileTheme(p));
+      const g = new Grenade(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player', {
+        element: family === 'storm' ? 'lightning' : undefined,
+        gravScale: 0.9, fuseTimer: 54, bouncesLeft: 1, explodeRadius: 76
+      });
+      g.w = 14; g.h = 14;
+      g.weaponFamily = family;
+      g.accentColor = accent;
+      game.grenades.push(g);
       triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
       const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
@@ -9872,6 +10223,11 @@ class Player {
       return false;
     }
     if (this.ultCutscene || this.ultimateActive) return false;
+    if ((this.ultimateCharge || 0) < (this.ultimateMax || 1)) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'CRASH NOT READY', def.accentColor || def.color));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return false;
+    }
     const consumed = this.heldItem;
     this.itemCrashPalette = Object.assign({}, def);
     this.heldItem = null;
@@ -9879,7 +10235,6 @@ class Player {
     this.itemAmmoMax = 0;
     this.ninjaType = def.crashPower;
     this.ultimateReady = true;
-    this.ultimateCharge = this.ultimateMax;
     if (game && game._liveWeaponPickups && game._spawnEmergencyWeaponPickup && game._liveWeaponPickups().length <= 0) {
       game._spawnEmergencyWeaponPickup(0);
     }
@@ -10068,8 +10423,10 @@ class Player {
   update(game) {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
+    this._ensureDeathState(game);
     this._updateActionCharges();
     this._maintainChainInvulnerability();
+    this._sanitizeInvulnerabilityState();
 
     // HP no longer fuels actions; attack and magic use separate recharge pips.
     this.focusRegenTimer = 0;
@@ -10130,6 +10487,7 @@ class Player {
     // ── Ultimate active updates ──
     if (this.ultimateActive) {
       this.ultimateTimer--;
+      if (this.invincibleTimer > 0) this.invincibleTimer--;
 
       // Fire: update meteors
       if (this.ninjaType === 'fire') {
@@ -10577,6 +10935,8 @@ class Player {
           this.bubbleUlt = null;
           this.windBow = null;
           this.fireMeteors = [];
+          this.fireArmor = false;
+          this.fireArmorTimer = 0;
           this.shadowUltBuff = false;
           this.shadowDarkness = 0;
           this.shadowEyesTimer = 0;
@@ -12539,28 +12899,53 @@ class Player {
     }
   }
 
-  applyElementalStatus(element, game) {
-    if (!element) return;
-    const statusElements = { fire: true, water: true, crystal: true, wind: true, lightning: true, ghost: true, spiky: true };
-    if (!statusElements[element]) return;
-    const armorMax = this.elementalArmorMax || 100;
-    const armorCost = this.elementalArmorBlockCost || Math.ceil(armorMax / 3);
-    if ((this.elementalArmor || 0) >= armorCost) {
-      this.elementalArmor = Math.max(0, (this.elementalArmor || 0) - armorCost);
-      const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
-      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'STATUS BLOCKED', color));
-      game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, color, 64, 8));
+  _isElementalDamage(element) {
+    return !!({ fire: true, water: true, crystal: true, wind: true, lightning: true, ghost: true, spiky: true }[element]);
+  }
+
+  _spendElementalArmorForDamage(amount, element, game) {
+    if (!this._isElementalDamage(element) || (this.elementalArmor || 0) <= 0 || amount <= 0) return amount;
+    const costPerDamage = Math.max(1, this.elementalArmorPerDamage || 5);
+    const armor = this.elementalArmor || 0;
+    const blocked = Math.min(amount, Math.floor(armor / costPerDamage));
+    if (blocked <= 0) return amount;
+    const spent = Math.min(armor, blocked * costPerDamage);
+    this.elementalArmor = Math.max(0, armor - spent);
+    const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
+    if (game && game.effects) {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, color, 12, 4, 14));
-      return;
+      game.effects.push(new DamageNumber(this.x + this.w / 2, this.y - 10, blocked, element || null));
+      if (this.elementalArmor <= 0) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'ARMOR BROKEN', color));
     }
+    return Math.max(0, amount - blocked);
+  }
+
+  _spendElementalArmorForStatus(element, game) {
+    if (!this._isElementalDamage(element) || (this.elementalArmor || 0) <= 0) return false;
+    const armorCost = Math.min(this.elementalArmor || 0, this.elementalArmorBlockCost || 28);
+    this.elementalArmor = Math.max(0, (this.elementalArmor || 0) - armorCost);
+    const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
+    if (game && game.effects) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'ELEMENT BLOCK', color));
+      game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, color, 58, 7));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, color, 10, 3, 12));
+    }
+    return true;
+  }
+
+  applyElementalStatus(element, game, opts = {}) {
+    if (!element) return;
+    if (!this._isElementalDamage(element)) return;
+    if (!opts.skipArmor && this._spendElementalArmorForStatus(element, game)) return;
     // Elemental Charms: immune to matching affliction
     const charmImmunity = {
       fire: 'charmFire', water: 'charmWater', crystal: 'charmCrystal',
       wind: 'charmWind', lightning: 'charmLightning', ghost: 'charmGhost', spiky: 'charmSpiky'
     };
-    if (charmImmunity[element] && this.items[charmImmunity[element]]) return;
+    const legacyItemsOn = this._legacyBossItemsEnabled();
+    if (legacyItemsOn && charmImmunity[element] && this.items[charmImmunity[element]]) return;
     // Protective Charm: halve duration
-    const dMul = this.items.protectiveCharm ? 0.5 : 1;
+    const dMul = legacyItemsOn && this.items.protectiveCharm ? 0.5 : 1;
     if (element === 'fire') {
       this.statusBurn = Math.round(180 * dMul);
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'BURN!', '#f80'));
@@ -12592,8 +12977,14 @@ class Player {
     if (this.godMode) return;
     if (game && game.boss && game.boss.dead && (game.bossDeathRewardDelay || 0) > 0) return;
     const ultimateFormActive = this.ultimateActive || this.ultCutscene;
-    if (ultimateFormActive && this.earthGolem) return;
-    if (ultimateFormActive && this.crystalCastle) return;
+    if (ultimateFormActive && this.earthGolem) {
+      this.earthGolem.hp = Math.max(0, (this.earthGolem.hp || 0) - Math.max(1, Math.round(amount || 1)));
+      if (this.earthGolem.hp <= 0) this.earthGolem = null;
+      amount = Math.max(1, Math.ceil((amount || 1) * 0.35));
+    }
+    if (ultimateFormActive && this.crystalCastle) {
+      amount = Math.max(1, Math.ceil((amount || 1) * 0.45));
+    }
     if (ultimateFormActive && this.bubbleRide) {
       this.bubbleRide.hp -= amount;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 6, 2, 8));
@@ -12605,7 +12996,7 @@ class Player {
     if (this.invincibleTimer > 0) {
       if (!(this.windDashing && element)) return;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
+    if (this._isChainInvulnerable()) return;
     // Queue damage — highest prevails per frame
     if (!this._pendingDamage || amount > this._pendingDamage.amount) {
       this._pendingDamage = { amount, element, killerInfo };
@@ -12634,13 +13025,14 @@ class Player {
       return;
     }
     // Leather Boots: 5% evasion
-    if (this.items.leatherBoots && Math.random() < 0.05) {
+    const legacyItemsOn = this._legacyBossItemsEnabled();
+    if (legacyItemsOn && this.items.leatherBoots && Math.random() < 0.05) {
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'DODGE', '#a86'));
       triggerHitstop(2);
       return;
     }
     // The Code: rechargeable counter-attack — negate damage, huge counter swing
-    if (this.items.theCode && this.codeCounterCharge >= this.codeCounterMax) {
+    if (legacyItemsOn && this.items.theCode && this.codeCounterCharge >= this.codeCounterMax) {
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       // Cancel any current swing and force a powerful counter
       this.attacking = false;
@@ -12678,7 +13070,11 @@ class Player {
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
+    if (this._isChainInvulnerable()) return;
+    if (this.fireArmor && this.fireArmorTimer > 0) {
+      amount = Math.max(1, Math.ceil(amount * 0.45));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 8, 3, 10));
+    }
     // Bubble shield orb — blocks all external damage while active
     if (this.bubbleShieldTimer > 0) {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 10, 4, 14));
@@ -12705,15 +13101,28 @@ class Player {
         return;
       }
     }
+    const beforeElementalArmor = amount;
+    amount = this._spendElementalArmorForDamage(amount, element, game);
+    if (amount <= 0) {
+      this.lastDamageAmount = beforeElementalArmor;
+      this.invincibleTimer = 30;
+      this.lastDamageTick = game.tick;
+      this.windPower = 0;
+      SFX.playerHurt(this.ninjaType);
+      triggerHitstop(4);
+      triggerScreenShake(2, 6);
+      return;
+    }
     const bypassArmor = (element === 'spike' || element === 'fire' || element === 'lightning');
     // Elemental Charms: halve damage from matching element
     const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
-    if (element && charmMap[element] && this.items[charmMap[element]]) {
+    if (legacyItemsOn && element && charmMap[element] && this.items[charmMap[element]]) {
       amount = Math.max(1, Math.round(amount * 0.5));
     }
     if (!bypassArmor) amount = Math.max(1, amount - this.bonusArmor);
-    if (this.hp >= this.maxHp && amount >= this.hp && this.hp > 1) {
+    if (!this.oneShotProtectionUsed && this.hp >= this.maxHp && amount >= this.hp && this.hp > 1) {
       amount = this.hp - 1;
+      this.oneShotProtectionUsed = true;
       game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'ONE HP!', '#ffe033'));
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ffe033', 14, 4, 16));
     }
@@ -12755,9 +13164,9 @@ class Player {
     triggerScreenShake(4, 8);
     game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 8, 3, 12));
     game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, amount, element || null));
-    this.applyElementalStatus(element, game);
+    this.applyElementalStatus(element, game, { skipArmor: true });
     // Spiked Armor: damage all nearby enemies when taking damage
-    if (this.items.spikedArmor) {
+    if (legacyItemsOn && this.items.spikedArmor) {
       const spikeDmg = amount;
       const sx = this.x + this.w / 2, sy = this.y + this.h / 2;
       game.effects.push(new Effect(sx, sy, '#f80', 18, 5, 15));
@@ -12779,7 +13188,7 @@ class Player {
     }
     if (this.hp <= 0) {
       // Death's Key: revive once per run
-      if (this.items.deathsKey && !this.deathsKeyUsed) {
+      if (legacyItemsOn && this.items.deathsKey && !this.deathsKeyUsed) {
         this.deathsKeyUsed = true;
         this.hp = Math.round(this.maxHp * 0.5);
         this.invincibleTimer = 120;
@@ -15670,8 +16079,8 @@ class Enemy {
     this.contactDmg = Math.max(1, Math.round(_ehp * (big ? 0.55 : 0.40) + _arm));
     const darkTypeColors = {
       walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
-      charger: '#241716', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
-      attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35'
+      rocketeer: '#243447', charger: '#241716', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
+      attacker: '#4a1f24', satellite: '#263a55', flyer: '#312032', flyshooter: '#242a35'
     };
     this.color = darkTypeColors[type] || base.color;
     this.facing = Math.random() < 0.5 ? -1 : 1;
@@ -15679,6 +16088,9 @@ class Enemy {
     this.contactTick = 0;
     this.shootTimer = randInt(0, 40);
     this.jumpTimer = randInt(0, 40);
+    this.wallJumpCooldown = 0;
+    this.platformIntentCooldown = randInt(10, 45);
+    this.platformDropTimer = 0;
     this.patrolLeft = x - 100;
     this.patrolRight = x + 100;
     this.flashTimer = 0;
@@ -15688,7 +16100,7 @@ class Enemy {
     this.resistTimer = 0;
     this.burnTimer = 0;
     this.soakTimer = 0;
-    this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker');
+    this.flying = (type === 'flyer' || type === 'flyshooter' || type === 'attacker' || type === 'satellite');
     this.shieldHp = (type === 'shielded') ? (big ? 5 : 3) : (type === 'protector') ? (big ? 10 : 8) : 0;
     this.shieldMax = this.shieldHp;
     this.shieldBump = 0;
@@ -15702,8 +16114,10 @@ class Enemy {
     this.chargeTrails = [];
     this.hoverPhase = Math.random() * Math.PI * 2;
     // Per-instance preferred range offset so ranged enemies spread out
-    this.rangeOffset = (type === 'shooter' || type === 'bouncer') ? Math.floor(Math.random() * 80) - 40 : 0;
-    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
+    this.rangeOffset = (type === 'shooter' || type === 'bouncer' || type === 'rocketeer') ? Math.floor(Math.random() * 80) - 40 : 0;
+    this.guardOffset = Math.floor(Math.random() * 120) - 60;
+    this.defensiveDashCooldown = randInt(20, 70);
+    this.edgeAware = (type === 'walker' || type === 'shooter' || type === 'rocketeer' || type === 'shielded' || type === 'bouncer' || type === 'deflector' || type === 'protector');
     this.onPlatform = null;
     this.freezeTimer = 0;
     this.iceSliding = false;
@@ -15721,6 +16135,11 @@ class Enemy {
     if (type === 'deflector') {
       this.w = big ? 52 : 40;
       this.h = big ? 52 : 40;
+    }
+    // Spears are larger readable guards, not tiny cars.
+    if (type === 'walker') {
+      this.w = big ? 54 : 36;
+      this.h = big ? 54 : 42;
     }
     // Charger: low horizontal rectangle that commits to one lane.
     if (type === 'charger') {
@@ -15753,6 +16172,11 @@ class Enemy {
       this.h = big ? 44 : 36;
       this.attackerAuraRadius = big ? 240 : 180;
     }
+    if (type === 'satellite') {
+      this.w = big ? 72 : 54;
+      this.h = big ? 42 : 32;
+      this.satelliteBeamCooldown = randInt(45, 100);
+    }
     // Elemental variant
     this.element = null;
     this.elementColors = null;
@@ -15775,8 +16199,8 @@ class Enemy {
   _initCombatBars(healthScale) {
     const normalHits = {
       walker: 8, shooter: 8, jumper: 9, bouncer: 10, charger: 12,
-      shielded: 11, deflector: 14, protector: 16, attacker: 7,
-      flyer: 8, flyshooter: 9
+      shielded: 11, deflector: 14, protector: 16, rocketeer: 11, attacker: 7,
+      satellite: 18, flyer: 8, flyshooter: 9
     };
     const scale = 1 + Math.max(0, (this.wave || 1) - 1) * 0.12;
     const mapScale = healthScale && healthScale !== this.wave ? Math.min(1.35, Math.max(1, Math.sqrt(healthScale))) : 1;
@@ -15860,6 +16284,18 @@ class Enemy {
   }
 
   _finishByStanceChain(game) {
+    if (this.shieldHp > 0) {
+      const fromX = game && game.player ? game.player.x + game.player.w / 2 : this.x + this.w / 2;
+      this._chipShield(game, fromX, 1, { effectSize: this.bossType ? 11 : 10 });
+      this.disableTimer = 0;
+      this.stance = this.maxStance || 0;
+      this.staggerBar = 0;
+      this.stunTimer = Math.max(this.stunTimer || 0, this.bossType ? 80 : 50);
+      if (game && game.effects) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'SHIELD CUT', '#f4f0ff'));
+      }
+      return false;
+    }
     if (game) {
       const cx = this.x + this.w / 2;
       const cy = this.y + this.h / 2;
@@ -15888,7 +16324,192 @@ class Enemy {
   }
 
   _needsDistance() {
-    return this.type === 'shooter' || this.type === 'bouncer' || this.type === 'flyshooter';
+    return this.type === 'shooter' || this.type === 'bouncer' || this.type === 'rocketeer' || this.type === 'flyshooter' || this.type === 'satellite';
+  }
+
+  _guardAnchor(game) {
+    if (!game) return null;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const candidates = [];
+    const add = (entity, weight) => {
+      if (!entity || entity.dead) return;
+      const ex = entity.x + entity.w / 2;
+      const ey = entity.y + entity.h / 2;
+      candidates.push({ x: ex, y: ey, weight: weight || 1 });
+    };
+    if (game.missionDirector) {
+      const rt = game.missionDirector.routeEvent;
+      if (rt && rt.target) add(rt.target, 0.35);
+    }
+    add(game.samurai, 0.45);
+    add(game.protectBuilding, 0.35);
+    add(game.boss && !game.boss.dead ? game.boss : null, 0.55);
+    for (const e of game.enemies || []) {
+      if (e === this || e.dead) continue;
+      if (e.type === 'shooter' || e.type === 'bouncer' || e.type === 'rocketeer' || e.type === 'flyshooter' || e.type === 'attacker' || e.type === 'satellite') add(e, 0.65);
+    }
+    if (!candidates.length) return { x: this.patrolLeft + 100, y: cy };
+    candidates.sort((a, b) => {
+      const da = Math.hypot(a.x - cx, a.y - cy) * a.weight;
+      const db = Math.hypot(b.x - cx, b.y - cy) * b.weight;
+      return da - db;
+    });
+    return candidates[0];
+  }
+
+  _defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, opts = {}) {
+    const pl = game.player;
+    const pcx = pl.x + pl.w / 2;
+    const pcy = pl.y + pl.h / 2;
+    if (this.vy >= 0 && this.vy < 1 && Math.abs(pcx - cx) > 6) this.facing = pcx > cx ? 1 : -1;
+    if (this.defensiveDashCooldown > 0) this.defensiveDashCooldown--;
+    const playerDist = Math.hypot(pcx - cx, pcy - cy);
+    const anchor = this._guardAnchor(game);
+    const desiredX = anchor ? anchor.x + (this.guardOffset || 0) : cx;
+    const dx = desiredX - cx;
+    const guardRadius = opts.guardRadius || 38;
+    const aggroRange = opts.aggroRange || 260;
+    if (!playerStealthed && playerDist < aggroRange && Math.abs(pcy - cy) < (opts.aggroYRange || 120)) {
+      const dir = Math.sign(pcx - cx) || this.facing || 1;
+      this.facing = dir;
+      const closeBias = playerDist < (opts.triggerRange || 110) ? 0.35 : 1;
+      this.vx = dir * speed * (opts.aggroSpeed || 0.9) * closeBias * windResist;
+    } else if (Math.abs(dx) > guardRadius) {
+      this.vx = Math.sign(dx) * speed * (opts.guardSpeed || 0.42) * windResist;
+    } else {
+      this.vx = Math.sin(((game.tick || 0) + this.guardOffset * 7) * 0.035) * speed * 0.18 * windResist;
+    }
+    const verticalTarget = (playerDist < aggroRange || !anchor) ? { x: pcx, y: pcy } : anchor;
+    const targetAbove = verticalTarget && verticalTarget.y < cy - (opts.platformRise || 44);
+    const targetReachableX = verticalTarget && Math.abs(verticalTarget.x - cx) < (opts.platformXRange || 270);
+    if (!playerStealthed && targetAbove && targetReachableX && this.defensiveDashCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+      const dir = Math.sign(verticalTarget.x - cx) || this.facing || 1;
+      this.facing = dir;
+      this.vy = opts.platformJumpVy || opts.jumpVy || -10.5;
+      this.vx = dir * speed * (opts.platformDashMult || opts.dashMult || 3.0) * windResist;
+      this.defensiveDashCooldown = opts.platformCooldown || opts.cooldown || randInt(60, 100);
+      if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 8, 3, 12));
+      return;
+    }
+    if (!playerStealthed && playerDist < (opts.triggerRange || 110) && Math.abs(pcy - cy) < (opts.yRange || 70) && this.defensiveDashCooldown <= 0 && this.vy >= 0 && this.vy < 1) {
+      const dir = Math.sign(pcx - cx) || this.facing || 1;
+      this.facing = dir;
+      this.vy = opts.jumpVy || -8.5;
+      this.vx = dir * speed * (opts.dashMult || 3.0) * windResist;
+      this.defensiveDashCooldown = opts.cooldown || randInt(55, 95);
+      if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 7, 3, 10));
+    }
+  }
+
+  _tryLeaperWallJump(game, px, speed, windResist) {
+    if (this.type !== 'jumper' || this.wallJumpCooldown > 0) return false;
+    if (this.onPlatform && this.vy >= 0 && this.vy < 1) return false;
+    const margin = 8;
+    const centerY = this.y + this.h / 2;
+    let wallDir = 0;
+
+    if (this.x <= margin && this.vx < 0) wallDir = 1;
+    else if (this.x + this.w >= game.levelW - margin && this.vx > 0) wallDir = -1;
+
+    if (!wallDir) {
+      for (const p of game.platforms || []) {
+        if (p.thin) continue;
+        const verticalOverlap = centerY > p.y - this.h * 0.45 && centerY < p.y + p.h + this.h * 0.35;
+        if (!verticalOverlap) continue;
+        const hitLeftSide = this.vx > 0 && this.x + this.w >= p.x - margin && this.x + this.w <= p.x + margin;
+        const hitRightSide = this.vx < 0 && this.x <= p.x + p.w + margin && this.x >= p.x + p.w - margin;
+        if (hitLeftSide) { wallDir = -1; this.x = p.x - this.w - 1; break; }
+        if (hitRightSide) { wallDir = 1; this.x = p.x + p.w + 1; break; }
+      }
+    }
+
+    if (!wallDir) return false;
+    this.facing = wallDir;
+    const targetBias = px > this.x + this.w / 2 ? 1 : -1;
+    const pushDir = targetBias === wallDir ? wallDir : wallDir * 0.85;
+    this.vx = pushDir * speed * (this.big ? 3.1 : 3.45) * windResist;
+    this.vy = this.big ? -12.4 : -11.2;
+    this.wallJumpCooldown = this.big ? 20 : 16;
+    this.jumpTimer = 0;
+    if (game.effects) {
+      game.effects.push(new Effect(
+        wallDir > 0 ? this.x : this.x + this.w,
+        this.y + this.h * 0.48,
+        this.element ? this.elementColors.accent : '#d8b4ff',
+        7,
+        3,
+        10
+      ));
+    }
+    return true;
+  }
+
+  _canUseThinPlatforms() {
+    if (this.flying || this.type === 'charger' || this.type === 'attacker' || this.type === 'satellite') return false;
+    if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging') return false;
+    return true;
+  }
+
+  _platformMobility(game, px, py, speed, windResist, playerStealthed) {
+    if (!game || this.flying || playerStealthed || this.stunTimer > 0 || this.knockbackTimer > 0) return;
+    if ((this.type === 'shielded' || this.type === 'protector') && this.chargeState !== 'idle') return;
+    if (this.type === 'attacker' || this.type === 'satellite') return;
+    if (this.platformIntentCooldown > 0) this.platformIntentCooldown--;
+    if (this.platformIntentCooldown > 0) return;
+    this.platformIntentCooldown = randInt(12, 28);
+
+    const grounded = this.vy >= -0.2 && this.vy < 1 && !!this.onPlatform;
+    if (!grounded) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dx = px - cx;
+    const targetAbove = py < cy - 58;
+    const targetBelow = py > cy + 72;
+    const targetDir = Math.sign(dx) || this.facing || 1;
+    const mobileJumpers = this.type === 'jumper' || this.type === 'bouncer' || this.type === 'deflector';
+    const heavyGuard = this.type === 'shielded' || this.type === 'protector';
+    const canJumpToPlatforms = mobileJumpers || heavyGuard;
+
+    if (targetAbove && canJumpToPlatforms) {
+      const reachable = (game.platforms || []).some(p => {
+        if (p.y >= this.y - 18 || p.y < this.y - 150) return false;
+        const horizontalReach = cx > p.x - 120 && cx < p.x + p.w + 120;
+        const targetNearPlatform = px > p.x - 80 && px < p.x + p.w + 80;
+        return horizontalReach || targetNearPlatform;
+      });
+      if (reachable || Math.abs(dx) < 260) {
+        this.facing = targetDir;
+        this.vy = mobileJumpers ? (this.big ? -12.8 : -11.4) : heavyGuard ? -10.2 : -9.8;
+        this.vx = targetDir * speed * (mobileJumpers ? 2.8 : heavyGuard ? 2.0 : 2.25) * windResist;
+        this.jumpTimer = 0;
+        if (game.effects && mobileJumpers) game.effects.push(new Effect(cx, this.y + this.h, '#d8b4ff', 6, 3, 9));
+        return;
+      }
+    }
+
+    const p = this.onPlatform;
+    const canDrop = p && (p.thin || p.playerDropThrough || p.h <= 12) && p.y < 460;
+    if (targetBelow && canDrop && (Math.abs(dx) < Math.max(120, p.w * 0.65) || Math.sign(dx) === Math.sign(this.vx || targetDir))) {
+      this.platformDropTimer = 18;
+      this.onPlatform = null;
+      this.y += 3;
+      this.vy = Math.max(this.vy, 1.5);
+      this.facing = targetDir;
+      this.vx = targetDir * speed * (mobileJumpers ? 1.7 : 1.15) * windResist;
+      return;
+    }
+
+    const edgePad = 18;
+    const nearingLeft = p && cx < p.x + edgePad && this.vx < 0;
+    const nearingRight = p && cx > p.x + p.w - edgePad && this.vx > 0;
+    if ((nearingLeft || nearingRight) && Math.abs(dx) > 120 && !heavyGuard && canJumpToPlatforms) {
+      this.facing = targetDir;
+      this.vy = mobileJumpers ? (this.big ? -11.8 : -10.6) : -8.7;
+      this.vx = targetDir * speed * (mobileJumpers ? 2.6 : 1.9) * windResist;
+      this.jumpTimer = 0;
+    }
   }
 
   _tryLightningTeleport(game) {
@@ -15942,7 +16563,6 @@ class Enemy {
     if (this.windPhaseCooldown <= 0) {
       this.windPhaseTimer = this.big ? 75 : 55;
       this.windPhaseCooldown = randInt(180, 300);
-      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'PHASE', '#bfb'));
     }
   }
 
@@ -15964,10 +16584,6 @@ class Enemy {
       this.spikySpikeCooldown = randInt(150, 260);
       if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SPIKES', '#f86'));
     }
-  }
-
-  _windPhaseWarning() {
-    return this.element === 'wind' && this.windPhaseTimer <= 0 && this.windPhaseCooldown <= 60;
   }
 
   _spikySpikeWarning() {
@@ -16270,8 +16886,11 @@ class Enemy {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
 
-    // Gravity (not for flyers, not for floating)
-    if (this.floatTimer > 0) {
+    // Gravity (not for flyers, not for floating). Disabled flyers should hold
+    // their skull-marked position instead of float-drifting off-screen.
+    if (this.disableTimer > 0 && this.flying) {
+      this.vy = 0;
+    } else if (this.floatTimer > 0) {
       this.floatTimer--;
       this.vy -= 0.15; // gentle upward drift
       if (this.vy < -3) this.vy = -3;
@@ -16287,24 +16906,17 @@ class Enemy {
       if (towardPlayer) windResist = 0.45;
     }
 
+    if (this.wallJumpCooldown > 0) this.wallJumpCooldown--;
+    if (this.platformDropTimer > 0) this.platformDropTimer--;
     if (this.stunTimer > 0) { this.stunTimer--; this.vx *= 0.9; }
     else switch (this.type) {
       case 'walker':
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
-        this.vx = this.facing * speed * windResist;
-        if (this.vy >= 0 && this.vy < 1) {
-          if (this.x <= this.patrolLeft) this.facing = 1;
-          if (this.x >= this.patrolRight) this.facing = -1;
-        }
-        // Lunge at player if facing them and close
-        if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-          const wDist = Math.abs(px - cx);
-          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-          if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-            this.vy = -8;
-            this.vx = this.facing * speed * 2.5;
-          }
-        }
+        this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+          guardRadius: 44, guardSpeed: 0.58, triggerRange: 155, yRange: 96, aggroRange: 340,
+          aggroSpeed: 1.15, platformJumpVy: -12.4, platformDashMult: 3.65,
+          jumpVy: -11.2, dashMult: 3.75, cooldown: 55, color: '#d8d0b8'
+        });
         break;
       case 'shooter': {
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
@@ -16338,6 +16950,52 @@ class Enemy {
           if (d < 400 && d > 0) {
             const col = this.element ? this.elementColors.accent : '#ff4';
             game.hitLines.push(new HitLine(cx, cy, (dx / d) * 4, (dy / d) * 4, col, this.contactDmg, 'enemy', { element: this.element }));
+          }
+        }
+        break;
+      }
+      case 'rocketeer': {
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
+        const rDist = Math.abs(px - cx);
+        if (this.vy >= 0 && this.vy < 1) this.facing = px > cx ? 1 : -1;
+        const rRetreat = 190 + this.rangeOffset;
+        const rComfort = 320 + this.rangeOffset;
+        const rBuf = 24;
+        if (!this._rangeState) this._rangeState = 'comfort';
+        if (this._rangeState === 'comfort') {
+          if (rDist < rRetreat - rBuf) this._rangeState = 'retreat';
+          else if (rDist > rComfort + rBuf) this._rangeState = 'approach';
+        } else if (this._rangeState === 'retreat') {
+          if (rDist > rRetreat + rBuf) this._rangeState = 'comfort';
+        } else {
+          if (rDist < rComfort - rBuf) this._rangeState = 'comfort';
+        }
+        if (this._rangeState === 'retreat') {
+          this.vx = -this.facing * speed * 0.78 * windResist;
+        } else if (this._rangeState === 'comfort') {
+          const tick = game ? game.tick : 0;
+          this.vx = Math.sin((tick + this.rangeOffset * 9) * 0.035) * speed * 0.24 * windResist;
+        } else {
+          this.vx = this.facing * speed * 0.48 * windResist;
+        }
+        this.shootTimer++;
+        if (this.shootTimer >= (this.big ? 115 : 145)) {
+          this.shootTimer = 0;
+          const dx = px - cx, dy = py - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 620 && d > 0) {
+            const col = this.element ? this.elementColors.accent : '#79d8ff';
+            const leadX = Math.max(36, Math.min(game.levelW - 36, px + (targetBox.vx || 0) * 12 + randInt(-22, 22)));
+            const leadY = Math.max(game.camera.y + 35, Math.min(500, py + randInt(-10, 18)));
+            game.hitLines.push(new EnergyBlastCircle(leadX, leadY, this.big ? 72 : 58, col, this.contactDmg, 'enemy', {
+              element: this.element,
+              maxTimer: this.big ? 58 : 66,
+              flashDur: 18,
+              sourceType: 'rocketeer',
+              originX: cx,
+              originY: cy - 8
+            }));
+            game.effects.push(new Effect(cx, cy - 4, col, 8, 3, 10));
           }
         }
         break;
@@ -16430,7 +17088,7 @@ class Enemy {
           if (this.chargeState === 'prepare') {
             this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
             this.chargeTimer++;
-            if (this.chargeTimer >= 25) {
+            if (this.chargeTimer >= 16) {
               this.chargeState = 'charging';
               this.chargeTimer = 0;
               game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#5ff', 8, 4, 12));
@@ -16442,7 +17100,7 @@ class Enemy {
             if (this.chargeTimer >= 18) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 85;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
@@ -16455,9 +17113,9 @@ class Enemy {
           } else if (this.chargeState === 'stunned') {
             this.vx = 0;
             this.chargeTimer++;
-            if (this.chargeTimer >= 180) {
+            if (this.chargeTimer >= 90) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 80;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -16465,46 +17123,43 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 15 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 140;
+              this.chargeCooldown = 80;
               this.vx = 0;
             }
           } else {
             // idle — walk toward player
-            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.5 * windResist;
-            if (shDist < 120 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
+            this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+              guardRadius: 52, guardSpeed: 0.50, triggerRange: 165, yRange: 98, aggroRange: 360,
+              aggroSpeed: 1.0, platformJumpVy: -11.8, platformDashMult: 3.9,
+              jumpVy: -10.4, dashMult: 4.2, cooldown: 65, color: '#5ff'
+            });
+            if (shDist < 165 && Math.abs(py - cy) < 90 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
               const cdx = px - cx, cdy = py - cy;
               const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
               this._chargeVx = (cdx / cd) * speed * 5;
-              this._chargeVy = (cdy / cd) * speed * 5;
+              this._chargeVy = Math.min((cdy / cd) * speed * 5, -2.5);
               this.vx = 0;
             }
           }
         } else {
           // Shield broken — behave like walker
-          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
-          if (this.vy >= 0 && this.vy < 1) {
-            if (this.x <= this.patrolLeft) this.facing = 1;
-            if (this.x >= this.patrolRight) this.facing = -1;
-          }
-          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-            const wDist = Math.abs(px - cx);
-            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            }
-          }
+          this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+            guardRadius: 46, guardSpeed: 0.54, triggerRange: 145, yRange: 86, aggroRange: 330,
+            aggroSpeed: 1.0, platformJumpVy: -11.6, platformDashMult: 3.3,
+            jumpVy: -10.2, dashMult: 3.25, cooldown: 60, color: '#d8d0b8'
+          });
         }
         break;
       }
       case 'deflector': {
         if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; break; }
         // A Friend's Letter and objective Ronin allies fight on the player's side.
-        if (this.friendly || game.player.items.friendsLetter) {
-          if (game.player.items.friendsLetter) this.friendly = true;
+        const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+        if (this.friendly || (legacyItemsOn && game.player.items.friendsLetter)) {
+          if (legacyItemsOn && game.player.items.friendsLetter) this.friendly = true;
           // Face nearest non-friendly enemy
           let nearDist = Infinity, nearE = null;
           for (const other of game.enemies) {
@@ -16590,7 +17245,7 @@ class Enemy {
           if (this.chargeState === 'prepare') {
             this.vx = Math.sin(this.chargeTimer * 1.5) * 2;
             this.chargeTimer++;
-            if (this.chargeTimer >= 35) {
+            if (this.chargeTimer >= 22) {
               this.chargeState = 'charging';
               this.chargeTimer = 0;
               game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4f8', 8, 4, 12));
@@ -16602,7 +17257,7 @@ class Enemy {
             if (this.chargeTimer >= 20) {
               this.chargeState = 'sliding';
               this.chargeTimer = 0;
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 100;
             }
           } else if (this.chargeState === 'sliding') {
             this.vx *= 0.88;
@@ -16615,9 +17270,9 @@ class Enemy {
           } else if (this.chargeState === 'stunned') {
             this.vx = 0;
             this.chargeTimer++;
-            if (this.chargeTimer >= 180) {
+            if (this.chargeTimer >= 105) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 95;
             }
           } else if (this.chargeState === 'recoil') {
             const backDir = Math.sign(this.chargeStartX - this.x) || -this.facing;
@@ -16625,38 +17280,63 @@ class Enemy {
             this.chargeTimer++;
             if (this.chargeTimer >= 18 || Math.abs(this.x - this.chargeStartX) < 10) {
               this.chargeState = 'idle';
-              this.chargeCooldown = 160;
+              this.chargeCooldown = 95;
               this.vx = 0;
             }
           } else {
             // idle — walk slowly toward player
-            if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * 0.4 * windResist;
-            if (pDist < 140 && Math.abs(py - cy) < 60 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
+            this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+              guardRadius: 62, guardSpeed: 0.42, triggerRange: 175, yRange: 104, aggroRange: 380,
+              aggroSpeed: 0.9, platformJumpVy: -11.2, platformDashMult: 3.4,
+              jumpVy: -9.8, dashMult: 3.65, cooldown: 80, color: '#4f8'
+            });
+            if (pDist < 175 && Math.abs(py - cy) < 90 && this.chargeCooldown <= 0 && this.vy >= 0 && this.vy < 1 && !playerStealthed) {
               this.chargeState = 'prepare';
               this.chargeTimer = 0;
               this.chargeStartX = this.x;
               const cdx = px - cx, cdy = py - cy;
               const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
               this._chargeVx = (cdx / cd) * speed * 4.5;
-              this._chargeVy = (cdy / cd) * speed * 4.5;
+              this._chargeVy = Math.min((cdy / cd) * speed * 4.5, -2.2);
               this.vx = 0;
             }
           }
         } else {
           // Shield broken — behave like walker
-          if (this.vy >= 0 && this.vy < 1) this.vx = this.facing * speed * windResist;
-          if (this.vy >= 0 && this.vy < 1) {
-            if (this.x <= this.patrolLeft) this.facing = 1;
-            if (this.x >= this.patrolRight) this.facing = -1;
-          }
-          if (this.vy >= 0 && this.vy < 1 && !playerStealthed) {
-            const wDist = Math.abs(px - cx);
-            const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
-            if (facingPlayer && wDist < 80 && Math.abs(py - cy) < 40) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            }
-          }
+          this._defensiveGuard(game, px, py, cx, cy, speed, windResist, playerStealthed, {
+            guardRadius: 56, guardSpeed: 0.46, triggerRange: 155, yRange: 90, aggroRange: 350,
+            aggroSpeed: 0.9, platformJumpVy: -10.8, platformDashMult: 3.1,
+            jumpVy: -9.8, dashMult: 3.0, cooldown: 75, color: '#d8d0b8'
+          });
+        }
+        break;
+      }
+      case 'satellite': {
+        this.hoverPhase += 0.035;
+        if (this.knockbackTimer > 0) { this.knockbackTimer--; this.vx *= 0.92; this.vy *= 0.92; break; }
+        const pl = game.player;
+        const pcx = pl.x + pl.w / 2;
+        const pcy = pl.y + pl.h / 2;
+        const targetY = Math.max(game.camera.y + 58, Math.min(210, pcy - 210));
+        const targetX = Math.max(60, Math.min(game.levelW - 60, pcx + Math.sin((game.tick + this.guardOffset) * 0.018) * 120));
+        this.facing = pcx > cx ? 1 : -1;
+        this.vx += Math.sign(targetX - cx) * 0.12;
+        this.vx *= 0.92;
+        this.vy += Math.sign(targetY - cy) * 0.08;
+        this.vy = this.vy * 0.9 + Math.sin(this.hoverPhase) * 0.08;
+        if (this.satelliteBeamCooldown > 0) this.satelliteBeamCooldown--;
+        if (this.satelliteBeamCooldown <= 0) {
+          this.satelliteBeamCooldown = this.big ? 150 : 185;
+          const col = this.element ? this.elementColors.accent : '#8fd6ff';
+          game.hitLines.push(new SatelliteBeam(this, col, this.contactDmg, 'enemy', {
+            element: this.element,
+            telegraphDur: this.big ? 32 : 38,
+            activeDur: 60,
+            fadeDur: 22,
+            width: this.big ? 24 : 19,
+            sourceType: 'satellite'
+          }));
+          game.effects.push(new Effect(cx, cy, col, 9, 3, 12));
         }
         break;
       }
@@ -16695,12 +17375,11 @@ class Enemy {
             const sdx = px - auraCx, sdy = py - auraCy;
             const sd = Math.sqrt(sdx * sdx + sdy * sdy);
             if (sd > 0 && sd < 500) {
-              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(auraCx, auraCy, (sdx / sd) * 4, (sdy / sd) * 4, col, this.contactDmg, 'enemy', {
+                element: this.element, maxTimer: this.big ? 38 : 46, flashDur: 20, activeDur: 18,
+                width: this.big ? 18 : 14, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
             }
           }
@@ -16741,12 +17420,11 @@ class Enemy {
             const sdx = px - auraCx, sdy = py - auraCy;
             const sd = Math.sqrt(sdx * sdx + sdy * sdy);
             if (sd > 0 && sd < 500) {
-              const p = new Projectile(auraCx, auraCy, (sdx / sd) * 7, (sdy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'enemy');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(auraCx, auraCy, (sdx / sd) * 4, (sdy / sd) * 4, col, this.contactDmg, 'enemy', {
+                element: this.element, maxTimer: this.big ? 38 : 46, flashDur: 20, activeDur: 18,
+                width: this.big ? 18 : 14, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(auraCx, auraCy, '#f66', 6, 2, 8));
             }
           }
@@ -16957,6 +17635,25 @@ class Enemy {
     }
     if (this.chargeTrails.length) this.chargeTrails = this.chargeTrails.filter(t => --t.life > 0);
 
+    this._platformMobility(game, px, py, speed, windResist, playerStealthed);
+
+    // Defensive melee clumps near anchors, but should not stack into one blob.
+    if (this.type === 'walker' || this.type === 'shielded' || this.type === 'protector') {
+      for (const other of game.enemies) {
+        if (other === this || other.dead || (other.type !== 'walker' && other.type !== 'shielded' && other.type !== 'protector')) continue;
+        const ox = other.x + other.w / 2;
+        const oy = other.y + other.h / 2;
+        const dx = cx - ox;
+        const dy = cy - oy;
+        const minDist = (this.w + other.w) * 0.42;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 0.01 && d2 < minDist * minDist && Math.abs(dy) < Math.max(this.h, other.h) * 0.8) {
+          const d = Math.sqrt(d2);
+          this.vx += (dx / d) * 0.45;
+        }
+      }
+    }
+
     // Apply velocity
     this.x += this.vx;
     this.y += this.vy;
@@ -16964,9 +17661,11 @@ class Enemy {
     // Platform collision (ground enemies only)
     const isChargeDashing = (this.type === 'shielded' || this.type === 'protector') && this.chargeState === 'charging';
     if (!this.flying) {
+      this._tryLeaperWallJump(game, px, speed, windResist);
       this.onPlatform = null;
       for (const p of game.platforms) {
-        if (p.thin) continue;
+        if (this.platformDropTimer > 0 && (p.thin || p.playerDropThrough || p.h <= 12)) continue;
+        if (p.thin && !this._canUseThinPlatforms()) continue;
         if (isChargeDashing && p.y < 460) continue;
         if (rectOverlap(this, p)) {
           if (this.vy > 0 && this.y + this.h - this.vy <= p.y + 4) {
@@ -16978,7 +17677,7 @@ class Enemy {
       }
       if (this.edgeAware && this.onPlatform && this.onPlatform.w >= 80) {
         const p = this.onPlatform;
-        const isRanged = (this.type === 'shooter' || this.type === 'bouncer');
+        const isRanged = (this.type === 'shooter' || this.type === 'bouncer' || this.type === 'rocketeer');
         const retreating = isRanged && Math.sign(this.vx) !== this.facing && Math.abs(this.vx) > 0.1;
         if (this.type === 'shielded' || this.type === 'protector') {
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
@@ -17016,17 +17715,12 @@ class Enemy {
             }
           }
         } else if (this.type === 'walker') {
-          // Walkers: jump off ledge toward player instead of turning
           const atLeftEdge = this.x + this.w / 2 < p.x + 8;
           const atRightEdge = this.x + this.w / 2 > p.x + p.w - 8;
-          const facingPlayer = (this.facing > 0 && px > cx) || (this.facing < 0 && px < cx);
           if ((atLeftEdge && this.vx < 0) || (atRightEdge && this.vx > 0)) {
-            if (!playerStealthed && facingPlayer && this.vy >= 0 && this.vy < 1) {
-              this.vy = -8;
-              this.vx = this.facing * speed * 2.5;
-            } else {
-              this.facing = -this.facing;
-            }
+            this.vx = 0;
+            if (atLeftEdge) this.x = p.x + 8 - this.w / 2;
+            if (atRightEdge) this.x = p.x + p.w - 8 - this.w / 2;
           }
         } else {
           if (this.x + this.w / 2 < p.x + 8) this.facing = 1;
@@ -17173,23 +17867,24 @@ class Enemy {
         }
       }
     }
-    // Attacker: invulnerable while enemies are in its aura
+    // Attacker: protected while enemies are in its aura, but no longer fully invulnerable.
     if (this.type === 'attacker' && this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f88', 5, 2, 6));
-      return false;
+      amount = Math.max(1, Math.round(amount * 0.35));
     }
-    // Protector aura: non-protector enemies near a protector can't be damaged
+    // Protector aura: active only while its shield holds, and reduces damage instead of denying it.
     if (this.type !== 'protector' && this.type !== 'attacker' && game) {
       for (const other of game.enemies) {
-        if (other.dead || other.type !== 'protector' || other === this) continue;
+        if (other.dead || other.type !== 'protector' || other === this || other.shieldHp <= 0) continue;
         const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
         const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
           this.flashTimer = 4;
           other.deflectFlash = 0;
           game.effects.push(new Effect(this.x + this.w / 2, this.y - 4, '#4f8', 5, 2, 6));
-          return false;
+          amount = Math.max(1, Math.round(amount * 0.45));
+          break;
         }
       }
     }
@@ -17199,32 +17894,22 @@ class Enemy {
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
+    if (sourceType === 'chain') {
+      this.stunTimer = Math.max(this.stunTimer || 0, this.big ? 55 : 40);
+      this.vx *= 0.35;
+      this.vy *= 0.35;
+    }
 
     // ── Stagger bar: accumulates rawAmount from all hits, bypasses elemental resist ──
     const combatDamage = this._damageProfile(amount, sourceType);
     if (!hasActiveShield) this._applyStanceDamage(combatDamage.stance, game);
     amount = combatDamage.hp;
 
-    // Shielded / Protector: swords and boulders remove shield pips
+    // Shielded / Protector: heavy strikes and chain strikes remove shield pips
     let shieldBlocked = false;
-    if ((sourceType === 'sword' || sourceType === 'boulder' || sourceType === 'shuriken') && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'boulder' || sourceType === 'shuriken' || sourceType === 'chain') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
-      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
-      this.shieldHp -= pickaxeHits;
-      this.shieldFlash = 6;
-      this.shieldBump = 6;
-      const shieldColor = (this.type === 'protector' || this.bossType === 'protector') ? '#f3d06a' : '#5ff';
-      const shAng = this.shieldAngle;
-      game.effects.push(new Effect(
-        this.x + this.w / 2 + Math.cos(shAng) * this.w * 0.6, this.y + this.h / 2 + Math.sin(shAng) * this.w * 0.6, shieldColor, 5, 2, 8
-      ));
-      if (this.shieldHp <= 0) {
-        this.shieldHp = 0;
-        this.stunTimer = Math.max(this.stunTimer, 90);
-        this.chargeState = 'idle';
-        this.chargeTimer = 0;
-        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
-      }
+      this._chipShield(game, fromX, 1, { effectSize: sourceType === 'chain' ? 10 : 5 });
       amount = Math.max(1, Math.round(amount * 0.25));
       this._applyStanceDamage(0.5, game);
     }
@@ -17300,7 +17985,7 @@ class Enemy {
       ));
     }
     // Weight system: heavier enemies resist knockback more
-    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
+    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, rocketeer: 1.1, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
     const isBoss = this instanceof Boss;
     let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
@@ -17318,7 +18003,7 @@ class Enemy {
         this.flyerDashTimer = 0;
       }
     } else {
-      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
+      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, rocketeer: 4, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
       let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
       this.vx = dir * kb;
       this.knockbackTimer = Math.max(this.knockbackTimer, 6);
@@ -17376,7 +18061,8 @@ class Enemy {
     if (this.element) {
       const charmMap = { fire:'charmFire', ghost:'charmGhost', water:'charmWater', crystal:'charmCrystal', wind:'charmWind', lightning:'charmLightning', spiky:'charmSpiky' };
       const charmKey = charmMap[this.element];
-      if (charmKey && game.player.items[charmKey]) {
+      const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+      if (legacyItemsOn && charmKey && game.player.items[charmKey]) {
         const healAmt = Math.max(1, Math.round(game.player.maxHp * 0.1));
         game.player.hp = Math.min(game.player.hp + healAmt, game.player.maxHp);
         game.effects.push(new TextEffect(game.player.x + game.player.w / 2, game.player.y - 10, '+' + healAmt, '#4f4'));
@@ -17575,6 +18261,41 @@ class Enemy {
     return Math.abs(diff) < Math.PI / 2;
   }
 
+  _chipShield(game, fromX, chipAmount = 1, opts = {}) {
+    if (this.shieldHp <= 0) return false;
+    const isProtector = this.type === 'protector' || this.bossType === 'protector';
+    const isBossShield = !!this.bossType;
+    const legacyItemsOn = !game || !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+    const pickaxeBonus = legacyItemsOn && game && game.player && game.player.items && game.player.items.pickaxe ? 1 : 0;
+    const chip = Math.max(1, Math.round(chipAmount) + pickaxeBonus);
+    const shieldColor = isProtector ? '#f3d06a' : '#5ff';
+    const effectScale = isBossShield ? 0.7 : 0.6;
+    const shAng = this.shieldAngle || 0;
+
+    this.shieldHp = Math.max(0, this.shieldHp - chip);
+    this.shieldFlash = 6;
+    this.shieldBump = isBossShield ? 8 : 6;
+
+    if (game && game.effects) {
+      game.effects.push(new Effect(
+        this.x + this.w / 2 + Math.cos(shAng) * this.w * effectScale,
+        this.y + this.h / 2 + Math.sin(shAng) * this.w * effectScale,
+        shieldColor,
+        opts.effectSize || 8,
+        3,
+        10
+      ));
+      if (this.shieldHp <= 0) {
+        this.stunTimer = Math.max(this.stunTimer || 0, isBossShield ? 120 : 90);
+        this.chargeState = 'idle';
+        this.chargeTimer = 0;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 10, 'SHIELD BREAK', shieldColor));
+      }
+    }
+    if (typeof SFX !== 'undefined' && SFX.armor) SFX.armor();
+    return true;
+  }
+
   _renderEnemySilhouette(ctx, sx, sy, color, type) {
     const cx = sx + this.w / 2;
     const cy = sy + this.h / 2;
@@ -17618,6 +18339,15 @@ class Enemy {
       ctx.closePath();
     } else if (type === 'attacker') {
       ctx.arc(cx, cy, w * 0.5, 0, Math.PI * 2);
+    } else if (type === 'satellite') {
+      ctx.moveTo(cx - w * 0.48, cy - h * 0.18);
+      ctx.lineTo(cx - w * 0.22, cy - h * 0.42);
+      ctx.lineTo(cx + w * 0.22, cy - h * 0.42);
+      ctx.lineTo(cx + w * 0.48, cy - h * 0.18);
+      ctx.lineTo(cx + w * 0.36, cy + h * 0.30);
+      ctx.lineTo(cx, cy + h * 0.48);
+      ctx.lineTo(cx - w * 0.36, cy + h * 0.30);
+      ctx.closePath();
     } else if (type === 'shooter') {
       ctx.moveTo(sx + w * 0.18, sy + h * 0.22);
       ctx.quadraticCurveTo(cx, sy - h * 0.02, sx + w * 0.82, sy + h * 0.22);
@@ -17954,6 +18684,12 @@ class Enemy {
     ctx.lineJoin = 'round';
 
     if (type === 'walker') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.35;
+      const spearGripX = cx - dir * w * 0.10;
+      const spearGripY = sy + h * 0.52;
+      const spearAngle = Math.atan2(aimY - spearGripY, aimX - spearGripX);
       ctx.strokeStyle = '#17100c';
       ctx.lineWidth = 4 * strokeScale;
       ctx.beginPath();
@@ -17968,50 +18704,104 @@ class Enemy {
       ctx.fill();
       ctx.fillStyle = '#2b201c';
       ctx.fillRect(cx - w * 0.16, sy + h * 0.34, w * 0.32, h * 0.30);
+      ctx.save();
+      ctx.translate(spearGripX, spearGripY);
+      ctx.rotate(spearAngle);
       ctx.strokeStyle = '#5b3a20';
-      ctx.lineWidth = 4.2 * strokeScale;
+      ctx.lineWidth = 5.2 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.44, sy + h * 0.55);
-      ctx.lineTo(cx + dir * w * 1.24, sy + h * 0.30);
+      ctx.moveTo(-w * 0.45, 0);
+      ctx.lineTo(w * 1.45, 0);
       ctx.stroke();
       ctx.strokeStyle = '#eadfbe';
-      ctx.lineWidth = 1.2 * strokeScale;
+      ctx.lineWidth = 1.4 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.34, sy + h * 0.51);
-      ctx.lineTo(cx + dir * w * 1.08, sy + h * 0.31);
+      ctx.moveTo(-w * 0.30, -2);
+      ctx.lineTo(w * 1.22, -2);
       ctx.stroke();
       ctx.fillStyle = '#d7dee0';
       ctx.strokeStyle = '#111';
-      ctx.lineWidth = 1.5 * strokeScale;
+      ctx.lineWidth = 1.6 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx + dir * w * 1.34, sy + h * 0.28);
-      ctx.lineTo(cx + dir * w * 1.02, sy + h * 0.18);
-      ctx.lineTo(cx + dir * w * 1.10, sy + h * 0.32);
-      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.46);
+      ctx.moveTo(w * 1.58, 0);
+      ctx.lineTo(w * 1.20, -9);
+      ctx.lineTo(w * 1.30, 0);
+      ctx.lineTo(w * 1.20, 9);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.restore();
     } else if (type === 'shooter') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.45;
+      const gunX = cx - dir * w * 0.12;
+      const gunY = sy + h * 0.47;
+      const gunAngle = Math.atan2(aimY - gunY, aimX - gunX);
       ctx.fillStyle = '#161c28';
       ctx.fillRect(sx + w * 0.30, sy + h * 0.30, w * 0.34, h * 0.52);
       ctx.fillStyle = '#39465b';
       ctx.beginPath();
       ctx.ellipse(cx, sy + h * 0.24, w * 0.26, h * 0.11, 0.1, 0, Math.PI * 2);
       ctx.fill();
+      ctx.save();
+      ctx.translate(gunX, gunY);
+      ctx.rotate(gunAngle);
       ctx.strokeStyle = '#0b0e13';
       ctx.lineWidth = 5 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx - dir * w * 0.18, sy + h * 0.48);
-      ctx.lineTo(cx + dir * w * 1.18, sy + h * 0.42);
+      ctx.moveTo(-w * 0.12, 0);
+      ctx.lineTo(w * 1.24, 0);
       ctx.stroke();
       ctx.strokeStyle = '#8793a4';
       ctx.lineWidth = 2 * strokeScale;
       ctx.beginPath();
-      ctx.moveTo(cx + dir * w * 0.18, sy + h * 0.44);
-      ctx.lineTo(cx + dir * w * 1.06, sy + h * 0.40);
+      ctx.moveTo(w * 0.18, -2);
+      ctx.lineTo(w * 1.08, -2);
       ctx.stroke();
       ctx.fillStyle = '#cfd6d9';
-      ctx.fillRect(cx + dir * w * 1.12 - (dir < 0 ? 5 : 0), sy + h * 0.37, 5, 7);
+      ctx.fillRect(w * 1.13, -4, 6, 8);
+      ctx.restore();
+    } else if (type === 'rocketeer') {
+      const aimTarget = game ? game.player : null;
+      const aimX = aimTarget ? aimTarget.x + aimTarget.w / 2 : cx + dir * w;
+      const aimY = aimTarget ? aimTarget.y + aimTarget.h / 2 : sy + h * 0.20;
+      const tubeX = cx - dir * w * 0.18;
+      const tubeY = sy + h * 0.30;
+      const aimAngle = Math.atan2(aimY - tubeY, aimX - tubeX);
+      const tubeAngle = (dir >= 0 ? 0 : Math.PI) + aimAngle * 0.35 - dir * 0.22;
+      const glow = this.element ? this.elementColors.accent : '#79d8ff';
+      ctx.fillStyle = '#162331';
+      ctx.fillRect(sx + w * 0.28, sy + h * 0.34, w * 0.42, h * 0.46);
+      ctx.fillStyle = '#536475';
+      ctx.beginPath();
+      ctx.ellipse(cx, sy + h * 0.22, w * 0.24, h * 0.13, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#10151d';
+      ctx.lineWidth = 5.5 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * w * 0.12, sy + h * 0.64);
+      ctx.lineTo(cx - dir * w * 0.34, sy + h * 1.02);
+      ctx.moveTo(cx + dir * w * 0.18, sy + h * 0.66);
+      ctx.lineTo(cx + dir * w * 0.46, sy + h * 1.02);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(tubeX, tubeY);
+      ctx.rotate(tubeAngle);
+      ctx.fillStyle = '#0c1118';
+      ctx.strokeStyle = '#7d8ea0';
+      ctx.lineWidth = 2 * strokeScale;
+      ctx.fillRect(-w * 0.22, -h * 0.13, w * 1.28, h * 0.26);
+      ctx.strokeRect(-w * 0.22, -h * 0.13, w * 1.28, h * 0.26);
+      ctx.fillStyle = glow;
+      ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 0.12);
+      ctx.beginPath();
+      ctx.arc(w * 1.06, 0, h * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#dcecff';
+      ctx.fillRect(w * 0.18, -h * 0.04, w * 0.36, h * 0.08);
+      ctx.restore();
     } else if (type === 'flyer') {
       const flap = Math.sin(t * 0.25) * 5;
       ctx.fillStyle = '#e8e0c8';
@@ -18053,6 +18843,31 @@ class Enemy {
       ctx.closePath();
       ctx.fill();
       ctx.globalAlpha = 1;
+    } else if (type === 'satellite') {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 0.08);
+      ctx.fillStyle = '#6e86a8';
+      ctx.fillRect(sx + w * 0.18, sy + h * 0.28, w * 0.64, h * 0.18);
+      ctx.fillStyle = '#111923';
+      ctx.fillRect(sx + w * 0.28, sy + h * 0.16, w * 0.44, h * 0.34);
+      ctx.strokeStyle = '#9fb6d8';
+      ctx.lineWidth = 3 * strokeScale;
+      ctx.beginPath();
+      ctx.moveTo(sx + w * 0.18, sy + h * 0.38);
+      ctx.lineTo(sx - w * 0.20, sy + h * 0.20);
+      ctx.moveTo(sx + w * 0.82, sy + h * 0.38);
+      ctx.lineTo(sx + w * 1.20, sy + h * 0.20);
+      ctx.stroke();
+      ctx.save();
+      ctx.globalAlpha = 0.25 + pulse * 0.25;
+      ctx.fillStyle = this.element ? this.elementColors.accent : '#8fd6ff';
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.18, sy + h * 0.55);
+      ctx.lineTo(cx + w * 0.18, sy + h * 0.55);
+      ctx.lineTo(cx + w * 0.30, sy + h * 1.12);
+      ctx.lineTo(cx - w * 0.30, sy + h * 1.12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     } else if (type === 'shielded' || type === 'protector') {
       ctx.fillStyle = type === 'protector' ? '#143224' : '#30412c';
       ctx.fillRect(sx + w * 0.27, sy + h * 0.18, w * 0.46, h * 0.58);
@@ -18199,7 +19014,7 @@ class Enemy {
     if (this.dead) return;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'flyer', 'flyshooter'];
+    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'flyer', 'flyshooter'];
     const usesCounterpartArt = counterpartBossTypes.includes(this.bossType);
 
     // Spawn pop-in scale
@@ -18252,7 +19067,8 @@ class Enemy {
         ctx.globalAlpha = 0.35 + 0.1 * Math.sin((game ? game.tick : 0) * 0.08);
       } else if (windPhasing) {
         ctx.save();
-        ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
+        const phase = Math.max(0, this.windPhaseTimer / (this.big ? 75 : 55));
+        ctx.globalAlpha = 0.1 + phase * 0.28;
       }
       const baseColor = this.freezeTimer > 0 ? '#88eeff' : (this.flashTimer > 0 ? '#fff' : this.color);
       this._renderEnemySilhouette(ctx, sx, sy, baseColor, this.type);
@@ -18282,9 +19098,9 @@ class Enemy {
       ctx.restore();
     }
 
-    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
-      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
-      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+    if (this._spikySpikeWarning()) {
+      const warnColor = '#f86';
+      const label = 'SPIKES SOON';
       const pulse = 0.35 + 0.35 * Math.sin((game ? game.tick : 0) * 0.35);
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -18296,22 +19112,6 @@ class Enemy {
       ctx.font = 'bold 9px monospace';
       ctx.fillStyle = warnColor;
       //ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 16);
-      ctx.restore();
-    }
-
-    if (this.element === 'wind' && this.windPhaseTimer > 0) {
-      ctx.save();
-      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
-      ctx.globalAlpha = 0.25 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
-      ctx.strokeStyle = '#bfb';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(sx - 4, sy - 4, this.w + 8, this.h + 8);
-      ctx.setLineDash([]);
-      ctx.font = 'bold 9px monospace';
-      ctx.fillStyle = '#bfb';
-      //ctx.fillText('PHASE', sx + this.w / 2 - 14, sy - 14);
-      ctx.fillRect(sx, sy - 6, this.w * phase, 2);
       ctx.restore();
     }
 
@@ -18712,7 +19512,7 @@ class Enemy {
         }
 
         // Aura circle
-        if (this.auraRadius > 0) {
+        if (this.auraRadius > 0 && this.shieldHp > 0) {
           ctx.save();
           ctx.globalAlpha = 0.08 + 0.04 * Math.sin((game ? game.tick : 0) * 0.04);
           ctx.strokeStyle = '#4f8';
@@ -18788,7 +19588,7 @@ class Enemy {
     }
 
     // Melee sword
-    if (this.contactTick > 20 && this.type !== 'shooter' && this.type !== 'flyshooter' && this.type !== 'attacker') {
+    if (this.contactTick > 20 && this.type !== 'shooter' && this.type !== 'rocketeer' && this.type !== 'flyshooter' && this.type !== 'attacker') {
       const sl = this.big ? 16 : 12;
       const sw = this.big ? 4 : 3;
       const swordX = this.facing > 0 ? sx + this.w : sx - sl;
@@ -18800,13 +19600,15 @@ class Enemy {
     }
 
     // HP bar (floating above head)
-    if (this.hp < this.maxHp) {
+    const forceHpBar = this.isMissionMiniboss || this.missionMinibossRole || this.isRouteEscapeTarget;
+    if (this.hp < this.maxHp || forceHpBar) {
       const barW = this.w + 6;
       const barX = sx + this.w / 2 - barW / 2;
       const barY = sy - 10;
       ctx.fillStyle = '#400';
       ctx.fillRect(barX, barY, barW, 4);
-      const displayRatio = Math.max(0, Math.min(1, this.displayHp / Math.max(1, this.maxHp)));
+      const displayHp = Number.isFinite(this.displayHp) ? this.displayHp : this.hp;
+      const displayRatio = Math.max(0, Math.min(1, displayHp / Math.max(1, this.maxHp)));
       const hpRatio = Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)));
       if (displayRatio > hpRatio) {
         ctx.fillStyle = '#f66';
@@ -18847,7 +19649,7 @@ class Enemy {
     // Protector aura protection indicator — small shield above protected enemies
     if (this.type !== 'protector' && this.type !== 'attacker' && game) {
       for (const other of game.enemies) {
-        if (other.dead || other.type !== 'protector' || other === this) continue;
+        if (other.dead || other.type !== 'protector' || other === this || other.shieldHp <= 0) continue;
         const dx = (this.x + this.w / 2) - (other.x + other.w / 2);
         const dy = (this.y + this.h / 2) - (other.y + other.h / 2);
         if (Math.sqrt(dx * dx + dy * dy) <= other.auraRadius) {
@@ -18923,7 +19725,7 @@ class Boss extends Enemy {
     this.maxHp = this.hp;
     this.displayHp = this.hp;
     const bossHits = {
-      walker: 36, shooter: 36, jumper: 40, bouncer: 44, charger: 48,
+      walker: 36, shooter: 36, jumper: 40, bouncer: 44, rocketeer: 46, charger: 48,
       shielded: 48, deflector: 52, protector: 60, attacker: 42,
       flyer: 38, flyshooter: 42
     };
@@ -18957,7 +19759,7 @@ class Boss extends Enemy {
     this.lastY = y;
     const colors = {
       walker: '#c33', shooter: '#cc5', jumper: '#c8c',
-      bouncer: '#c5c', shielded: '#5cc', deflector: '#88a',
+      bouncer: '#c5c', rocketeer: '#79d8ff', shielded: '#5cc', deflector: '#88a',
       protector: '#8a6416', attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35'
     };
     this.color = colors[bossType] || '#c33';
@@ -19186,7 +19988,7 @@ class Boss extends Enemy {
     this.stateTimer++;
     this.actionTimer++;
 
-    const canShoot = (this.bossType === 'shooter' || this.bossType === 'bouncer' || this.bossType === 'flyshooter');
+    const canShoot = (this.bossType === 'shooter' || this.bossType === 'bouncer' || this.bossType === 'rocketeer' || this.bossType === 'flyshooter');
     const isJumpy = (this.bossType === 'jumper');
 
     if (this.flying) {
@@ -19228,12 +20030,11 @@ class Boss extends Enemy {
             this.shootTimer = 0;
             const sd = Math.sqrt(dx * dx + dy * dy);
             if (sd > 0 && sd < 600) {
-              const p = new Projectile(cx, cy, (dx / sd) * 7, (dy / sd) * 7, this.element ? this.elementColors.accent : '#f44', this.contactDmg, 'boss');
-              p.piercing = true;
-              p.w = 6; p.h = 6;
-              p.life = 90;
-              if (this.element) p.element = this.element;
-              game.projectiles.push(p);
+              const col = this.element ? this.elementColors.accent : '#f44';
+              game.hitLines.push(new HitLine(cx, cy, (dx / sd) * 4.5, (dy / sd) * 4.5, col, this.contactDmg, 'boss', {
+                element: this.element, maxTimer: this.phase === 2 ? 34 : 42, flashDur: 22, activeDur: 20,
+                width: this.phase === 2 ? 22 : 18, sourceType: 'attacker'
+              }));
               game.effects.push(new Effect(cx, cy, '#f66', 6, 2, 8));
             }
           }
@@ -19351,6 +20152,22 @@ class Boss extends Enemy {
                     bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 75
                   }));
                 }
+              } else if (this.bossType === 'rocketeer') {
+                const rDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
+                const shots = this.phase === 2 ? 2 : 1;
+                const col = this.element ? this.elementColors.accent : '#79d8ff';
+                for (let si = 0; si < shots; si++) {
+                  const offset = (si - (shots - 1) / 2) * 70;
+                  game.hitLines.push(new EnergyBlastCircle(
+                    Math.max(40, Math.min(game.levelW - 40, px + offset + randInt(-20, 20))),
+                    Math.max(game.camera.y + 35, Math.min(500, py + randInt(-8, 18))),
+                    this.phase === 2 ? 86 : 74,
+                    col,
+                    rDmg,
+                    'boss',
+                    { element: this.element, maxTimer: 55, flashDur: 18, sourceType: 'rocketeer', originX: cx, originY: cy - 10 }
+                  ));
+                }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss (flying): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
@@ -19390,7 +20207,8 @@ class Boss extends Enemy {
 
       if (isDeflector) {
         // A Friend's Letter: deflector boss fades out peacefully
-        if (game.player.items.friendsLetter && !this.friendly) {
+        const legacyItemsOn = !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+        if (legacyItemsOn && game.player.items.friendsLetter && !this.friendly) {
           this.friendly = true;
           this.friendlyFade = 120;
           this.vx = 0;
@@ -19639,6 +20457,22 @@ class Boss extends Enemy {
                     bouncesLeft: this.phase === 2 ? 5 : 3, explodeRadius: 80
                   }));
                 }
+              } else if (this.bossType === 'rocketeer') {
+                const rDmg = Math.max(1, Math.round(this._bossEhp / 5 + this._bossArm));
+                const shots = this.phase === 2 ? 2 : 1;
+                const col = this.element ? this.elementColors.accent : '#79d8ff';
+                for (let si = 0; si < shots; si++) {
+                  const offset = (si - (shots - 1) / 2) * 72;
+                  game.hitLines.push(new EnergyBlastCircle(
+                    Math.max(40, Math.min(game.levelW - 40, px + offset + randInt(-22, 22))),
+                    Math.max(game.camera.y + 35, Math.min(500, py + randInt(-8, 18))),
+                    this.phase === 2 ? 88 : 76,
+                    col,
+                    rDmg,
+                    'boss',
+                    { element: this.element, maxTimer: 56, flashDur: 18, sourceType: 'rocketeer', originX: cx, originY: cy - 10 }
+                  ));
+                }
               } else if (this.bossType === 'shooter') {
                 // Shooter boss (ground): hitline spread
                 const sDmg = Math.max(1, Math.round(this._bossEhp / 6 + this._bossArm));
@@ -19815,11 +20649,11 @@ class Boss extends Enemy {
       this.flashTimer = 6;
       amount = Math.max(1, Math.round(amount * 0.5));
     }
-    // Attacker boss: invulnerable when enemies nearby
+    // Attacker boss: protected when enemies are nearby, but still takes reduced damage.
     if (this.attackerInvulnerable) {
       this.flashTimer = 4;
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f44', 6, 2, 8));
-      return false;
+      amount = Math.max(1, Math.round(amount * 0.35));
     }
 
     const hasActiveBossShield = (this.bossType === 'shielded' || this.bossType === 'protector') && this.shieldHp > 0;
@@ -19830,6 +20664,11 @@ class Boss extends Enemy {
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
+    if (sourceType === 'chain') {
+      this.stunTimer = Math.max(this.stunTimer || 0, 28);
+      this.vx *= 0.45;
+      this.vy *= 0.45;
+    }
 
     // ── Stagger bar ──
     const combatDamage = this._damageProfile(amount, sourceType);
@@ -19838,9 +20677,10 @@ class Boss extends Enemy {
 
     // Shield check — only swords remove shield pips
     let shieldBlocked = false;
-    if (sourceType === 'sword' && this._shieldBlocks(fromX, undefined, game)) {
+    if ((sourceType === 'sword' || sourceType === 'chain') && this._shieldBlocks(fromX, undefined, game)) {
       shieldBlocked = true;
-      const pickaxeHits = (game && game.player && game.player.items.pickaxe) ? 2 : 1;
+      const legacyItemsOn = !game || !game._legacyBossItemsEnabled || game._legacyBossItemsEnabled();
+      const pickaxeHits = (legacyItemsOn && game && game.player && game.player.items.pickaxe) ? 2 : 1;
       this.shieldHp -= pickaxeHits;
       this.shieldFlash = 6;
       this.shieldBump = 8;
@@ -19952,7 +20792,7 @@ class Boss extends Enemy {
     if (_fading) ctx.globalAlpha = this.friendlyFade / 120;
     const sx = this.x - cam.x;
     const sy = this.y - cam.y;
-    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'flyer', 'flyshooter'];
+    const counterpartBossTypes = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'flyer', 'flyshooter'];
     const usesCounterpartArt = counterpartBossTypes.includes(this.bossType);
 
     // Aura glow
@@ -19989,7 +20829,8 @@ class Boss extends Enemy {
     }
     if (windPhasing) {
       ctx.save();
-      ctx.globalAlpha = 0.16 + 0.10 * Math.sin((game ? game.tick : 0) * 0.22);
+      const phase = Math.max(0, this.windPhaseTimer / (this.big ? 75 : 55));
+      ctx.globalAlpha = 0.1 + phase * 0.28;
     }
 
     // --- Type-specific body rendering ---
@@ -20453,9 +21294,9 @@ class Boss extends Enemy {
       }
     }
 
-    if (this._windPhaseWarning() || this._spikySpikeWarning()) {
-      const warnColor = this._windPhaseWarning() ? '#bfb' : '#f86';
-      const label = this._windPhaseWarning() ? 'PHASE SOON' : 'SPIKES SOON';
+    if (this._spikySpikeWarning()) {
+      const warnColor = '#f86';
+      const label = 'SPIKES SOON';
       const pulse = 0.35 + 0.25 * Math.sin((game ? game.tick : 0) * 0.35);
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -20466,20 +21307,6 @@ class Boss extends Enemy {
       ctx.fillStyle = warnColor;
       ctx.font = 'bold 10px monospace';
       ctx.fillText(label, sx + this.w / 2 - ctx.measureText(label).width / 2, sy - 42);
-    }
-
-    if (this.element === 'wind' && this.windPhaseTimer > 0) {
-      const phase = this.windPhaseTimer / (this.big ? 75 : 55);
-      ctx.save();
-      ctx.globalAlpha = 0.3 + 0.25 * Math.sin((game ? game.tick : 0) * 0.4);
-      ctx.strokeStyle = '#bfb';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(sx - 5, sy - 5, this.w + 10, this.h + 10);
-      ctx.restore();
-      ctx.fillStyle = '#143';
-      ctx.fillRect(sx, sy - 32, this.w, 4);
-      ctx.fillStyle = '#bfb';
-      ctx.fillRect(sx, sy - 32, this.w * Math.max(0, phase), 4);
     }
 
     if (this._spikySpikesActive()) {
@@ -20544,7 +21371,7 @@ class Boss extends Enemy {
     }
 
     // Protector boss: healing aura ring
-    if (this.bossType === 'protector' && this.auraRadius > 0) {
+    if (this.bossType === 'protector' && this.auraRadius > 0 && this.shieldHp > 0) {
       ctx.save();
       ctx.globalAlpha = 0.15 + 0.05 * Math.sin((game ? game.tick : 0) * 0.05);
       ctx.strokeStyle = '#d6a72e';
@@ -20706,6 +21533,10 @@ function saveVault(data) {
 
 let vaultData = loadVault();
 
+function legacyBossItemsEnabledGlobal() {
+  return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
+}
+
 // â”€â”€ Achievement Definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ACHIEVEMENT_DEFS = [
   // Kill milestones
@@ -20758,10 +21589,10 @@ const ACHIEVEMENT_DEFS = [
   { id: 'ult_wind', name: 'Trimerang Fury', desc: 'Use Wind ultimate', icon: '\uD83C\uDF2C' },
   { id: 'ult_storm', name: 'Lightning Reign', desc: 'Use Storm ultimate', icon: '\u26A1' },
   // Items
-  ...Object.entries(BOSS_ITEMS).map(([id, it]) => ({
+  ...(legacyBossItemsEnabledGlobal() ? Object.entries(BOSS_ITEMS).map(([id, it]) => ({
     id: 'item_' + id, name: it.name, desc: 'Found: ' + it.name, icon: it.icon
-  })),
-  { id: 'item_collector', name: 'Item Collector', desc: 'Find every boss item', icon: '\uD83C\uDFC6' },
+  })) : []),
+  ...(legacyBossItemsEnabledGlobal() ? [{ id: 'item_collector', name: 'Item Collector', desc: 'Find every boss item', icon: '\uD83C\uDFC6' }] : []),
 ];
 
 // â”€â”€ Runtime Tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -20868,6 +21699,7 @@ function recordCheaterEnding() { unlockAchievement('cheater_ending'); }
 function recordCheatUsed() { unlockAchievement('discovered_cheats'); }
 
 function recordItemFound(itemId) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   if (typeof game !== 'undefined' && game.cheated) return;
   if (!vaultData[itemId]) {
     vaultData[itemId] = Date.now();
@@ -20894,7 +21726,7 @@ const pauseMenu = {
   itemTooltipIdx: 0,        // which item is selected in tooltip
 };
 
-const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', 'Vault', 'Achievements', 'Music', 'SFX'];
+const PAUSE_OPTIONS = ['Resume', 'Ninja Guide', 'Bestiary', ...(legacyBossItemsEnabledGlobal() ? ['Vault'] : []), 'Achievements', 'Music', 'SFX'];
 
 function togglePause() {
   if (pauseMenu.itemTooltipActive) {
@@ -20922,6 +21754,7 @@ function pauseUpdate() {
 
   // Item tooltip mode
   if (pauseMenu.itemTooltipActive) {
+    if (!legacyBossItemsEnabledGlobal()) { pauseMenu.itemTooltipActive = false; return; }
     const pl = typeof game !== 'undefined' ? game.player : null;
     const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
     if (itemKeys.length === 0) { pauseMenu.itemTooltipActive = false; return; }
@@ -20948,7 +21781,7 @@ function pauseUpdate() {
   // Left arrow: open item tooltip if items exist
   if (consumePress('ArrowLeft') || consumePress('KeyA')) {
     const pl = typeof game !== 'undefined' ? game.player : null;
-    const itemKeys = pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
+    const itemKeys = legacyBossItemsEnabledGlobal() && pl ? Object.keys(pl.items).filter(k => pl.items[k]) : [];
     if (itemKeys.length > 0) {
       pauseMenu.itemTooltipActive = true;
       pauseMenu.itemTooltipIdx = 0;
@@ -20956,14 +21789,14 @@ function pauseUpdate() {
     }
   }
   if (consumePress('Enter') || consumePress('Space') || consumePress('KeyZ') || consumePress('KeyJ')) {
-    const sel = pauseMenu.selected;
-    if (sel === 0) { pauseMenu.active = false; return; }
-    if (sel === 1) { pauseMenu.popup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
-    if (sel === 2) { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
-    if (sel === 3) { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
-    if (sel === 4) { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
-    if (sel === 5) { Music.setMuted(!Music.muted); }
-    if (sel === 6) { SFX.muted = !SFX.muted; }
+    const option = PAUSE_OPTIONS[pauseMenu.selected];
+    if (option === 'Resume') { pauseMenu.active = false; return; }
+    if (option === 'Ninja Guide') { pauseMenu.popup = 'guide'; pauseMenu.guideNinja = 0; pauseMenu.popupScroll = 0; }
+    if (option === 'Bestiary') { pauseMenu.popup = 'bestiary'; pauseMenu.bestiaryIdx = 0; pauseMenu.bestiaryDetail = false; pauseMenu.popupScroll = 0; }
+    if (option === 'Vault') { pauseMenu.popup = 'vault'; pauseMenu.vaultScroll = 0; }
+    if (option === 'Achievements') { pauseMenu.popup = 'achievements'; pauseMenu.popupScroll = 0; }
+    if (option === 'Music') { Music.setMuted(!Music.muted); }
+    if (option === 'SFX') { SFX.muted = !SFX.muted; }
   }
 }
 
@@ -20974,6 +21807,10 @@ function updatePopup() {
       pauseMenu.bestiaryDetail = false;
       return;
     }
+  }
+  if (pauseMenu.popup === 'vault' && !legacyBossItemsEnabledGlobal()) {
+    pauseMenu.popup = null;
+    return;
   }
   // Close popup
   if (consumePress('Escape') || consumePress('Backspace')) {
@@ -21263,7 +22100,7 @@ function renderPauseMenu(ctx) {
   ctx.fillStyle = '#666';
   ctx.font = '10px monospace';
   const pl = typeof game !== 'undefined' ? game.player : null;
-  const hasItems = pl && Object.keys(pl.items).filter(k => pl.items[k]).length > 0;
+  const hasItems = legacyBossItemsEnabledGlobal() && pl && Object.keys(pl.items).filter(k => pl.items[k]).length > 0;
   const footerHint = hasItems
     ? 'ESC to close \u2022 \u2190 Items \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select'
     : 'ESC to close \u2022 \u2191\u2193 Navigate \u2022 Enter/Z to select';
@@ -21278,6 +22115,7 @@ function renderPauseMenu(ctx) {
 }
 
 function renderItemTooltip(ctx) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   const pl = typeof game !== 'undefined' ? game.player : null;
   if (!pl) return;
   const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
@@ -21910,6 +22748,7 @@ function renderBestiaryDetail(ctx, bx, by, bw, bh, entry, data) {
 
 // ── Vault Popup ───────────────────────────────────────────────────────
 function renderVaultPopup(ctx) {
+  if (!legacyBossItemsEnabledGlobal()) return;
   const bw = 700, bh = 420;
   const bx = CANVAS_W / 2 - bw / 2;
   const by = CANVAS_H / 2 - bh / 2;
@@ -22151,6 +22990,10 @@ class Game {
     this.menuTick = 0;
     this.camera = { x: 0, y: 0 };
     this.player = new Player(100, 300);
+    if (!this._legacyBossItemsEnabled()) {
+      this.player.items = {};
+      this.player.unlockedItems = {};
+    }
     this.platforms = [];
     this.ropes = [];
     this.enemies = [];
@@ -22389,7 +23232,7 @@ class Game {
       ? roomDef.enemyTypes.slice()
       : ['walker', 'shooter', 'jumper'];
     const roomEnemySet = new Set(enemyTypes);
-    const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'bouncer', 'jumper', 'shooter', 'walker'];
+    const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'satellite', 'rocketeer', 'bouncer', 'jumper', 'shooter', 'walker'];
     let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t));
     if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType));
     const eliteA = eliteTypes[step % eliteTypes.length] || 'charger';
@@ -23713,7 +24556,7 @@ class Game {
     ctx.save();
     const baseColors = {
       walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
-      shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
+      rocketeer: '#243447', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
       attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35',
     };
     const bodyColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].body : (baseColors[bossType] || '#c33');
@@ -23747,6 +24590,11 @@ class Game {
       ctx.lineWidth = 5;
       ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 44, cy - 2); ctx.stroke();
       ctx.fillRect(cx + 42, cy - 6, 7, 8);
+    } else if (bossType === 'rocketeer') {
+      ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(cx - 16, cy - 8); ctx.lineTo(cx + 42, cy - 20); ctx.stroke();
+      ctx.fillStyle = accentColor;
+      ctx.beginPath(); ctx.arc(cx + 45, cy - 21, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (bossType === 'shielded' || bossType === 'protector') {
       ctx.fillRect(cx + 22, cy - 24, 10, 48);
       ctx.fillStyle = '#111'; ctx.fillRect(cx + 25, cy - 18, 3, 36);
@@ -24877,31 +25725,78 @@ class Game {
     return true;
   }
 
-  _routeBossFor(step, lane, previousLane, history) {
-    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
-    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
-      const allHard = (history || []).length >= ROUTE_STAGE_LAYOUTS.length - 1 && (history || []).every(h => h && h.route === 'hard');
-      if (allHard) return ROUTE_FINAL_PERFECT_HARD_BOSS;
-      return ROUTE_FINAL_BOSSES[lane] || 'flyshooter';
+  _routeHistoryProfile(history, lane) {
+    const counts = { easy: 0, mid: 0, hard: 0 };
+    for (const h of history || []) {
+      const route = h && ROUTE_LANES.includes(h.route) ? h.route : null;
+      if (route) counts[route]++;
     }
-    const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
-    const from = ROUTE_LANES.includes(previousLane) ? previousLane : 'mid';
-    const to = ROUTE_LANES.includes(lane) ? lane : 'mid';
-    const row = ROUTE_BOSS_MATRIX[from] || ROUTE_BOSS_MATRIX.mid;
-    const list = row[to] || row.mid || ['deflector'];
-    return list[Math.min(list.length - 1, matrixStep)] || 'deflector';
+    const total = counts.easy + counts.mid + counts.hard;
+    const laneKey = ROUTE_LANES.includes(lane) ? lane : 'mid';
+    let dominant = laneKey;
+    for (const candidate of ['easy', 'mid', 'hard']) {
+      if (counts[candidate] > counts[dominant]) dominant = candidate;
+    }
+    if (total > 0 && counts[dominant] === counts.easy && counts[dominant] === counts.mid && counts[dominant] === counts.hard) {
+      dominant = laneKey;
+    }
+    return {
+      counts,
+      total,
+      dominant,
+      allHard: total > 0 && counts.hard === total,
+    };
   }
 
-  _routeElementFor(step, lane, bossType) {
-    if (step < ROUTE_FIXED_BOSSES.length) return null;
+  _routeFinalElementFor(profile, step, bossType) {
+    if (profile.allHard) return 'ghost';
+    if (profile.dominant === 'hard') return 'lightning';
+    if (profile.dominant === 'easy') return null;
+    const otherOverlords = ['water', 'wind', 'fire', 'crystal', 'steel', 'spiky'];
+    const seed = step * 19 + (bossType ? bossType.length : 0) + profile.counts.mid * 5 + profile.counts.hard * 3;
+    return otherOverlords[Math.abs(seed) % otherOverlords.length] || 'water';
+  }
+
+  _routeBossFor(step, lane, previousLane, history) {
+    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
+    const profile = this._routeHistoryProfile(history, lane);
     if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
-      if (lane === 'hard') return 'ghost';
-      if (lane === 'easy') return null;
-      return null;
+      return 'flyshooter';
     }
-    const pool = ROUTE_ELEMENTS[lane] || ROUTE_ELEMENTS.mid;
-    const element = pool[step % pool.length] || null;
-    if (bossType === 'flyshooter' && lane === 'hard') return 'lightning';
+    const routeBossVariants = {
+      easy: ['bouncer', 'shielded', 'deflector'],
+      mid: ['shielded', 'protector', 'attacker'],
+      hard: ['deflector', 'attacker', 'flyshooter'],
+      allHard: ['protector', 'attacker', 'flyshooter'],
+    };
+    const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
+    const key = profile.allHard ? 'allHard' : profile.dominant;
+    const list = routeBossVariants[key] || routeBossVariants.mid;
+    const baseBoss = list[Math.min(list.length - 1, matrixStep)] || 'deflector';
+
+    if (profile.dominant === 'hard' && lane === 'easy' && matrixStep < 2) return 'protector';
+    if (profile.dominant === 'easy' && lane === 'hard' && matrixStep > 0) return 'attacker';
+    return baseBoss;
+  }
+
+  _routeElementFor(step, lane, bossType, history) {
+    if (step <= 0) return null;
+    const profile = this._routeHistoryProfile(history, lane);
+    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) return this._routeFinalElementFor(profile, step, bossType);
+    const profileLane = profile.total > 0 ? profile.dominant : (ROUTE_LANES.includes(lane) ? lane : 'mid');
+    const startStep = (ROUTE_ELEMENT_START_STEP && ROUTE_ELEMENT_START_STEP[profileLane] !== undefined)
+      ? ROUTE_ELEMENT_START_STEP[profileLane]
+      : 3;
+    if (step < startStep) return null;
+
+    const sequence = (typeof ROUTE_ELEMENT_SEQUENCE !== 'undefined' && ROUTE_ELEMENT_SEQUENCE.length)
+      ? ROUTE_ELEMENT_SEQUENCE
+      : [['water', 'wind'], ['fire', 'crystal'], ['lightning'], ['ghost']];
+    const elementDepth = Math.max(0, step - startStep);
+    const group = sequence[Math.min(sequence.length - 1, elementDepth)] || [null];
+    const seed = step * 17 + this._routeLaneIndex(profileLane) * 7 + (bossType ? bossType.length : 0) + profile.counts.hard * 5 + profile.counts.easy * 3;
+    const element = group[Math.abs(seed) % group.length] || null;
+    if (bossType === 'flyshooter' && profileLane === 'hard' && group.includes('lightning')) return 'lightning';
     return element;
   }
 
@@ -24910,7 +25805,7 @@ class Game {
       ? roomDef.enemyTypes
       : ['walker', 'shooter', 'jumper'];
     const huntTarget = enemies.find(t => t !== bossType) || enemies[0] || 'walker';
-    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                        shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                        flyer:'Flyers', flyshooter:'Overlords' }[huntTarget] || huntTarget;
     const depth = Math.max(0, step || 0);
@@ -24964,7 +25859,7 @@ class Game {
     const roomId = this._routeLayoutRoomId(step, lane);
     const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
     const bossType = this._routeBossFor(step, lane, previousLane, history || []);
-    const element = this._routeElementFor(step, lane, bossType);
+    const element = this._routeElementFor(step, lane, bossType, history || []);
     const waveIdx = Math.max(0, WAVE_DEFS.findIndex(w => w.boss === bossType));
     const objectiveSet = null;
     const objective = { type: 'mission', label: 'Mission', desc: 'Survive the encounter chain and defeat the boss.', icon: '' };
@@ -25136,7 +26031,7 @@ class Game {
 
   _enemyTargetHits(enemy, pick) {
     const typeHits = {
-      walker: 3, shooter: 3, jumper: 4, bouncer: 4, charger: 4,
+      walker: 3, shooter: 3, jumper: 4, bouncer: 4, rocketeer: 4, charger: 4,
       shielded: 5, deflector: 6, protector: 6, attacker: 3, flyer: 3, flyshooter: 4
     };
     let hits = typeHits[enemy.type] || 4;
@@ -25174,6 +26069,14 @@ class Game {
   }
 
   _ensureItemRoomAssignments() {
+    if (!this._legacyBossItemsEnabled()) {
+      this.mapState.itemRoomAssignments = {};
+      this.mapState.itemRewardChoices = {};
+      this._itemRoomAssignmentsReady = true;
+      this._roomItemByIdSource = null;
+      this._roomItemByIdCache = null;
+      return;
+    }
     if (this._itemRoomAssignmentsReady && this.mapState.itemRoomAssignments) return;
     const assignments = {};
     const usedRooms = new Set();
@@ -25233,6 +26136,7 @@ class Game {
   }
 
   _itemForRoom(roomId) {
+    if (!this._legacyBossItemsEnabled()) return null;
     this._ensureItemRoomAssignments();
     for (const [itemId, assignedRoomId] of Object.entries(this.mapState.itemRoomAssignments || {})) {
       if (assignedRoomId === roomId) return itemId;
@@ -25241,12 +26145,13 @@ class Game {
   }
 
   _itemForBossClear(roomDef) {
+    if (!this._legacyBossItemsEnabled()) return null;
     if (!roomDef) return null;
     return this._itemForRoom(roomDef.id);
   }
 
   _grantBossItem(itemId) {
-    if (!itemId || !BOSS_ITEMS[itemId]) return;
+    if (!this._legacyBossItemsEnabled() || !itemId || !BOSS_ITEMS[itemId]) return;
     if (!this.player.unlockedItems) this.player.unlockedItems = {};
     this.player.unlockedItems[itemId] = true;
     this.player.items[itemId] = true;
@@ -25255,6 +26160,7 @@ class Game {
   }
 
   _nextItemForBossType(bossType) {
+    if (!this._legacyBossItemsEnabled()) return null;
     const drops = BOSS_ITEM_DROPS[bossType] || [];
     for (const itemId of drops) {
       if (BOSS_ITEMS[itemId] && !(this.player.items && this.player.items[itemId])) return itemId;
@@ -25263,6 +26169,7 @@ class Game {
   }
 
   _chooseRoomReward(roomId, choice) {
+    if (!this._legacyBossItemsEnabled()) return;
     const itemId = this._itemForRoom(roomId);
     if (!itemId || !BOSS_ITEMS[itemId]) return;
     this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
@@ -25293,6 +26200,11 @@ class Game {
     pl.bonusReach -= prev.dexterity || 0;
 
     const next = { mind: 0, vigor: 0, dexterity: 0 };
+    if (!this._legacyBossItemsEnabled()) {
+      pl.itemAttrBonuses = next;
+      pl._itemAttrApplied = next;
+      return;
+    }
     this._ensureItemRoomAssignments();
     for (const [roomId, choice] of Object.entries(this.mapState.itemRewardChoices || {})) {
       if (choice !== 'attr') continue;
@@ -25311,6 +26223,10 @@ class Game {
     pl.displayHp = Math.min(pl.maxHp, pl.displayHp || pl.hp);
     pl.bonusSpeed += next.dexterity;
     pl.bonusReach += next.dexterity;
+  }
+
+  _legacyBossItemsEnabled() {
+    return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
   }
 
   _enterMapRoom(roomId, opts) {
@@ -25390,6 +26306,7 @@ class Game {
     this.player._attackDamageMult = 1;
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    this.player.oneShotProtectionUsed = false;
     this.camera.x = 0;
     this.camera.y = 0;
     this.spawnTimer = -120;
@@ -25434,6 +26351,7 @@ class Game {
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    this.player.oneShotProtectionUsed = false;
     this.player.ninjaType = 'basic';
     this.player.equipWeapon('flamethrower', this);
     this.player.deathTimer = 0;
@@ -25505,7 +26423,7 @@ class Game {
     this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 42, 'VICTORY!', '#ffe033'));
     if (rewardItem) {
       this._grantBossItem(rewardItem);
-      this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
+      if (this._legacyBossItemsEnabled()) this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
     }
     const route = this.routeState || this._freshMapState().route;
     const completedStep = route.step || 0;
@@ -25684,7 +26602,7 @@ class Game {
         if (!e.big && e.weight > bestW) { bestW = e.weight; best = e; }
       }
       const targetType = best ? best.type : 'walker';
-      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                          shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                          flyer:'Flyers', flyshooter:'Overlords' }[targetType] || targetType;
       return { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills charge Boss Orbs. One is always present.`, icon: '◎' };
@@ -25719,7 +26637,7 @@ class Game {
       choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta, objective });
     }
     // Consume the boss item choices (shown at the top of the path screen)
-    const itemChoices = (this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
+    const itemChoices = (this._legacyBossItemsEnabled() && this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
     this.bossRewardItems = [];
     return { choices, selected: 0, delay: 60, itemChoices, itemSelected: 0, focus: 'boss' };
   }
@@ -26774,6 +27692,14 @@ class Game {
 
   _renderSomberShaderLayer(ctx) {
     const t = this.tick || 0;
+    const cam = this.camera || { x: 0, y: 0 };
+    const pl = this.player;
+    const lightX = pl
+      ? Math.max(-CANVAS_W * 0.25, Math.min(CANVAS_W * 1.25, pl.x + pl.w / 2 - cam.x))
+      : CANVAS_W * 0.50;
+    const lightY = pl
+      ? Math.max(-CANVAS_H * 0.25, Math.min(CANVAS_H * 1.25, pl.y + pl.h * 0.42 - cam.y))
+      : CANVAS_H * 0.46;
     ctx.save();
 
     const tint = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
@@ -26784,14 +27710,26 @@ class Game {
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     const vignette = ctx.createRadialGradient(
-      CANVAS_W * 0.50, CANVAS_H * 0.46, CANVAS_H * 0.18,
-      CANVAS_W * 0.50, CANVAS_H * 0.50, CANVAS_H * 0.82
+      lightX, lightY, CANVAS_H * 0.16,
+      lightX, lightY, CANVAS_H * 0.82
     );
     vignette.addColorStop(0, 'rgba(0,0,0,0)');
     vignette.addColorStop(0.58, 'rgba(0,0,0,0.08)');
     vignette.addColorStop(1, 'rgba(0,0,0,0.48)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const playerGlow = ctx.createRadialGradient(
+      lightX, lightY, 0,
+      lightX, lightY, CANVAS_H * 0.56
+    );
+    playerGlow.addColorStop(0, 'rgba(255,245,210,0.13)');
+    playerGlow.addColorStop(0.35, 'rgba(255,235,190,0.055)');
+    playerGlow.addColorStop(1, 'rgba(255,235,190,0)');
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = playerGlow;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalCompositeOperation = 'source-over';
 
     ctx.globalAlpha = 0.18;
     ctx.fillStyle = '#000';
@@ -26822,6 +27760,10 @@ class Game {
     if (this.gameWon || this.gameOver) {
       if (this.killPhraseTimer > 0) this.killPhraseTimer--;
       return;
+    }
+
+    if (this.itemRewardScreen && !this._legacyBossItemsEnabled()) {
+      this.itemRewardScreen = null;
     }
 
     if (this.itemRewardScreen) {
@@ -26909,7 +27851,7 @@ class Game {
           this.pendingObjective = chosen.objective || null; // carry random objective into next wave
           this.pathChoiceScreen = null;
           // Apply the selected boss item
-          if (numItems > 0) {
+          if (this._legacyBossItemsEnabled() && numItems > 0) {
             const chosenItem = pcs.itemChoices[pcs.selected];
             if (chosenItem) {
               this.player.items[chosenItem] = true;
@@ -26941,7 +27883,7 @@ class Game {
         if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this._applyOrbBucket(obc.buckets[obc.selected]);
           // Apply the selected boss item
-          if (numOrbItems > 0) {
+          if (this._legacyBossItemsEnabled() && numOrbItems > 0) {
             const chosenOrbItem = obc.itemChoices[obc.selected];
             if (chosenOrbItem) {
               this.player.items[chosenOrbItem] = true;
@@ -27235,7 +28177,7 @@ class Game {
           const _obx = orb.x + orb.w / 2, _oby = orb.y + orb.h / 2;
           const _pdx = pl.x + pl.w / 2 - _obx, _pdy = pl.y + pl.h / 2 - _oby;
           const _odist = Math.sqrt(_pdx * _pdx + _pdy * _pdy);
-          const _magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
+          const _magnetRange = this._legacyBossItemsEnabled() && pl.items && pl.items.redMagnet ? 240 : 64;
           if (_odist < _magnetRange && _odist > 0) {
             orb.vx += (_pdx / _odist) * 0.7;
             orb.vy += (_pdy / _odist) * 0.35;
@@ -27284,7 +28226,10 @@ class Game {
       }
     }
     if (this.killPhraseTimer > 0) this.killPhraseTimer--;
-    if (this.itemPickupOverlay) {
+    if (this.itemPickupOverlay && !this._legacyBossItemsEnabled()) {
+      this.itemPickupOverlay = null;
+    }
+    if (this.itemPickupOverlay && this._legacyBossItemsEnabled()) {
       this.itemPickupOverlay.timer--;
       if (this.itemPickupOverlay.timer <= 0) this.itemPickupOverlay = null;
     }
@@ -29428,8 +30373,8 @@ class Game {
     const armorH = 5;
 
     const weaponDef = pl.currentWeaponDef ? pl.currentWeaponDef() : null;
-    const ultPct = weaponDef && weaponDef.crashPower ? 1 : 0;
-    const ultReady = !!(weaponDef && weaponDef.crashPower) && !pl.ultimateActive;
+    const ultPct = weaponDef && weaponDef.crashPower ? Math.max(0, Math.min(1, (pl.ultimateCharge || 0) / Math.max(1, pl.ultimateMax || 1))) : 0;
+    const ultReady = !!(weaponDef && weaponDef.crashPower) && !pl.ultimateActive && ultPct >= 1;
     const ultActive = pl.ultimateActive;
     const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
 
@@ -29911,11 +30856,11 @@ class Game {
       }
     }
 
-    if (this.itemRewardScreen) {
+    if (this.itemRewardScreen && this._legacyBossItemsEnabled()) {
       this.renderItemRewardScreen(ctx);
     }
 
-    if (this.mapScreen && !this.itemRewardScreen) {
+    if (this.mapScreen && (!this.itemRewardScreen || !this._legacyBossItemsEnabled())) {
       this.renderMapScreen(ctx);
     }
 
@@ -30207,7 +31152,7 @@ class Game {
         }
         ctx.restore();
         // ── Item reward embedded in card ──
-        const _cItem = (pcs.itemChoices && pcs.itemChoices[ci]) || null;
+        const _cItem = (this._legacyBossItemsEnabled() && pcs.itemChoices && pcs.itemChoices[ci]) || null;
         const _cItemDef = _cItem ? BOSS_ITEMS[_cItem] : null;
         if (_cItemDef) {
           ctx.globalAlpha = 1;
@@ -30305,7 +31250,7 @@ class Game {
           if (ey > by + boxH - 76) break; // leave room for item section
         }
         // ── Item reward embedded in bucket ──
-        const _bItem = (obc.itemChoices && obc.itemChoices[b]) || null;
+        const _bItem = (this._legacyBossItemsEnabled() && obc.itemChoices && obc.itemChoices[b]) || null;
         const _bItemDef = _bItem ? BOSS_ITEMS[_bItem] : null;
         if (_bItemDef) {
           ctx.globalAlpha = 1;
@@ -30379,6 +31324,7 @@ class Game {
   }
 
   renderItemRewardScreen(ctx) {
+    if (!this._legacyBossItemsEnabled()) return;
     const rs = this.itemRewardScreen;
     const itemId = rs && rs.itemId;
     const def = itemId ? BOSS_ITEMS[itemId] : null;
@@ -31045,13 +31991,18 @@ class Game {
     const shotsText = def ? String(Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1)))) : '--';
     ctx.fillText(shotsText, x + w - 8, y + 25);
     if (def && def.crashPower) {
-      const pulse = 0.65 + 0.25 * Math.sin(this.tick * 0.18);
+      const crashPct = Math.max(0, Math.min(1, (pl.ultimateCharge || 0) / Math.max(1, pl.ultimateMax || 1)));
+      const pulse = crashPct >= 1 ? 0.65 + 0.25 * Math.sin(this.tick * 0.18) : 0.42;
       ctx.globalAlpha = pulse;
       ctx.fillStyle = def.accentColor || def.color;
       ctx.font = '900 8px monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('CRASH', x + 36, y + 23);
+      ctx.fillText(crashPct >= 1 ? 'CRASH' : Math.round(crashPct * 100) + '%', x + 36, y + 23);
       ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(x + 36, y + h - 4, Math.min(48, w - 48), 2);
+      ctx.fillStyle = def.accentColor || def.color;
+      ctx.fillRect(x + 36, y + h - 4, Math.min(48, w - 48) * crashPct, 2);
     }
     ctx.restore();
   }
@@ -31113,6 +32064,7 @@ class Game {
   }
 
   renderItemBar(pl) {
+    if (!this._legacyBossItemsEnabled()) return;
     {
       const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
       if (itemKeys.length > 0) {

@@ -197,17 +197,19 @@ const NINJA_TYPES = {
 };
 
 // ── Enemy tier system ────────────────────────────────────────
-const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'flyer', 'flyshooter'];
+const ENEMY_TIERS = ['walker', 'shooter', 'jumper', 'bouncer', 'rocketeer', 'charger', 'shielded', 'deflector', 'protector', 'attacker', 'satellite', 'flyer', 'flyshooter'];
 const ENEMY_STATS = {
   walker:     { color: '#3c4035', hp: 3,  dmg: 3,  bossBase: 200, name: 'Walker' },
   shooter:    { color: '#202837', hp: 3,  dmg: 3,  bossBase: 190, name: 'Shooter' },
   jumper:     { color: '#302231', hp: 4,  dmg: 4,  bossBase: 200, name: 'Jumper' },
   bouncer:    { color: '#393923', hp: 5,  dmg: 4,  bossBase: 185, name: 'Bouncer' },
+  rocketeer:  { color: '#243447', hp: 5,  dmg: 5,  bossBase: 205, name: 'Rocketeer' },
   charger:    { color: '#241716', hp: 7,  dmg: 5,  bossBase: 195, name: 'Charger' },
   shielded:   { color: '#3b4a35', hp: 6,  dmg: 4,  bossBase: 200, name: 'Shielded' },
   deflector:  { color: '#222635', hp: 14, dmg: 6,  bossBase: 185, name: 'Deflector' },
   protector:  { color: '#8a6416', hp: 18, dmg: 4,  bossBase: 200, name: 'Protector' },
   attacker:   { color: '#4a1f24', hp: 1,  dmg: 10, bossBase: 185, name: 'Attacker' },
+  satellite:  { color: '#263a55', hp: 8,  dmg: 6,  bossBase: 260, name: 'Satellite' },
   flyer:      { color: '#312032', hp: 2,  dmg: 5,  bossBase: 175, name: 'Flyer' },
   flyshooter: { color: '#242a35', hp: 3,  dmg: 5,  bossBase: 210, name: 'Fly-Shooter' }
 };
@@ -430,8 +432,8 @@ const WAVE_DEFS = [
 
 const BOSS_NAMES = {
   walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
-  bouncer:'BOUNCER', shielded:'GUARDIAN', deflector:'RONIN',
-  protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
+  bouncer:'BOUNCER', rocketeer:'ROCKETEER', shielded:'GUARDIAN', deflector:'RONIN',
+  protector:'AEGIS', attacker:'NEMESIS', satellite:'ORBITAL', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
 const WEAPON_ORDER = [
@@ -782,6 +784,14 @@ const WEAPON_ITEMS = {
   }
 };
 
+for (const weapon of Object.values(WEAPON_ITEMS)) {
+  weapon.ammoMax = Math.max(weapon.ammoCost || 1, Math.round((weapon.ammoMax || 0) * 0.65));
+  weapon.ammoPickup = Math.max(weapon.ammoCost || 1, Math.round((weapon.ammoPickup || 0) * 0.65));
+}
+
+const ENEMY_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
+const BOSS_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
+
 const ROUTE_LANES = ['easy', 'mid', 'hard'];
 const ROUTE_LABELS = {
   easy: 'Route Alpha',
@@ -814,36 +824,22 @@ for (let i = 0; i < ROUTE_STAGE_LAYOUTS.length; i++) {
   ROUTE_STAGE_LAYOUTS[i].laneRows = { easy: 1, mid: 0, hard: -1 };
 }
 const ROUTE_FIXED_BOSSES = ['walker', 'shooter', 'jumper', 'flyer'];
-const ROUTE_BOSS_MATRIX = {
-  easy: {
-    easy: ['bouncer', 'shielded', 'bouncer'],
-    mid: ['shielded', 'deflector', 'protector'],
-    hard: ['deflector', 'attacker', 'protector'],
-  },
-  mid: {
-    easy: ['shielded', 'bouncer', 'deflector'],
-    mid: ['deflector', 'protector', 'attacker'],
-    hard: ['protector', 'attacker', 'flyshooter'],
-  },
-  hard: {
-    easy: ['deflector', 'protector', 'attacker'],
-    mid: ['protector', 'attacker', 'flyshooter'],
-    hard: ['attacker', 'flyshooter', 'flyshooter'],
-  },
+const ROUTE_ELEMENT_START_STEP = {
+  easy: 4,
+  mid: 3,
+  hard: 1,
 };
-const ROUTE_FINAL_BOSSES = {
-  easy: 'shielded',
-  mid: 'flyshooter',
-  hard: 'flyshooter',
-};
-const ROUTE_FINAL_PERFECT_HARD_BOSS = 'attacker';
-const ROUTE_ELEMENTS = {
-  easy: [null, 'water', 'wind', 'crystal'],
-  mid: [null, 'crystal', 'steel', 'ghost'],
-  hard: ['fire', 'spiky', 'lightning', 'ghost'],
-};
+const ROUTE_ELEMENT_SEQUENCE = [
+  ['water', 'wind'],
+  ['water', 'wind'],
+  ['fire', 'crystal'],
+  ['fire', 'crystal'],
+  ['lightning', 'steel', 'spiky'],
+  ['lightning', 'steel', 'spiky'],
+  ['ghost'],
+];
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v28-route';
+const MAP_STORAGE_KEY = 'elenin-map-cache-v32-route-boss-profile';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
@@ -853,9 +849,9 @@ const MAP_AREAS = {
   skies:     { label: 'SKIES',      color: '#0797d8', centerCol: 0,  centerRow: -12 },
 };
 const MAP_ROOM_DEFS = (() => {
-  const bossOrder = ['walker','shooter','jumper','bouncer','shielded','flyer','deflector','protector','attacker','flyshooter'];
+  const bossOrder = ['walker','shooter','jumper','bouncer','rocketeer','shielded','flyer','deflector','protector','attacker','flyshooter'];
   const elementOrder = [null, 'wind', 'water', 'crystal', 'steel', 'spiky', 'fire', 'ghost', 'lightning'];
-  const easyBosses = new Set(['walker','shooter','jumper','bouncer','shielded','flyer']);
+  const easyBosses = new Set(['walker','shooter','jumper','bouncer','rocketeer','shielded','flyer']);
   const specialBosses = new Set(['deflector','protector','attacker']);
   const rooms = [];
   const byArea = {};
@@ -943,18 +939,18 @@ const MAP_ROOM_DEFS = (() => {
     if (area === 'forest' && element === null && boss === 'walker') return 'normal';
     if (boss === 'flyer' || boss === 'flyshooter') return 'plain';
     if (boss === 'shielded' || boss === 'protector') return 'wall';
-    if (boss === 'charger' || boss === 'bouncer') return 'lane';
+    if (boss === 'charger' || boss === 'bouncer' || boss === 'rocketeer') return 'lane';
     if (area === 'castle') return idx % 2 === 0 ? 'wall' : 'lane';
     const layouts = ['normal', 'plain', 'wall', 'lane'];
     return layouts[(idx + (element ? element.length : 0)) % layouts.length];
   };
   const enemyMix = (area, boss, element, idx) => {
     const rangedByArea = {
-      forest: ['shooter'],
-      mountain: ['shooter'],
-      volcano: ['shooter'],
-      castle: ['shooter'],
-      skies: ['flyshooter', 'shooter'],
+      forest: ['shooter', 'rocketeer'],
+      mountain: ['shooter', 'rocketeer'],
+      volcano: ['rocketeer', 'shooter'],
+      castle: ['rocketeer', 'shooter'],
+      skies: ['flyshooter', 'rocketeer', 'shooter'],
     };
     const commonByArea = {
       forest: ['walker', 'jumper', 'charger', 'bouncer', 'flyer'],
@@ -970,7 +966,7 @@ const MAP_ROOM_DEFS = (() => {
       castle: ['deflector', 'protector', 'attacker', 'shielded'],
       skies: ['attacker', 'deflector', 'protector'],
     };
-    const rangedTypes = new Set(['shooter', 'flyshooter']);
+    const rangedTypes = new Set(['shooter', 'rocketeer', 'flyshooter']);
     const specialTypes = new Set(['shielded', 'deflector', 'protector', 'attacker']);
     const pick = list => list[idx % list.length];
     const mix = [];
@@ -1003,7 +999,7 @@ const MAP_ROOM_DEFS = (() => {
   };
   const objectiveFor = (boss, element, enemyTypes, idx) => {
     const targetType = (enemyTypes || []).find(type => type === boss) || (enemyTypes || [boss])[idx % Math.max(1, (enemyTypes || [boss]).length)];
-    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                        shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                        flyer:'Flyers', flyshooter:'Overlords' }[targetType] || title(targetType);
     const seed = idx + boss.length + (element ? element.length : 0);
@@ -1367,6 +1363,8 @@ const GP_LB = 4;
 const GP_RB = 5;
 
 // ── Boss Item Definitions ────────────────────────────────────
+const LEGACY_BOSS_ITEMS_ENABLED = false;
+
 const BOSS_ITEMS = {
   pickaxe:        { name: 'Pickaxe',          icon: '⛏', color: '#c96', desc: 'Enemy shields take 2 hits instead of one.' },
   tripleShuriken: { name: 'Triple Shuriken',  icon: '✦', color: '#ccc', desc: 'Each shuriken fires 3 projectiles. Halves recharge time.' },

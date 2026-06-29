@@ -48,6 +48,10 @@ class Game {
     this.menuTick = 0;
     this.camera = { x: 0, y: 0 };
     this.player = new Player(100, 300);
+    if (!this._legacyBossItemsEnabled()) {
+      this.player.items = {};
+      this.player.unlockedItems = {};
+    }
     this.platforms = [];
     this.ropes = [];
     this.enemies = [];
@@ -286,7 +290,7 @@ class Game {
       ? roomDef.enemyTypes.slice()
       : ['walker', 'shooter', 'jumper'];
     const roomEnemySet = new Set(enemyTypes);
-    const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'bouncer', 'jumper', 'shooter', 'walker'];
+    const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'satellite', 'rocketeer', 'bouncer', 'jumper', 'shooter', 'walker'];
     let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t));
     if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType));
     const eliteA = eliteTypes[step % eliteTypes.length] || 'charger';
@@ -1610,7 +1614,7 @@ class Game {
     ctx.save();
     const baseColors = {
       walker: '#3c4035', shooter: '#202837', jumper: '#302231', bouncer: '#393923',
-      shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
+      rocketeer: '#243447', shielded: '#3b4a35', deflector: '#222635', protector: '#8a6416',
       attacker: '#4a1f24', flyer: '#312032', flyshooter: '#242a35',
     };
     const bodyColor = (element && ELEMENT_COLORS[element]) ? ELEMENT_COLORS[element].body : (baseColors[bossType] || '#c33');
@@ -1644,6 +1648,11 @@ class Game {
       ctx.lineWidth = 5;
       ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 44, cy - 2); ctx.stroke();
       ctx.fillRect(cx + 42, cy - 6, 7, 8);
+    } else if (bossType === 'rocketeer') {
+      ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(cx - 16, cy - 8); ctx.lineTo(cx + 42, cy - 20); ctx.stroke();
+      ctx.fillStyle = accentColor;
+      ctx.beginPath(); ctx.arc(cx + 45, cy - 21, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (bossType === 'shielded' || bossType === 'protector') {
       ctx.fillRect(cx + 22, cy - 24, 10, 48);
       ctx.fillStyle = '#111'; ctx.fillRect(cx + 25, cy - 18, 3, 36);
@@ -2774,31 +2783,78 @@ class Game {
     return true;
   }
 
-  _routeBossFor(step, lane, previousLane, history) {
-    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
-    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
-      const allHard = (history || []).length >= ROUTE_STAGE_LAYOUTS.length - 1 && (history || []).every(h => h && h.route === 'hard');
-      if (allHard) return ROUTE_FINAL_PERFECT_HARD_BOSS;
-      return ROUTE_FINAL_BOSSES[lane] || 'flyshooter';
+  _routeHistoryProfile(history, lane) {
+    const counts = { easy: 0, mid: 0, hard: 0 };
+    for (const h of history || []) {
+      const route = h && ROUTE_LANES.includes(h.route) ? h.route : null;
+      if (route) counts[route]++;
     }
-    const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
-    const from = ROUTE_LANES.includes(previousLane) ? previousLane : 'mid';
-    const to = ROUTE_LANES.includes(lane) ? lane : 'mid';
-    const row = ROUTE_BOSS_MATRIX[from] || ROUTE_BOSS_MATRIX.mid;
-    const list = row[to] || row.mid || ['deflector'];
-    return list[Math.min(list.length - 1, matrixStep)] || 'deflector';
+    const total = counts.easy + counts.mid + counts.hard;
+    const laneKey = ROUTE_LANES.includes(lane) ? lane : 'mid';
+    let dominant = laneKey;
+    for (const candidate of ['easy', 'mid', 'hard']) {
+      if (counts[candidate] > counts[dominant]) dominant = candidate;
+    }
+    if (total > 0 && counts[dominant] === counts.easy && counts[dominant] === counts.mid && counts[dominant] === counts.hard) {
+      dominant = laneKey;
+    }
+    return {
+      counts,
+      total,
+      dominant,
+      allHard: total > 0 && counts.hard === total,
+    };
   }
 
-  _routeElementFor(step, lane, bossType) {
-    if (step < ROUTE_FIXED_BOSSES.length) return null;
+  _routeFinalElementFor(profile, step, bossType) {
+    if (profile.allHard) return 'ghost';
+    if (profile.dominant === 'hard') return 'lightning';
+    if (profile.dominant === 'easy') return null;
+    const otherOverlords = ['water', 'wind', 'fire', 'crystal', 'steel', 'spiky'];
+    const seed = step * 19 + (bossType ? bossType.length : 0) + profile.counts.mid * 5 + profile.counts.hard * 3;
+    return otherOverlords[Math.abs(seed) % otherOverlords.length] || 'water';
+  }
+
+  _routeBossFor(step, lane, previousLane, history) {
+    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
+    const profile = this._routeHistoryProfile(history, lane);
     if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
-      if (lane === 'hard') return 'ghost';
-      if (lane === 'easy') return null;
-      return null;
+      return 'flyshooter';
     }
-    const pool = ROUTE_ELEMENTS[lane] || ROUTE_ELEMENTS.mid;
-    const element = pool[step % pool.length] || null;
-    if (bossType === 'flyshooter' && lane === 'hard') return 'lightning';
+    const routeBossVariants = {
+      easy: ['bouncer', 'shielded', 'deflector'],
+      mid: ['shielded', 'protector', 'attacker'],
+      hard: ['deflector', 'attacker', 'flyshooter'],
+      allHard: ['protector', 'attacker', 'flyshooter'],
+    };
+    const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
+    const key = profile.allHard ? 'allHard' : profile.dominant;
+    const list = routeBossVariants[key] || routeBossVariants.mid;
+    const baseBoss = list[Math.min(list.length - 1, matrixStep)] || 'deflector';
+
+    if (profile.dominant === 'hard' && lane === 'easy' && matrixStep < 2) return 'protector';
+    if (profile.dominant === 'easy' && lane === 'hard' && matrixStep > 0) return 'attacker';
+    return baseBoss;
+  }
+
+  _routeElementFor(step, lane, bossType, history) {
+    if (step <= 0) return null;
+    const profile = this._routeHistoryProfile(history, lane);
+    if (step >= ROUTE_STAGE_LAYOUTS.length - 1) return this._routeFinalElementFor(profile, step, bossType);
+    const profileLane = profile.total > 0 ? profile.dominant : (ROUTE_LANES.includes(lane) ? lane : 'mid');
+    const startStep = (ROUTE_ELEMENT_START_STEP && ROUTE_ELEMENT_START_STEP[profileLane] !== undefined)
+      ? ROUTE_ELEMENT_START_STEP[profileLane]
+      : 3;
+    if (step < startStep) return null;
+
+    const sequence = (typeof ROUTE_ELEMENT_SEQUENCE !== 'undefined' && ROUTE_ELEMENT_SEQUENCE.length)
+      ? ROUTE_ELEMENT_SEQUENCE
+      : [['water', 'wind'], ['fire', 'crystal'], ['lightning'], ['ghost']];
+    const elementDepth = Math.max(0, step - startStep);
+    const group = sequence[Math.min(sequence.length - 1, elementDepth)] || [null];
+    const seed = step * 17 + this._routeLaneIndex(profileLane) * 7 + (bossType ? bossType.length : 0) + profile.counts.hard * 5 + profile.counts.easy * 3;
+    const element = group[Math.abs(seed) % group.length] || null;
+    if (bossType === 'flyshooter' && profileLane === 'hard' && group.includes('lightning')) return 'lightning';
     return element;
   }
 
@@ -2807,7 +2863,7 @@ class Game {
       ? roomDef.enemyTypes
       : ['walker', 'shooter', 'jumper'];
     const huntTarget = enemies.find(t => t !== bossType) || enemies[0] || 'walker';
-    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                        shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                        flyer:'Flyers', flyshooter:'Overlords' }[huntTarget] || huntTarget;
     const depth = Math.max(0, step || 0);
@@ -2861,7 +2917,7 @@ class Game {
     const roomId = this._routeLayoutRoomId(step, lane);
     const roomDef = MAP_ROOM_BY_ID[roomId] || MAP_ROOM_BY_ID[MAP_START_ROOM_ID];
     const bossType = this._routeBossFor(step, lane, previousLane, history || []);
-    const element = this._routeElementFor(step, lane, bossType);
+    const element = this._routeElementFor(step, lane, bossType, history || []);
     const waveIdx = Math.max(0, WAVE_DEFS.findIndex(w => w.boss === bossType));
     const objectiveSet = null;
     const objective = { type: 'mission', label: 'Mission', desc: 'Survive the encounter chain and defeat the boss.', icon: '' };
@@ -3033,7 +3089,7 @@ class Game {
 
   _enemyTargetHits(enemy, pick) {
     const typeHits = {
-      walker: 3, shooter: 3, jumper: 4, bouncer: 4, charger: 4,
+      walker: 3, shooter: 3, jumper: 4, bouncer: 4, rocketeer: 4, charger: 4,
       shielded: 5, deflector: 6, protector: 6, attacker: 3, flyer: 3, flyshooter: 4
     };
     let hits = typeHits[enemy.type] || 4;
@@ -3071,6 +3127,14 @@ class Game {
   }
 
   _ensureItemRoomAssignments() {
+    if (!this._legacyBossItemsEnabled()) {
+      this.mapState.itemRoomAssignments = {};
+      this.mapState.itemRewardChoices = {};
+      this._itemRoomAssignmentsReady = true;
+      this._roomItemByIdSource = null;
+      this._roomItemByIdCache = null;
+      return;
+    }
     if (this._itemRoomAssignmentsReady && this.mapState.itemRoomAssignments) return;
     const assignments = {};
     const usedRooms = new Set();
@@ -3130,6 +3194,7 @@ class Game {
   }
 
   _itemForRoom(roomId) {
+    if (!this._legacyBossItemsEnabled()) return null;
     this._ensureItemRoomAssignments();
     for (const [itemId, assignedRoomId] of Object.entries(this.mapState.itemRoomAssignments || {})) {
       if (assignedRoomId === roomId) return itemId;
@@ -3138,12 +3203,13 @@ class Game {
   }
 
   _itemForBossClear(roomDef) {
+    if (!this._legacyBossItemsEnabled()) return null;
     if (!roomDef) return null;
     return this._itemForRoom(roomDef.id);
   }
 
   _grantBossItem(itemId) {
-    if (!itemId || !BOSS_ITEMS[itemId]) return;
+    if (!this._legacyBossItemsEnabled() || !itemId || !BOSS_ITEMS[itemId]) return;
     if (!this.player.unlockedItems) this.player.unlockedItems = {};
     this.player.unlockedItems[itemId] = true;
     this.player.items[itemId] = true;
@@ -3152,6 +3218,7 @@ class Game {
   }
 
   _nextItemForBossType(bossType) {
+    if (!this._legacyBossItemsEnabled()) return null;
     const drops = BOSS_ITEM_DROPS[bossType] || [];
     for (const itemId of drops) {
       if (BOSS_ITEMS[itemId] && !(this.player.items && this.player.items[itemId])) return itemId;
@@ -3160,6 +3227,7 @@ class Game {
   }
 
   _chooseRoomReward(roomId, choice) {
+    if (!this._legacyBossItemsEnabled()) return;
     const itemId = this._itemForRoom(roomId);
     if (!itemId || !BOSS_ITEMS[itemId]) return;
     this.mapState.itemRewardChoices = this.mapState.itemRewardChoices || {};
@@ -3190,6 +3258,11 @@ class Game {
     pl.bonusReach -= prev.dexterity || 0;
 
     const next = { mind: 0, vigor: 0, dexterity: 0 };
+    if (!this._legacyBossItemsEnabled()) {
+      pl.itemAttrBonuses = next;
+      pl._itemAttrApplied = next;
+      return;
+    }
     this._ensureItemRoomAssignments();
     for (const [roomId, choice] of Object.entries(this.mapState.itemRewardChoices || {})) {
       if (choice !== 'attr') continue;
@@ -3208,6 +3281,10 @@ class Game {
     pl.displayHp = Math.min(pl.maxHp, pl.displayHp || pl.hp);
     pl.bonusSpeed += next.dexterity;
     pl.bonusReach += next.dexterity;
+  }
+
+  _legacyBossItemsEnabled() {
+    return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
   }
 
   _enterMapRoom(roomId, opts) {
@@ -3287,6 +3364,7 @@ class Game {
     this.player._attackDamageMult = 1;
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    this.player.oneShotProtectionUsed = false;
     this.camera.x = 0;
     this.camera.y = 0;
     this.spawnTimer = -120;
@@ -3331,6 +3409,7 @@ class Game {
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
+    this.player.oneShotProtectionUsed = false;
     this.player.ninjaType = 'basic';
     this.player.equipWeapon('flamethrower', this);
     this.player.deathTimer = 0;
@@ -3402,7 +3481,7 @@ class Game {
     this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 42, 'VICTORY!', '#ffe033'));
     if (rewardItem) {
       this._grantBossItem(rewardItem);
-      this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
+      if (this._legacyBossItemsEnabled()) this.itemPickupOverlay = { itemId: rewardItem, timer: 180 };
     }
     const route = this.routeState || this._freshMapState().route;
     const completedStep = route.step || 0;
@@ -3581,7 +3660,7 @@ class Game {
         if (!e.big && e.weight > bestW) { bestW = e.weight; best = e; }
       }
       const targetType = best ? best.type : 'walker';
-      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', charger:'Chargers',
+      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
                          shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
                          flyer:'Flyers', flyshooter:'Overlords' }[targetType] || targetType;
       return { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills charge Boss Orbs. One is always present.`, icon: '◎' };
@@ -3616,7 +3695,7 @@ class Game {
       choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta, objective });
     }
     // Consume the boss item choices (shown at the top of the path screen)
-    const itemChoices = (this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
+    const itemChoices = (this._legacyBossItemsEnabled() && this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
     this.bossRewardItems = [];
     return { choices, selected: 0, delay: 60, itemChoices, itemSelected: 0, focus: 'boss' };
   }
@@ -4671,6 +4750,14 @@ class Game {
 
   _renderSomberShaderLayer(ctx) {
     const t = this.tick || 0;
+    const cam = this.camera || { x: 0, y: 0 };
+    const pl = this.player;
+    const lightX = pl
+      ? Math.max(-CANVAS_W * 0.25, Math.min(CANVAS_W * 1.25, pl.x + pl.w / 2 - cam.x))
+      : CANVAS_W * 0.50;
+    const lightY = pl
+      ? Math.max(-CANVAS_H * 0.25, Math.min(CANVAS_H * 1.25, pl.y + pl.h * 0.42 - cam.y))
+      : CANVAS_H * 0.46;
     ctx.save();
 
     const tint = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
@@ -4681,14 +4768,26 @@ class Game {
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     const vignette = ctx.createRadialGradient(
-      CANVAS_W * 0.50, CANVAS_H * 0.46, CANVAS_H * 0.18,
-      CANVAS_W * 0.50, CANVAS_H * 0.50, CANVAS_H * 0.82
+      lightX, lightY, CANVAS_H * 0.16,
+      lightX, lightY, CANVAS_H * 0.82
     );
     vignette.addColorStop(0, 'rgba(0,0,0,0)');
     vignette.addColorStop(0.58, 'rgba(0,0,0,0.08)');
     vignette.addColorStop(1, 'rgba(0,0,0,0.48)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const playerGlow = ctx.createRadialGradient(
+      lightX, lightY, 0,
+      lightX, lightY, CANVAS_H * 0.56
+    );
+    playerGlow.addColorStop(0, 'rgba(255,245,210,0.13)');
+    playerGlow.addColorStop(0.35, 'rgba(255,235,190,0.055)');
+    playerGlow.addColorStop(1, 'rgba(255,235,190,0)');
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = playerGlow;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalCompositeOperation = 'source-over';
 
     ctx.globalAlpha = 0.18;
     ctx.fillStyle = '#000';
@@ -4719,6 +4818,10 @@ class Game {
     if (this.gameWon || this.gameOver) {
       if (this.killPhraseTimer > 0) this.killPhraseTimer--;
       return;
+    }
+
+    if (this.itemRewardScreen && !this._legacyBossItemsEnabled()) {
+      this.itemRewardScreen = null;
     }
 
     if (this.itemRewardScreen) {
@@ -4806,7 +4909,7 @@ class Game {
           this.pendingObjective = chosen.objective || null; // carry random objective into next wave
           this.pathChoiceScreen = null;
           // Apply the selected boss item
-          if (numItems > 0) {
+          if (this._legacyBossItemsEnabled() && numItems > 0) {
             const chosenItem = pcs.itemChoices[pcs.selected];
             if (chosenItem) {
               this.player.items[chosenItem] = true;
@@ -4838,7 +4941,7 @@ class Game {
         if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this._applyOrbBucket(obc.buckets[obc.selected]);
           // Apply the selected boss item
-          if (numOrbItems > 0) {
+          if (this._legacyBossItemsEnabled() && numOrbItems > 0) {
             const chosenOrbItem = obc.itemChoices[obc.selected];
             if (chosenOrbItem) {
               this.player.items[chosenOrbItem] = true;
@@ -5132,7 +5235,7 @@ class Game {
           const _obx = orb.x + orb.w / 2, _oby = orb.y + orb.h / 2;
           const _pdx = pl.x + pl.w / 2 - _obx, _pdy = pl.y + pl.h / 2 - _oby;
           const _odist = Math.sqrt(_pdx * _pdx + _pdy * _pdy);
-          const _magnetRange = pl.items && pl.items.redMagnet ? 240 : 64;
+          const _magnetRange = this._legacyBossItemsEnabled() && pl.items && pl.items.redMagnet ? 240 : 64;
           if (_odist < _magnetRange && _odist > 0) {
             orb.vx += (_pdx / _odist) * 0.7;
             orb.vy += (_pdy / _odist) * 0.35;
@@ -5181,7 +5284,10 @@ class Game {
       }
     }
     if (this.killPhraseTimer > 0) this.killPhraseTimer--;
-    if (this.itemPickupOverlay) {
+    if (this.itemPickupOverlay && !this._legacyBossItemsEnabled()) {
+      this.itemPickupOverlay = null;
+    }
+    if (this.itemPickupOverlay && this._legacyBossItemsEnabled()) {
       this.itemPickupOverlay.timer--;
       if (this.itemPickupOverlay.timer <= 0) this.itemPickupOverlay = null;
     }
@@ -7325,8 +7431,8 @@ class Game {
     const armorH = 5;
 
     const weaponDef = pl.currentWeaponDef ? pl.currentWeaponDef() : null;
-    const ultPct = weaponDef && weaponDef.crashPower ? 1 : 0;
-    const ultReady = !!(weaponDef && weaponDef.crashPower) && !pl.ultimateActive;
+    const ultPct = weaponDef && weaponDef.crashPower ? Math.max(0, Math.min(1, (pl.ultimateCharge || 0) / Math.max(1, pl.ultimateMax || 1))) : 0;
+    const ultReady = !!(weaponDef && weaponDef.crashPower) && !pl.ultimateActive && ultPct >= 1;
     const ultActive = pl.ultimateActive;
     const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
 
@@ -7808,11 +7914,11 @@ class Game {
       }
     }
 
-    if (this.itemRewardScreen) {
+    if (this.itemRewardScreen && this._legacyBossItemsEnabled()) {
       this.renderItemRewardScreen(ctx);
     }
 
-    if (this.mapScreen && !this.itemRewardScreen) {
+    if (this.mapScreen && (!this.itemRewardScreen || !this._legacyBossItemsEnabled())) {
       this.renderMapScreen(ctx);
     }
 
@@ -8104,7 +8210,7 @@ class Game {
         }
         ctx.restore();
         // ── Item reward embedded in card ──
-        const _cItem = (pcs.itemChoices && pcs.itemChoices[ci]) || null;
+        const _cItem = (this._legacyBossItemsEnabled() && pcs.itemChoices && pcs.itemChoices[ci]) || null;
         const _cItemDef = _cItem ? BOSS_ITEMS[_cItem] : null;
         if (_cItemDef) {
           ctx.globalAlpha = 1;
@@ -8202,7 +8308,7 @@ class Game {
           if (ey > by + boxH - 76) break; // leave room for item section
         }
         // ── Item reward embedded in bucket ──
-        const _bItem = (obc.itemChoices && obc.itemChoices[b]) || null;
+        const _bItem = (this._legacyBossItemsEnabled() && obc.itemChoices && obc.itemChoices[b]) || null;
         const _bItemDef = _bItem ? BOSS_ITEMS[_bItem] : null;
         if (_bItemDef) {
           ctx.globalAlpha = 1;
@@ -8276,6 +8382,7 @@ class Game {
   }
 
   renderItemRewardScreen(ctx) {
+    if (!this._legacyBossItemsEnabled()) return;
     const rs = this.itemRewardScreen;
     const itemId = rs && rs.itemId;
     const def = itemId ? BOSS_ITEMS[itemId] : null;
@@ -8942,13 +9049,18 @@ class Game {
     const shotsText = def ? String(Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1)))) : '--';
     ctx.fillText(shotsText, x + w - 8, y + 25);
     if (def && def.crashPower) {
-      const pulse = 0.65 + 0.25 * Math.sin(this.tick * 0.18);
+      const crashPct = Math.max(0, Math.min(1, (pl.ultimateCharge || 0) / Math.max(1, pl.ultimateMax || 1)));
+      const pulse = crashPct >= 1 ? 0.65 + 0.25 * Math.sin(this.tick * 0.18) : 0.42;
       ctx.globalAlpha = pulse;
       ctx.fillStyle = def.accentColor || def.color;
       ctx.font = '900 8px monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('CRASH', x + 36, y + 23);
+      ctx.fillText(crashPct >= 1 ? 'CRASH' : Math.round(crashPct * 100) + '%', x + 36, y + 23);
       ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(x + 36, y + h - 4, Math.min(48, w - 48), 2);
+      ctx.fillStyle = def.accentColor || def.color;
+      ctx.fillRect(x + 36, y + h - 4, Math.min(48, w - 48) * crashPct, 2);
     }
     ctx.restore();
   }
@@ -9010,6 +9122,7 @@ class Game {
   }
 
   renderItemBar(pl) {
+    if (!this._legacyBossItemsEnabled()) return;
     {
       const itemKeys = Object.keys(pl.items).filter(k => pl.items[k]);
       if (itemKeys.length > 0) {

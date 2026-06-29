@@ -265,8 +265,8 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
     return 840;
   }
 
-  static maxOnScreen() {
-    return 1;
+  static maxOnScreen(game) {
+    return game && game.levelElement ? 1 : 0;
   }
 
   update(game) {
@@ -282,7 +282,7 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
     const cy = pl.y + pl.h / 2;
     game.effects.push(new SlamRing(cx, cy, '#dff', 76, 9));
     game.effects.push(new Effect(cx, cy, '#dff', 20, 5, 18));
-    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL ARMOR', '#dff'));
+    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL SHIELD', '#dff'));
   }
 
   render(ctx, cam) {

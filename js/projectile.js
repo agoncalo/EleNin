@@ -328,6 +328,12 @@ class Projectile {
     this.done = true;
   }
 
+  _shieldChipAmount() {
+    if (this.explosive) return (this.explosionRadius || 0) >= 100 ? 3 : 2;
+    if (this.weaponFamily === 'earth') return 2;
+    return 1;
+  }
+
   _explode(game) {
     this._exploded = true;
     const cx = this.x + this.w / 2;
@@ -355,7 +361,10 @@ class Projectile {
     game.effects.push(new Effect(cx, cy, '#fff2b0', 24, 8, 18));
     game.effects.push(new Effect(cx, cy, '#ff5a22', 32, 7, 22));
     game.effects.push(new ScreenFlash('#fff1c2', 0.24, 10));
-    if (typeof SFX !== 'undefined' && SFX.nuke) SFX.nuke(0.45);
+    if (typeof SFX !== 'undefined') {
+      if (radius >= 120 && SFX.nuke) SFX.nuke(0.55);
+      else if (SFX.slam) SFX.slam();
+    }
     triggerScreenShake(7, 12);
   }
 
@@ -617,25 +626,15 @@ class Projectile {
 
           // Kunai is unblockable — skip all shield/deflect checks
           if (!this.isKunai) {
-            // Shielded: block projectiles within shield arc (stops even piercing, no pip loss)
+            // Shielded: block projectiles within shield arc, then chip shield pips.
             if (e.type === 'shielded' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
-              e.shieldFlash = 6;
-              e.shieldBump = 6;
-              const shAng = e.shieldAngle;
-              game.effects.push(new Effect(
-                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
-              ));
+              e._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
               this._dropOrDie(game);
               return;
             }
-            // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
+            // Protector: block projectiles within shield arc, then chip shield pips.
             if (e.type === 'protector' && e.shieldHp > 0 && e._shieldBlocks(this.x, undefined, game)) {
-              e.shieldFlash = 6;
-              e.shieldBump = 6;
-              const shAng = e.shieldAngle;
-              game.effects.push(new Effect(
-                e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
-              ));
+              e._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
               this._dropOrDie(game);
               return;
             }
@@ -723,25 +722,15 @@ class Projectile {
       if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && rectOverlap(this, game.boss)) {
         // Kunai is unblockable — skip all shield/deflect checks for bosses
         if (!this.isKunai) {
-          // Shielded boss: block projectiles within shield arc (no pip loss)
+          // Shielded boss: block projectiles within shield arc, then chip shield pips.
           if (game.boss.bossType === 'shielded' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
-            game.boss.shieldFlash = 6;
-            game.boss.shieldBump = 8;
-            const shAng = game.boss.shieldAngle;
-            game.effects.push(new Effect(
-              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
-            ));
+            game.boss._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
             this._dropOrDie(game);
             return;
           }
-          // Protector boss: block projectiles within shield arc (no pip loss)
+          // Protector boss: block projectiles within shield arc, then chip shield pips.
           if (game.boss.bossType === 'protector' && game.boss.shieldHp > 0 && game.boss._shieldBlocks(this.x, undefined, game)) {
-            game.boss.shieldFlash = 6;
-            game.boss.shieldBump = 8;
-            const shAng = game.boss.shieldAngle;
-            game.effects.push(new Effect(
-              game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
-            ));
+            game.boss._chipShield(game, this.x, this._shieldChipAmount(), { effectSize: 8 });
             this._dropOrDie(game);
             return;
           }
@@ -977,20 +966,28 @@ class HitLine {
     this.owner = owner;
     opts = opts || {};
     this.element = opts.element || null;
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
     this.maxTimer = opts.maxTimer || 50;
     this.timer = 0;
     this.done = false;
+    this.width = opts.width || 5;
+    this.activeDur = opts.activeDur || 0;
+    this.sourceType = opts.sourceType || 'shooter';
+    this.visualOnly = !!opts.visualOnly;
+    this._hitMap = new Map();
     // Spread support: multiple rays fanned around base direction
     this.count = opts.count || 1;
     this.arc = opts.arc || 0.35;
     // Flash frames after firing before going away
-    this.flashDur = 12;
+    this.flashDur = opts.flashDur || 12;
     this.fired = false;
   }
   update(game) {
     if (this.fired) {
       this.timer++;
-      if (this.timer >= this.flashDur) this.done = true;
+      if (this.activeDur > 0 && this.timer <= this.activeDur && this.timer % 6 === 0) this._damageTargets(game, false);
+      if (this.timer >= Math.max(this.flashDur, this.activeDur)) this.done = true;
       return;
     }
     this.timer++;
@@ -1011,17 +1008,23 @@ class HitLine {
   }
   _fire(game) {
     this.fired = true;
-    this.hitPlayer = false;
     this.timer = 0; // reuse timer for flash countdown
+    this._damageTargets(game, true);
+  }
+  _damageTargets(game, firstHit) {
+    if (this.visualOnly) return;
+    this.hitPlayer = this.hitPlayer || false;
     const angles = this._angles();
     const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
     let hitFriendly = false;
     for (const pl of targets) {
       if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const lastHit = this._hitMap.get(pl) || -999;
+      if (!firstHit && this.timer - lastHit < 12) continue;
       const box = pl.getHurtbox ? pl.getHurtbox() : pl;
       const pcx = box.x + box.w / 2;
       const pcy = box.y + box.h / 2;
-      const threshold = Math.max(box.w, box.h) / 2 + 5;
+      const threshold = Math.max(box.w, box.h) / 2 + 5 + this.width * 0.5;
       for (const a of angles) {
         const dirX = Math.cos(a), dirY = Math.sin(a);
         const tDot = (pcx - this.x) * dirX + (pcy - this.y) * dirY;
@@ -1031,7 +1034,8 @@ class HitLine {
           const dist = Math.sqrt((pcx - closestX) ** 2 + (pcy - closestY) ** 2);
           if (dist < threshold) {
             const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null,
-              { type: 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
+              { type: this.sourceType || 'shooter', element: this.element, isBoss: (this.owner === 'boss') });
+            this._hitMap.set(pl, this.timer);
             hitFriendly = !!damaged;
             this.hitPlayer = pl === game.player && damaged;
             // Extra impact on top of normal takeDamage feedback
@@ -1048,7 +1052,7 @@ class HitLine {
       if (hitFriendly) break;
     }
     // Miss feedback: origin burst + light shake so the player reads the timing
-    if (!hitFriendly) {
+    if (firstHit && !hitFriendly) {
       triggerHitstop(3);
       triggerScreenShake(3, 8);
       game.effects.push(new Effect(this.x, this.y, this.color, 8, 4, 12));
@@ -1062,13 +1066,13 @@ class HitLine {
 
     if (this.fired) {
       // Brief solid flash on fire — thicker and longer if it hit
-      const fade = 1 - this.timer / this.flashDur;
+      const fade = 1 - this.timer / Math.max(this.flashDur, this.activeDur || 1);
       ctx.save();
       if (this.hitPlayer) {
         // Two-pass: wide white core + colored halo
         ctx.globalAlpha = fade * 0.7;
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = 10;
+        ctx.lineWidth = this.width + 6;
         ctx.shadowColor = this.color;
         ctx.shadowBlur = 40;
         for (const a of angles) {
@@ -1079,12 +1083,12 @@ class HitLine {
         }
         ctx.globalAlpha = fade * 0.95;
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = Math.max(4, this.width * 0.45);
         ctx.shadowBlur = 0;
       } else {
         ctx.globalAlpha = fade * 0.9;
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = this.activeDur > 0 ? this.color : '#fff';
+        ctx.lineWidth = this.activeDur > 0 ? this.width : 4;
         ctx.shadowColor = this.color;
         ctx.shadowBlur = 24;
       }
@@ -1103,7 +1107,7 @@ class HitLine {
     const t = this.timer / this.maxTimer; // 0..1
     // Build-up: dashed → solid, thin → thick, faint → bright
     const alpha = t < 0.6 ? (t / 0.6) * 0.55 : 0.55 + (t - 0.6) / 0.4 * 0.45;
-    const lw = t < 0.7 ? 1 + t * 2 : 3 + (t - 0.7) / 0.3 * 2;
+    const lw = (t < 0.7 ? 1 + t * 2 : 3 + (t - 0.7) / 0.3 * 2) + Math.max(0, this.width - 5) * 0.35;
     const dashLen = Math.max(2, 12 - t * 10);
     const gapLen = Math.max(1, 8 - t * 7);
 
@@ -1139,6 +1143,283 @@ class HitLine {
   }
 }
 
+// ── SatelliteBeam — anchored downward laser with telegraph/active/fade ──
+class SatelliteBeam {
+  constructor(source, color, damage, owner, opts) {
+    opts = opts || {};
+    this.source = source;
+    this.color = color || '#8fd6ff';
+    this.damage = damage || 1;
+    this.owner = owner || 'enemy';
+    this.element = opts.element || null;
+    this.sourceType = opts.sourceType || 'satellite';
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    this.telegraphDur = opts.telegraphDur || 36;
+    this.activeDur = opts.activeDur || 60;
+    this.fadeDur = opts.fadeDur || 20;
+    this.width = opts.width || 20;
+    this.lineLen = opts.lineLen || 720;
+    this.timer = 0;
+    this.done = false;
+    this._hitMap = new Map();
+    this.x = 0;
+    this.y = 0;
+    this._syncToSource();
+  }
+  _syncToSource() {
+    if (!this.source) return;
+    this.x = this.source.x + this.source.w / 2;
+    this.y = this.source.y + this.source.h * 0.92;
+  }
+  update(game) {
+    if (this.source && !this.source.dead) this._syncToSource();
+    this.timer++;
+    const activeStart = this.telegraphDur;
+    const activeEnd = this.telegraphDur + this.activeDur;
+    if (this.timer >= activeStart && this.timer <= activeEnd && this.timer % 8 === 0) {
+      this._damageTargets(game);
+    }
+    if (this.timer >= activeEnd + this.fadeDur) this.done = true;
+  }
+  _damageTargets(game) {
+    if (!game) return;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    let hitFriendly = false;
+    for (const pl of targets) {
+      if (!pl || pl.dead || (pl === game.player && pl.invincibleTimer > 0)) continue;
+      const box = pl.getHurtbox ? pl.getHurtbox() : pl;
+      if (!box) continue;
+      const pcx = box.x + box.w / 2;
+      const pcy = box.y + box.h / 2;
+      const lastHit = this._hitMap.get(pl) || -999;
+      if (this.timer - lastHit < 16) continue;
+      const withinX = Math.abs(pcx - this.x) <= this.width * 0.5 + Math.max(box.w, box.h) * 0.35;
+      const withinY = pcy >= this.y - 4 && pcy <= this.y + this.lineLen;
+      if (withinX && withinY) {
+        const damaged = game._damageFriendlyTarget(pl, this.damage, this.element || null, {
+          type: this.sourceType,
+          element: this.element,
+          isBoss: this.owner === 'boss'
+        });
+        this._hitMap.set(pl, this.timer);
+        hitFriendly = hitFriendly || !!damaged;
+        if (damaged) {
+          game.effects.push(new Effect(pcx, pcy, this.color, 10, 4, 12));
+          game.effects.push(new Effect(pcx, pcy, '#fff', 4, 2, 8));
+        }
+      }
+    }
+    if (hitFriendly) {
+      triggerHitstop(5);
+      triggerScreenShake(5, 10);
+    }
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    const activeStart = this.telegraphDur;
+    const activeEnd = this.telegraphDur + this.activeDur;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.shadowColor = this.color;
+
+    if (this.timer < activeStart) {
+      const t = this.timer / Math.max(1, this.telegraphDur);
+      const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.55);
+      ctx.globalAlpha = 0.26 + t * 0.42;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 2 + t * 4;
+      ctx.shadowBlur = 6 + t * 18;
+      ctx.setLineDash([5 + pulse * 5, 8 - t * 4]);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.55 + t * 0.35;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy + 6, 8 + t * 10, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (this.timer <= activeEnd) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.34);
+      ctx.globalAlpha = 0.65;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = this.width + 10 + pulse * 5;
+      ctx.shadowBlur = 34;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+      ctx.globalAlpha = 0.96;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = Math.max(5, this.width * 0.45);
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+    } else {
+      const fade = 1 - (this.timer - activeEnd) / Math.max(1, this.fadeDur);
+      ctx.globalAlpha = Math.max(0, fade) * 0.45;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = this.width * (0.6 + fade * 0.4);
+      ctx.shadowBlur = 22 * fade;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx, sy + this.lineLen);
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── EnergyBlastCircle — telegraphed circular blast hurtbox ─────
+class EnergyBlastCircle {
+  constructor(x, y, radius, color, damage, owner, opts) {
+    opts = opts || {};
+    this.x = x;
+    this.y = y;
+    this.radius = radius || 58;
+    this.color = color || '#8fd6ff';
+    this.warningColor = this.color;
+    this.damage = damage || 1;
+    this.owner = owner || 'enemy';
+    this.element = opts.element || null;
+    this.sourceType = opts.sourceType || 'rocketeer';
+    if (this.element && typeof ELEMENT_COLORS !== 'undefined' && ELEMENT_COLORS[this.element]) {
+      this.color = this.element === 'crystal' ? ELEMENT_COLORS[this.element].body : ELEMENT_COLORS[this.element].accent;
+      this.warningColor = ELEMENT_COLORS[this.element].accent;
+    } else if (!this.element && this.owner === 'boss') {
+      this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+      this.warningColor = this.color;
+    } else if (!this.element && this.owner === 'enemy') {
+      this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+      this.warningColor = this.color;
+    }
+    this.maxTimer = opts.maxTimer || 62;
+    this.flashDur = opts.flashDur || 16;
+    this.timer = 0;
+    this.done = false;
+    this.fired = false;
+    this.hitPlayer = false;
+    this.originX = opts.originX !== undefined ? opts.originX : x;
+    this.originY = opts.originY !== undefined ? opts.originY : y - 180;
+  }
+  update(game) {
+    if (this.fired) {
+      this.timer++;
+      if (this.timer >= this.flashDur) this.done = true;
+      return;
+    }
+    this.timer++;
+    if (this.timer >= this.maxTimer) this._fire(game);
+  }
+  _fire(game) {
+    this.fired = true;
+    this.timer = 0;
+    let hitAny = false;
+    const targets = game.friendlyTargets && game.friendlyTargets.length ? game.friendlyTargets : (game._refreshFriendlyTargets ? game._refreshFriendlyTargets() : [game.player]);
+    for (const target of targets) {
+      if (!target || target.dead || (target === game.player && target.invincibleTimer > 0)) continue;
+      const box = target.getHurtbox ? target.getHurtbox() : target;
+      if (!box) continue;
+      const tx = box.x + box.w / 2;
+      const ty = box.y + box.h / 2;
+      const pad = Math.max(box.w, box.h) * 0.35;
+      if (Math.hypot(tx - this.x, ty - this.y) <= this.radius + pad) {
+        const damaged = game._damageFriendlyTarget(target, this.damage, this.element || null, {
+          type: this.sourceType,
+          element: this.element,
+          isBoss: this.owner === 'boss'
+        });
+        hitAny = hitAny || !!damaged;
+        if (target === game.player && damaged) this.hitPlayer = true;
+        game.effects.push(new Effect(tx, ty, this.color, 12, 4, 14));
+        game.effects.push(new Effect(tx, ty, '#fff', 5, 2, 9));
+      }
+    }
+    triggerScreenShake(hitAny ? 7 : 4, hitAny ? 14 : 9);
+    if (this.hitPlayer) triggerHitstop(9);
+    else triggerHitstop(3);
+    game.effects.push(new Effect(this.x, this.y, this.color, 18, 5, 18));
+    game.effects.push(new Effect(this.x, this.y, '#fff', 8, 3, 12));
+  }
+  render(ctx, cam) {
+    const sx = this.x - cam.x;
+    const sy = this.y - cam.y;
+    ctx.save();
+    if (this.fired) {
+      const fade = 1 - this.timer / Math.max(1, this.flashDur);
+      ctx.globalAlpha = 0.34 * fade;
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = 30;
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius * (1.02 + (1 - fade) * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.95 * fade;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    const t = this.timer / this.maxTimer;
+    const pulse = 0.5 + 0.5 * Math.sin(this.timer * 0.45);
+    const warningColor = this.warningColor || this.color;
+    ctx.globalAlpha = 0.10 + t * 0.18;
+    ctx.fillStyle = warningColor;
+    ctx.beginPath();
+    ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.5 + t * 0.45;
+    ctx.strokeStyle = warningColor;
+    ctx.lineWidth = 2 + t * 3;
+    ctx.shadowColor = warningColor;
+    ctx.shadowBlur = 8 + t * 18;
+    ctx.setLineDash([8 - t * 4, 7 - t * 3]);
+    ctx.beginPath();
+    ctx.arc(sx, sy, this.radius * (0.92 + pulse * 0.08), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.globalAlpha = 0.72 + t * 0.28;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx - this.radius * 0.35, sy);
+    ctx.lineTo(sx + this.radius * 0.35, sy);
+    ctx.moveTo(sx, sy - this.radius * 0.35);
+    ctx.lineTo(sx, sy + this.radius * 0.35);
+    ctx.stroke();
+
+    const orbT = Math.min(1, t * 1.15);
+    const ox = this.originX - cam.x + (sx - (this.originX - cam.x)) * orbT;
+    const oy = this.originY - cam.y + (sy - (this.originY - cam.y)) * (orbT * orbT);
+    ctx.globalAlpha = 0.95;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(ox, oy, 10 + t * 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(ox, oy, 5 + t * 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ── Grenade — lobbed explosive thrown by bouncers ─────────────
 class Grenade {
   constructor(x, y, vx, vy, color, damage, owner, opts) {
@@ -1150,6 +1431,8 @@ class Grenade {
     this.owner = owner;
     opts = opts || {};
     this.element = opts.element || null;
+    if (!this.element && this.owner === 'boss') this.color = typeof BOSS_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? BOSS_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
+    else if (!this.element && this.owner === 'enemy') this.color = typeof ENEMY_ATTACK_TELEGRAPH_COLOR !== 'undefined' ? ENEMY_ATTACK_TELEGRAPH_COLOR : '#f4f0ff';
     this.gravScale = opts.gravScale !== undefined ? opts.gravScale : 0.55;
     this.fuseTimer = opts.fuseTimer !== undefined ? opts.fuseTimer : 90;
     this.maxFuse = this.fuseTimer;
@@ -1240,6 +1523,21 @@ class Grenade {
       };
       for (const e of game.enemies) if (!e.dead) dmgEnemy(e);
       if (game.boss && !game.boss.dead) dmgEnemy(game.boss);
+      if (this.weaponFamily === 'storm') {
+        game.hitLines.push(new HitLine(cx, game.camera.y - 30, 0, 5, this.accentColor || '#fff36b', Math.max(1, Math.ceil(this.damage * 0.65)), 'player', {
+          element: 'lightning', maxTimer: 8, flashDur: 18, activeDur: 14, width: 18, sourceType: 'weapon', visualOnly: true
+        }));
+        for (const e of game.enemies) {
+          if (!e.dead && Math.hypot((e.x + e.w / 2) - cx, (e.y + e.h / 2) - cy) <= r) {
+            e.paralyseTimer = Math.max(e.paralyseTimer || 0, 36);
+            e.soakTimer = Math.max(e.soakTimer || 0, 150);
+          }
+        }
+        if (game.boss && !game.boss.dead && Math.hypot((game.boss.x + game.boss.w / 2) - cx, (game.boss.y + game.boss.h / 2) - cy) <= r) {
+          game.boss.paralyseTimer = Math.max(game.boss.paralyseTimer || 0, 20);
+          game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 100);
+        }
+      }
     }
 
     // Explosion VFX
@@ -1254,6 +1552,7 @@ class Grenade {
       ));
     }
     if (!(this.owner === 'enemy' || this.owner === 'boss') && typeof triggerHitstop === 'function') triggerHitstop(5);
+    if (typeof SFX !== 'undefined' && SFX.slam) SFX.slam();
     this.done = true;
   }
   render(ctx, cam) {
@@ -1270,7 +1569,7 @@ class Grenade {
     // Body
     ctx.globalAlpha = flickering ? 0.45 : 0.92;
     ctx.fillStyle = this.color;
-    ctx.shadowColor = flickering ? '#ff0' : this.color;
+    ctx.shadowColor = this.color;
     ctx.shadowBlur = flickering ? 18 : 5;
     ctx.beginPath();
     ctx.arc(0, 0, this.w / 2 + 1, 0, Math.PI * 2);
@@ -1298,9 +1597,9 @@ class Grenade {
       const t = 1 - fuse / (this.maxFuse * 0.55);
       ctx.save();
       ctx.globalAlpha = 0.55 * t;
-      ctx.strokeStyle = '#ff0';
+      ctx.strokeStyle = this.color;
       ctx.lineWidth = 2;
-      ctx.shadowColor = '#ff0';
+      ctx.shadowColor = this.color;
       ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.arc(cx2, cy2, this.w / 2 + 6, -Math.PI / 2, -Math.PI / 2 + t * Math.PI * 2);
