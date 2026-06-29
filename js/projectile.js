@@ -99,6 +99,14 @@ class Trimerang {
       this.vx *= maxSpeed / newSpd;
       this.vy *= maxSpeed / newSpd;
     }
+    if (this.weaponWeave) {
+      const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+      const nx = -this.vy / sp;
+      const ny = this.vx / sp;
+      const wobble = Math.sin(this.life * 0.18) * this.weaponWeave;
+      this.vx += nx * wobble;
+      this.vy += ny * wobble;
+    }
     this.x += this.vx;
     this.y += this.vy;
     this.angle += this.spin;
@@ -118,19 +126,19 @@ class Trimerang {
   _damageEnemies(game) {
     for (const e of game.enemies) {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
-        e.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
+        e.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, 'shuriken');
         if(!e.grounded && !e.flying) e.juggleState = true;
         this.hitSet.add(e);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
-        game.effects.push(new Effect(this.x, this.y, '#bfb', 8, 3, 10));
+        game.effects.push(new Effect(this.x, this.y, this.color || '#bfb', 8, 3, 10));
       }
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
-      game.boss.takeDamage(game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower, game, this.x, undefined, 'shuriken');
+      game.boss.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, 'shuriken');
       if(!game.boss.grounded && !game.boss.flying) game.boss.juggleState = true;
       this.hitSet.add(game.boss);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
-      game.effects.push(new Effect(this.x, this.y, '#bfb', 10, 4, 12));
+      game.effects.push(new Effect(this.x, this.y, this.color || '#bfb', 10, 4, 12));
     }
   }
   render(ctx, cam) {
@@ -146,8 +154,8 @@ class Trimerang {
       ctx.lineTo(Math.cos(a) * this.radius, Math.sin(a) * this.radius);
     }
     ctx.closePath();
-    ctx.fillStyle = '#bfb';
-    ctx.shadowColor = '#fff';
+    ctx.fillStyle = this.color || '#bfb';
+    ctx.shadowColor = this.accentColor || '#fff';
     ctx.shadowBlur = 8;
     ctx.fill();
     ctx.shadowBlur = 0;
@@ -326,12 +334,127 @@ class Projectile {
     const cy = this.y + this.h / 2;
     const radius = this.explosionRadius || 90;
     damageInRadius(game, cx, cy, radius, this.damage, cx);
+    if (this.weaponFamily === 'storm') {
+      this._stormWeaponStrike(game, cx, cy, null, false);
+    } else if (this.weaponFamily === 'earth') {
+      this._earthWeaponImpact(game, cx, cy + radius * 0.25, null, false);
+    } else if (this.weaponFamily === 'fire') {
+      for (let i = 0; i < 3; i++) game.flamePools.push(new FlamePool(cx - 34 + i * 24, cy + 8, Math.max(1, Math.floor(this.damage / 3))));
+    } else if (this.weaponFamily === 'bubble') {
+      for (const e of game.enemies) {
+        if (!e.dead && Math.hypot((e.x + e.w / 2) - cx, (e.y + e.h / 2) - cy) < radius) e.soakTimer = Math.max(e.soakTimer || 0, 300);
+      }
+      if (game.boss && !game.boss.dead && Math.hypot((game.boss.x + game.boss.w / 2) - cx, (game.boss.y + game.boss.h / 2) - cy) < radius) game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 240);
+    } else if (this.weaponFamily === 'crystal') {
+      for (const e of game.enemies) {
+        if (!e.dead && Math.hypot((e.x + e.w / 2) - cx, (e.y + e.h / 2) - cy) < radius) e.freezeTimer = Math.max(e.freezeTimer || 0, 70);
+      }
+      if (game.boss && !game.boss.dead && Math.hypot((game.boss.x + game.boss.w / 2) - cx, (game.boss.y + game.boss.h / 2) - cy) < radius) game.boss.freezeTimer = Math.max(game.boss.freezeTimer || 0, 40);
+    }
     game.effects.push(new SlamRing(cx, cy, '#ff8a28', radius, 16));
     game.effects.push(new Effect(cx, cy, '#fff2b0', 24, 8, 18));
     game.effects.push(new Effect(cx, cy, '#ff5a22', 32, 7, 22));
     game.effects.push(new ScreenFlash('#fff1c2', 0.24, 10));
     if (typeof SFX !== 'undefined' && SFX.nuke) SFX.nuke(0.45);
     triggerScreenShake(7, 12);
+  }
+
+  _impactCenter(target) {
+    return {
+      x: target.x + target.w / 2,
+      y: target.y + target.h / 2,
+      groundY: target.y + target.h
+    };
+  }
+
+  _applyWeaponIdentityImpact(target, game, damageLanded, isBoss) {
+    if (!target || !game) return;
+    const family = this.weaponFamily || null;
+    if (!family) return;
+    const c = this._impactCenter(target);
+    if (family === 'fire') {
+      target.burnTimer = Math.max(target.burnTimer || 0, isBoss ? 120 : 180);
+      game.effects.push(new Effect(c.x, c.y, '#ff7a20', 10, 3, 12));
+      if (Math.random() < 0.45) {
+        game.flamePools.push(new FlamePool(c.x - 14, c.groundY - 4, Math.max(1, Math.floor(this.damage / 3))));
+      }
+    } else if (family === 'bubble') {
+      target.soakTimer = Math.max(target.soakTimer || 0, isBoss ? 240 : 360);
+      target.vx *= 0.35;
+      target.vy *= 0.55;
+      game.effects.push(new Effect(c.x, c.y, '#6bdcff', 12, 4, 14));
+      game.effects.push(new SlamRing(c.x, c.y, '#aef', 34, 6));
+    } else if (family === 'crystal') {
+      target.freezeTimer = Math.max(target.freezeTimer || 0, isBoss ? 45 : 80);
+      if (damageLanded && target.launchIceSlide) target.launchIceSlide(game, this.x, Math.max(1, Math.ceil(this.damage * 0.65)));
+      game.effects.push(new Effect(c.x, c.y, '#cfffff', 14, 4, 16));
+    } else if (family === 'storm') {
+      this._stormWeaponStrike(game, c.x, c.y, target, isBoss);
+    } else if (family === 'earth') {
+      this._earthWeaponImpact(game, c.x, c.groundY, target, isBoss);
+    } else if (family === 'shadow') {
+      this._shadowWeaponAmbush(game, target, c.x, c.y, isBoss);
+    } else if (family === 'wind') {
+      const dir = Math.sign(this.vx) || (game.player ? game.player.facing : 1) || 1;
+      target.vx += dir * 6;
+      target.vy -= 2;
+      if (!target.grounded && !target.flying) target.juggleState = true;
+      game.effects.push(new Effect(c.x, c.y, '#caffca', 10, 3, 12));
+    }
+  }
+
+  _stormWeaponStrike(game, x, y, target, isBoss) {
+    if (this._stormStrikeDone) return;
+    this._stormStrikeDone = true;
+    const dmg = Math.max(1, Math.ceil(this.damage * (isBoss ? 0.45 : 0.7)));
+    damageInRadius(game, x, y, 54, dmg, x, 'lightning', 'weapon', this.sourceActor || null);
+    if (target) {
+      target.paralyseTimer = Math.max(target.paralyseTimer || 0, isBoss ? 22 : 38);
+      target.soakTimer = Math.max(target.soakTimer || 0, isBoss ? 120 : 180);
+    }
+    for (let i = 0; i < 5; i++) {
+      const ox = (Math.random() - 0.5) * 28;
+      game.effects.push(new Effect(x + ox, y - 65 + Math.random() * 18, '#fff36b', 7, 2.5, 10));
+      game.effects.push(new Effect(x + ox * 0.35, y - 24 + Math.random() * 16, '#4b88ff', 9, 3, 12));
+    }
+    game.effects.push(new SlamRing(x, y, '#fff36b', 62, 8));
+    if (game.player) game.player.stormLightningFlash = Math.max(game.player.stormLightningFlash || 0, 18);
+    triggerScreenShake(3, 5);
+  }
+
+  _earthWeaponImpact(game, x, groundY, target, isBoss) {
+    if (this._earthImpactDone) return;
+    this._earthImpactDone = true;
+    const dmg = Math.max(1, Math.ceil(this.damage * (isBoss ? 0.35 : 0.55)));
+    game.effects.push(new EarthCrater(x, groundY, dmg, game));
+    game.effects.push(new SlamRing(x, groundY, '#c8a878', 58, 8));
+    if (target) {
+      target.vx *= 0.35;
+      target.vy = Math.min(target.vy || 0, -4);
+      target.stunTimer = Math.max(target.stunTimer || 0, isBoss ? 14 : 28);
+    }
+    if (game.stoneBlocks && game.stoneBlocks.length < 18 && Math.random() < 0.45) {
+      const boulder = new EarthBoulder(x, groundY, Math.max(groundY - TILE * 1.4, (target ? target.y + target.h * 0.2 : groundY - TILE * 2)), game.wave || 1);
+      boulder.hoverTimer = 45;
+      game.stoneBlocks.push(boulder);
+    }
+    triggerScreenShake(3, 7);
+  }
+
+  _shadowWeaponAmbush(game, target, x, y, isBoss) {
+    if (this._shadowAmbushDone || !game.player) return;
+    this._shadowAmbushDone = true;
+    const dir = Math.sign((target.x + target.w / 2) - (game.player.x + game.player.w / 2)) || game.player.facing || 1;
+    const sx = target.x - dir * 18;
+    const sy = target.y + target.h * 0.35;
+    const dmg = Math.max(1, Math.ceil(this.damage * (isBoss ? 0.45 : 0.8)));
+    game.effects.push(new SubstitutionLog(sx - 10, target.y, 20, Math.min(38, target.h)));
+    game.effects.push(new Effect(sx, sy, '#d7b4ff', 14, 4, 14));
+    game.effects.push(new TextEffect(x, y - 18, 'SNEAK!', '#d7b4ff'));
+    target.paralyseTimer = Math.max(target.paralyseTimer || 0, isBoss ? 18 : 34);
+    target.takeDamage(dmg, game, sx, 'shadow', 'weapon', game.player);
+    game.player.shadowStealth = Math.max(game.player.shadowStealth || 0, 150);
+    game.player.backstabReady = true;
   }
   update(game) {
     // Orbiting mode: circle the player, bypass terrain
@@ -391,8 +514,9 @@ class Projectile {
         const td = Math.sqrt(tdx * tdx + tdy * tdy);
         if (td > 0) {
           const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 8;
-          this.vx += (tdx / td) * 0.6;
-          this.vy += (tdy / td) * 0.6;
+          const steer = this.homingStrength || 0.6;
+          this.vx += (tdx / td) * steer;
+          this.vy += (tdy / td) * steer;
           const ns = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
           if (ns > 0) { this.vx = (this.vx / ns) * sp; this.vy = (this.vy / ns) * sp; }
         }
@@ -562,6 +686,7 @@ class Projectile {
               game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#ff0', 8, 3, 12));
             }
           }
+          this._applyWeaponIdentityImpact(e, game, _dmgHit, false);
           // Pushback effect (skip if ice sliding)
           if (!this.freezeDust) {
             const dx = e.x + e.w / 2 - (this.x + this.w / 2);
@@ -659,6 +784,7 @@ class Projectile {
           game.boss.vy = 0;
           game.effects.push(new Effect(game.boss.x + game.boss.w / 2, game.boss.y + game.boss.h / 2, '#ff0', 10, 4, 14));
         }
+        this._applyWeaponIdentityImpact(game.boss, game, _bossDmgHit, true);
         this.hitSet.add(game.boss);
         if (fromPlayer && game.player.ninjaType === 'fire') {
           game.boss.burnTimer = 150;

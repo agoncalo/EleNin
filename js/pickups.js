@@ -340,13 +340,16 @@ class ClassOrb {
     this.bobTimer += 0.055;
     const pl = game.player;
     if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
+    if ((pl.weaponPickupCooldown || 0) > 0 && pl.heldItem) return;
     const oldItem = pl.heldItem;
     const oldAmmo = pl.itemAmmo || 0;
-    if (!pl.equipWeapon(this.weaponId, game, { ammo: this.ammo })) return;
+    if (!pl.equipWeapon(this.weaponId, game, { ammo: this.ammo, allowDuringUltimate: true })) return;
+    pl.weaponPickupCooldown = 180;
     this.done = true;
     SFX.weaponPickup();
     if (oldItem && WEAPON_ITEMS[oldItem]) {
-      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { ammo: oldAmmo, pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+      if (game._dropClassOrb) game._dropClassOrb(oldItem, this.x + this.w / 2, this.y + this.h / 2, 16, { ammo: oldAmmo, bobTimer: this.bobTimer + Math.PI, force: true });
+      else game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { ammo: oldAmmo, pickupCooldown: 16, bobTimer: this.bobTimer + Math.PI }));
     }
     const wt = WEAPON_ITEMS[this.weaponId];
     const cx = pl.x + pl.w / 2;
@@ -435,6 +438,10 @@ class ClassOrb {
       ctx.fillRect(-16, -2, 24, 4);
       ctx.fillRect(7, -12, 14, 24);
       ctx.strokeRect(7, -12, 14, 24);
+    } else if (kind === 'grenade') {
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillRect(-3, -16, 8, 7);
+      ctx.beginPath(); ctx.arc(8, -14, 6, 0, Math.PI * 1.35); ctx.stroke();
     } else {
       ctx.fillRect(-14, -4, 28, 8);
       ctx.fillRect(8, 0, 8, 5);

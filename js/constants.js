@@ -733,12 +733,12 @@ const WEAPON_ITEMS = {
     icon: 'D'
   },
   teslaCoil: {
-    name: 'Tesla Coil',
-    shortName: 'TESLA',
+    name: 'Storm Grenade',
+    shortName: 'GRENADE',
     power: 'basic',
     crashPower: 'storm',
     family: 'storm',
-    kind: 'staff',
+    kind: 'grenade',
     color: '#4b88ff',
     accentColor: '#fff35c',
     bodyColor: '#1e3f86',

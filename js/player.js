@@ -18,6 +18,8 @@ class Player {
     this.itemAmmoMax = WEAPON_ITEMS.flamethrower.ammoMax;
     this.lastHeldItem = this.heldItem;
     this.itemUseFlash = 0;
+    this.itemCrashPalette = null;
+    this.weaponPickupCooldown = 0;
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
@@ -323,13 +325,17 @@ class Player {
     this.vy = 0;
     this.invincibleTimer = 999; // invincible during cutscene
     SFX.victory();
-    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 30));
+    const palette = this.currentPaletteDef();
+    game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palette ? (palette.accentColor || palette.color || '#fff') : '#fff', 30, 8, 30));
     recordUltimate(this.ninjaType);
   }
 
   // Called when float phase ends — triggers the actual ultimate effect
   triggerUltimateEffect(game) {
     this.ultCutscene = false;
+    const palette = this.currentPaletteDef();
+    const palColor = palette ? (palette.color || palette.bodyColor || this.type.color) : this.type.color;
+    const palAccent = palette ? (palette.accentColor || palette.color || this.type.accentColor) : this.type.accentColor;
     switch (this.ninjaType) {
       case 'fire':
         // Meteors rain from the sky — 12 meteors over 3 seconds + 1 big finisher
@@ -437,7 +443,7 @@ class Player {
         };
         }
         SFX.slam();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4a8', 25, 6, 20));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
         break;
 
       case 'bubble':
@@ -462,7 +468,7 @@ class Player {
           };
         }
         SFX.special();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 25, 6, 20));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
         break;
 
       case 'shadow':
@@ -473,7 +479,7 @@ class Player {
         this.shadowUltBuff = true;
         // Massive initial shadow strike around the player
         damageInRadius(game, this.x + this.w / 2, this.y + this.h / 2, 200, (this.type.attackDamage + this.bonusElemental) * 3);
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#a4e', 40, 10, 30));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 40, 10, 30));
         this.shadowStealth = 300;
         this.backstabReady = true;
         // Apply purple paralysis to ALL enemies (including lightning elementals)
@@ -529,7 +535,7 @@ class Player {
         // Lock ninja to castle center
         this.vx = 0; this.vy = 0;
         SFX.parry();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#fff', 30, 8, 25));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 30, 8, 25));
         break;
       }
 
@@ -552,7 +558,7 @@ class Player {
         game.camera.x = this.x + this.w / 2 - CANVAS_W / 2;
         game.camera.y = this.y + this.h / 2 - CANVAS_H / 2;
         SFX.bossSpawn();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#bfb', 25, 6, 20));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
         this.invincibleTimer = 300;
         break;
 
@@ -566,7 +572,7 @@ class Player {
         }
         if (game.boss && !game.boss.dead) game.boss.soakTimer = 420;
         SFX.special();
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#48f', 25, 6, 20));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, palAccent, 25, 6, 20));
         break;
     }
     // End invincibility boost (set to just a brief window after cutscene)
@@ -586,6 +592,10 @@ class Player {
     return (this.heldItem && WEAPON_ITEMS[this.heldItem]) ? WEAPON_ITEMS[this.heldItem] : null;
   }
 
+  currentPaletteDef() {
+    return this.currentWeaponDef() || ((this.ultimateActive || this.ultCutscene) ? this.itemCrashPalette : null);
+  }
+
   _clearItemMotionState() {
     this.fireDashing = false;
     this.fireDashTimer = 0;
@@ -600,20 +610,45 @@ class Player {
     this.parryTimer = 0;
   }
 
+  _isChainInvulnerable() {
+    return !!(this.chainStriking || this.stormChaining || this.staggerChaining);
+  }
+
+  _setChainInvulnerability(frames = 60) {
+    this.invincibleTimer = Math.max(this.invincibleTimer || 0, frames);
+    this._pendingDamage = null;
+  }
+
+  _maintainChainInvulnerability() {
+    if (!this._isChainInvulnerable()) return;
+    this._setChainInvulnerability(2);
+  }
+
   equipWeapon(weaponId, game, opts = {}) {
     const def = WEAPON_ITEMS[weaponId];
     if (!def) return false;
-    if (this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false;
-    this._clearItemMotionState();
+    const duringUltimate = this.ultCutscene || this.ultimateActive;
+    if ((duringUltimate && !opts.allowDuringUltimate) || (!duringUltimate && (this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle))) return false;
+    const oldType = this.ninjaType;
+    const oldUltimateReady = this.ultimateReady;
+    const oldUltimateCharge = this.ultimateCharge;
+    if (!duringUltimate) this._clearItemMotionState();
     this.heldItem = weaponId;
     this.lastHeldItem = weaponId;
+    this.itemCrashPalette = null;
     this.itemAmmoMax = def.ammoMax || 0;
     const defaultAmmo = Math.ceil((def.ammoMax || 0) * 0.5);
     const pickedAmmo = opts.ammo === undefined ? defaultAmmo : opts.ammo;
     this.itemAmmo = Math.max(0, Math.min(this.itemAmmoMax, Math.round(pickedAmmo)));
-    this.ninjaType = 'basic';
-    this.ultimateCharge = 0;
-    this.ultimateReady = !!def.crashPower;
+    if (duringUltimate) {
+      this.ninjaType = oldType;
+      this.ultimateCharge = oldUltimateCharge;
+      this.ultimateReady = oldUltimateReady;
+    } else {
+      this.ninjaType = 'basic';
+      this.ultimateCharge = 0;
+      this.ultimateReady = !!def.crashPower;
+    }
     if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 34, def.name.toUpperCase(), def.accentColor || def.color));
     return true;
   }
@@ -671,23 +706,64 @@ class Player {
     const accent = def.accentColor || color;
     const applyProjectileTheme = (p) => {
       p.fromSpecial = true;
+      p.weaponFamily = family;
+      p.element = family === 'fire' ? 'fire'
+        : family === 'crystal' ? 'crystal'
+        : family === 'storm' ? 'lightning'
+        : family === 'shadow' ? 'shadow'
+        : family === 'earth' ? 'physical'
+        : undefined;
       if (family === 'fire') {
         p.isFireball = true;
+        p.burnWeapon = true;
       } else if (family === 'bubble') {
         p.soaking = true;
+        p.homing = true;
+        p.homingStrength = 0.34;
       } else if (family === 'shadow') {
         p.shadowParalyse = true;
       } else if (family === 'crystal') {
         p.freezeDust = true;
-      } else if (family === 'wind') {
-        p.windPierce = true;
-        p.piercing = true;
       } else if (family === 'storm') {
         p.soaking = true;
         p.shadowParalyse = true;
+        p.stormStrike = true;
+      } else if (family === 'earth') {
+        p.earthImpact = true;
       }
       return p;
     };
+    if (family === 'wind') {
+      if (!game.trimerangs) game.trimerangs = [];
+      const spawnTri = (ox, oy, vx, vy, opts = {}) => {
+        const t = new Trimerang(cx + ox, cy + oy, vx, vy, 'player');
+        t.homingEnemy = true;
+        t.life = opts.life || 150;
+        t.radius = opts.radius || 15;
+        t.spin = opts.spin || (0.34 + Math.random() * 0.08);
+        t.burstPhase = opts.burstPhase || 0;
+        t.turnSpeed = opts.turnSpeed || t.turnSpeed;
+        t.turnDir = opts.turnDir || t.turnDir;
+        t.damage = this.type.attackDamage + this.bonusElemental + (opts.damageBonus || 2);
+        t.color = color;
+        t.accentColor = accent;
+        t.weaponWeave = opts.weave || 0.035;
+        game.trimerangs.push(t);
+      };
+      if (kind === 'pistol') {
+        spawnTri(dir * 16, -3, dir * 10, -2.8, { life: 120, radius: 13, burstPhase: 18, weave: 0.055, damageBonus: 1 });
+      } else if (kind === 'crossbow') {
+        spawnTri(dir * 14, -8, dir * 8.5, -4.2, { life: 150, radius: 14, burstPhase: 24, turnDir: 1, weave: 0.04, damageBonus: 2 });
+        spawnTri(dir * 14, 6, dir * 8.5, 3.3, { life: 150, radius: 14, burstPhase: 24, turnDir: -1, weave: -0.04, damageBonus: 2 });
+      } else {
+        for (let i = -1; i <= 1; i++) {
+          spawnTri(dir * 10, i * 8, dir * (7.8 - Math.abs(i) * 0.4), i * 3.2, { life: 180, radius: 15 + Math.abs(i), burstPhase: 34 + Math.abs(i) * 8, weave: 0.05 * (i || 1), damageBonus: 3 });
+        }
+      }
+      game.effects.push(new Effect(cx + dir * 20, cy, accent, 14, 4, 12));
+      triggerScreenShake(1, 3);
+      return;
+    }
     if (kind === 'shotgun') {
       for (let i = -2; i <= 2; i++) {
         const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
@@ -708,6 +784,11 @@ class Player {
       const p = new Projectile(cx + dir * 16, cy - 8, dir * 7.6, -0.35, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
       p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
       game.projectiles.push(applyProjectileTheme(p));
+    } else if (kind === 'grenade') {
+      const p = new Projectile(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player');
+      p.w = 14; p.h = 14; p.life = 95; p.bouncy = true; p.bouncesLeft = 1; p.gravScale = 1.05; p.explosive = true; p.explosionRadius = 76;
+      game.projectiles.push(applyProjectileTheme(p));
+      triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
       const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
       p.w = 18; p.h = 14; p.life = 58; p.explosive = true; p.explosionRadius = 70;
@@ -730,12 +811,16 @@ class Player {
     }
     if (this.ultCutscene || this.ultimateActive) return false;
     const consumed = this.heldItem;
+    this.itemCrashPalette = Object.assign({}, def);
     this.heldItem = null;
     this.itemAmmo = 0;
     this.itemAmmoMax = 0;
     this.ninjaType = def.crashPower;
     this.ultimateReady = true;
     this.ultimateCharge = this.ultimateMax;
+    if (game && game._liveWeaponPickups && game._spawnEmergencyWeaponPickup && game._liveWeaponPickups().length <= 0) {
+      game._spawnEmergencyWeaponPickup(0);
+    }
     this.activateUltimate(game);
     if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 52, def.shortName + ' CRASH', def.accentColor || def.color));
     this.lastHeldItem = consumed;
@@ -922,12 +1007,14 @@ class Player {
     // Apply highest pending damage from last frame
     this._applyPendingDamage(game);
     this._updateActionCharges();
+    this._maintainChainInvulnerability();
 
     // HP no longer fuels actions; attack and magic use separate recharge pips.
     this.focusRegenTimer = 0;
 
     // Bubble shield countdown
     if (this.bubbleShieldTimer > 0) this.bubbleShieldTimer--;
+    if (this.weaponPickupCooldown > 0) this.weaponPickupCooldown--;
 
     // Smooth display bars
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
@@ -946,7 +1033,8 @@ class Player {
       this.vy = 0;
       // Sparkle effects during float
       if (this.ultCutsceneTimer % 6 === 0) {
-        const col = this.type.color;
+        const palette = this.currentPaletteDef();
+        const col = palette ? (palette.accentColor || palette.color || this.type.color) : this.type.color;
         game.effects.push(new Effect(
           this.x + this.w / 2 + randInt(-20, 20),
           this.y + this.h / 2 + randInt(-20, 20),
@@ -2454,7 +2542,7 @@ class Player {
               for (const a of this.afterimages) { if (a.chain) a.life = 20; }
               this.backstabReady = false;
               this.shadowStealth = 0;
-              this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+              this._setChainInvulnerability(60);
               nearest = null;
             }
           }
@@ -2462,13 +2550,9 @@ class Player {
         // Check spiky deflection — stop chain and take reflect damage
         if (nearest && nearest.element === 'spiky') {
           const dmg = this.type.attackDamage + this.bonusElemental;
-          const reflDmg = Math.max(1, Math.round(dmg * 0.5));
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
-          this.hp -= reflDmg;
-          if (this.hp < 0) this.hp = 0;
-          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'REFLECT', '#f86'));
+          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'DEFLECT', '#f86'));
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#f64', 8, 3, 10));
-          game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
           SFX.reflect();
           this.chainStriking = false;
           this.shadowChainFirstHop = false;
@@ -2476,7 +2560,7 @@ class Player {
           for (const a of this.afterimages) { if (a.chain) a.life = 20; }
           this.backstabReady = false;
           this.shadowStealth = 0;
-          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+          this._setChainInvulnerability(60);
           nearest = null;
         }
         if (nearest) {
@@ -2507,7 +2591,7 @@ class Player {
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#a4e', 10, 4, 12));
           triggerHitstop(3);
-          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this._setChainInvulnerability(8);
           this.chainTimer = 14;
         } else if (!this.chainStriking) {
           // Already stopped by resist
@@ -2519,7 +2603,7 @@ class Player {
           for (const a of this.afterimages) { if (a.chain) a.life = 20; }
           this.backstabReady = false;
           this.shadowStealth = 0;
-          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+          this._setChainInvulnerability(60);
         }
       }
     }
@@ -2552,7 +2636,7 @@ class Player {
               game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, nearest.elementColors.accent, 8, 3, 12));
               this.stormChaining = false;
               for (const a of this.stormAfterimages) a.life = 15;
-              this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+              this._setChainInvulnerability(60);
               nearest = null;
             }
           }
@@ -2560,17 +2644,13 @@ class Player {
         // Check spiky deflection — stop chain and take reflect damage
         if (nearest && nearest.element === 'spiky') {
           const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
-          const reflDmg = Math.max(1, Math.round(dmg * 0.5));
           nearest.takeDamage(dmg, game, this.x + this.w / 2);
-          this.hp -= reflDmg;
-          if (this.hp < 0) this.hp = 0;
-          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'REFLECT', '#f86'));
+          game.effects.push(new TextEffect(nearest.x + nearest.w / 2 - 16, nearest.y - 10, 'DEFLECT', '#f86'));
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#f64', 8, 3, 10));
-          game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
           SFX.reflect();
           this.stormChaining = false;
           for (const a of this.stormAfterimages) a.life = 15;
-          this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+          this._setChainInvulnerability(60);
           nearest = null;
         }
         if (nearest) {
@@ -2599,7 +2679,7 @@ class Player {
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#ff0', 12, 5, 14));
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, '#8af', 8, 3, 10));
           triggerHitstop(3);
-          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this._setChainInvulnerability(8);
           this.stormChainTimer = 12;
           // Storm ult sheath tracking
           if (this.ultimateActive && this.stormSheathActive) {
@@ -2637,7 +2717,7 @@ class Player {
                 game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, loopTarget.elementColors.accent, 8, 3, 12));
                 this.stormChaining = false;
                 for (const a of this.stormAfterimages) a.life = 15;
-                this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+                this._setChainInvulnerability(60);
                 loopTarget = null;
               }
             }
@@ -2645,17 +2725,13 @@ class Player {
           // Check spiky deflection — stop chain and take reflect damage
           if (loopTarget && loopTarget.element === 'spiky') {
             const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
-            const reflDmg = Math.max(1, Math.round(dmg * 0.5));
             loopTarget.takeDamage(dmg, game, this.x + this.w / 2);
-            this.hp -= reflDmg;
-            if (this.hp < 0) this.hp = 0;
-            game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'REFLECT', '#f86'));
+            game.effects.push(new TextEffect(loopTarget.x + loopTarget.w / 2 - 16, loopTarget.y - 10, 'DEFLECT', '#f86'));
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#f64', 8, 3, 10));
-            game.effects.push(new DamageNumber(this.x + this.w / 2, this.y, reflDmg, 'spiky'));
             SFX.reflect();
             this.stormChaining = false;
             for (const a of this.stormAfterimages) a.life = 15;
-            this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+            this._setChainInvulnerability(60);
             loopTarget = null;
           }
           if (loopTarget) {
@@ -2683,7 +2759,7 @@ class Player {
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#ff0', 12, 5, 14));
             game.effects.push(new Effect(loopTarget.x + loopTarget.w / 2, loopTarget.y + loopTarget.h / 2, '#8af', 8, 3, 10));
             triggerHitstop(3);
-            this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+            this._setChainInvulnerability(8);
             this.stormChainTimer = 12;
             // Storm ult sheath tracking
             if (this.ultimateActive && this.stormSheathActive) {
@@ -2697,7 +2773,7 @@ class Player {
           } else {
             this.stormChaining = false;
             for (const a of this.stormAfterimages) a.life = 15;
-            this.invincibleTimer = Math.max(this.invincibleTimer, 30);
+            this._setChainInvulnerability(60);
           }
         }
       }
@@ -2791,11 +2867,12 @@ class Player {
           SFX.chain();
           game.effects.push(new Effect(nearest.x + nearest.w / 2, nearest.y + nearest.h / 2, skullTarget ? '#c04fff' : '#f4f0ff', skullTarget ? 14 : 9, skullTarget ? 5 : 3, 18));
           triggerHitstop(3);
-          this.invincibleTimer = Math.max(this.invincibleTimer, 8);
+          this._setChainInvulnerability(8);
           this.staggerChainTimer = skullTarget ? 14 : 9;
         } else {
           this.staggerChaining = false;
           this.staggerChainHit.clear();
+          this._setChainInvulnerability(60);
           if (!this.staggerChainEchoes) this.staggerChainEchoes = [];
           this.staggerChainEchoes.push({
             x: this.x, y: this.y,
@@ -3466,7 +3543,7 @@ class Player {
     if (this.invincibleTimer > 0) {
       if (!(this.windDashing && element)) return;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this.chainStriking || this.stormChaining) return;
+    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
     // Queue damage — highest prevails per frame
     if (!this._pendingDamage || amount > this._pendingDamage.amount) {
       this._pendingDamage = { amount, element, killerInfo };
@@ -3476,6 +3553,10 @@ class Player {
   _applyPendingDamage(game) {
     if (!this._pendingDamage) return;
     if (game && game.boss && game.boss.dead && (game.bossDeathRewardDelay || 0) > 0) {
+      this._pendingDamage = null;
+      return;
+    }
+    if (this._isChainInvulnerable()) {
       this._pendingDamage = null;
       return;
     }
@@ -3535,7 +3616,7 @@ class Player {
     if (this.ninjaType === 'wind' && game.trimerangs) {
       for (const t of game.trimerangs) t.done = true;
     }
-    if ((this.fireArmor && this.fireArmorTimer > 0) || this.chainStriking || this.stormChaining) return;
+    if ((this.fireArmor && this.fireArmorTimer > 0) || this._isChainInvulnerable()) return;
     // Bubble shield orb — blocks all external damage while active
     if (this.bubbleShieldTimer > 0) {
       game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#4af', 10, 4, 14));
@@ -3831,6 +3912,18 @@ class Player {
       ctx.strokeRect(8, -12, 15, 24);
       ctx.fillStyle = accent;
       ctx.fillRect(10, -9, 11, 4);
+    } else if (kind === 'grenade') {
+      ctx.fillStyle = metal;
+      ctx.beginPath(); ctx.arc(2, 0, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = dark;
+      ctx.fillRect(-2, -17, 9, 7);
+      ctx.strokeRect(-2, -17, 9, 7);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(8, -16, 6, -Math.PI * 0.1, Math.PI * 1.15); ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.fillRect(-8, -3, 20, 3);
     } else {
       drawBarrel(-11, -4, 25, 8, metal);
       ctx.fillStyle = accent;
@@ -3848,7 +3941,7 @@ class Player {
     // Hide player inside golem mecha
     if (this.earthGolem) return;
 
-    const weaponTint = this.currentWeaponDef ? this.currentWeaponDef() : null;
+    const weaponTint = this.currentPaletteDef ? this.currentPaletteDef() : null;
     const t = Object.assign({}, this.type, {
       color: (weaponTint && (weaponTint.bodyColor || weaponTint.color)) || this.type.color,
       accentColor: (weaponTint && (weaponTint.accentColor || weaponTint.color)) || this.type.accentColor,

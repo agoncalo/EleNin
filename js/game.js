@@ -3290,6 +3290,7 @@ class Game {
     this.camera.x = 0;
     this.camera.y = 0;
     this.spawnTimer = -120;
+    this.weaponOfferStartTick = this.tick || 0;
     this.transitionTimer = oldLevelType === this.levelType ? 45 : 90;
     this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
     SFX.wave();
@@ -3888,10 +3889,38 @@ class Game {
   _updateStageWeaponPickups() {
     if (!this.classOrbs) this.classOrbs = [];
     const maxOnScreen = 2;
-    if (this.tick % 1080 === 420 && this.classOrbs.length < maxOnScreen && Math.random() < 0.58) {
-      const p = this._spawnScreenPickup(AmmoPickupOrb);
-      this._dropClassOrb(this._randomStageWeapon(), p.x + 12, p.y + 10, 60);
+    const playerHasWeapon = !!(this.player && this.player.heldItem);
+    this._pruneWeaponPickups(maxOnScreen);
+    const liveCount = this._liveWeaponPickups().length;
+    if (liveCount <= 0 && !playerHasWeapon) {
+      this._spawnEmergencyWeaponPickup(8);
+      return;
     }
+    const elapsedInRoom = (this.tick || 0) - (this.weaponOfferStartTick || 0);
+    if (playerHasWeapon && liveCount <= 0 && elapsedInRoom < 1500) return;
+    const interval = playerHasWeapon ? 1500 : 360;
+    const chance = playerHasWeapon ? 0.42 : 0.95;
+    if (this.tick % interval === 260 % interval && liveCount < maxOnScreen && Math.random() < chance) {
+      const p = this._spawnScreenPickup(AmmoPickupOrb);
+      this._dropClassOrb(this._randomStageWeapon(), p.x + 12, p.y + 10, 18);
+    }
+  }
+
+  _liveWeaponPickups() {
+    if (!this.classOrbs) this.classOrbs = [];
+    return this.classOrbs.filter(o => o && !o.done);
+  }
+
+  _pruneWeaponPickups(maxOnScreen = 2) {
+    if (!this.classOrbs) this.classOrbs = [];
+    compactLiveArray(this.classOrbs, keepNotDone);
+    while (this.classOrbs.length > maxOnScreen) this.classOrbs.shift();
+  }
+
+  _spawnEmergencyWeaponPickup(pickupCooldown = 0) {
+    const x = this.player ? this.player.x + this.player.facing * 70 + this.player.w / 2 : this.camera.x + CANVAS_W / 2;
+    const y = this.player ? this.player.y + this.player.h / 2 : this.camera.y + CANVAS_H / 2;
+    this._dropClassOrb(this._randomStageWeapon(), x, y, pickupCooldown, { force: true });
   }
 
   _randomStageWeapon() {
@@ -3923,19 +3952,22 @@ class Game {
     const current = this.player ? this.player.heldItem : 'flamethrower';
     const pool = WEAPON_ORDER.filter(type => type !== current);
     const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'flamethrower';
-    this._dropClassOrb(type, x, y, 80);
+    this._dropClassOrb(type, x, y, 18);
   }
 
-  _dropClassOrb(type, x, y, pickupCooldown = 0) {
+  _dropClassOrb(type, x, y, pickupCooldown = 0, opts = {}) {
     if (!WEAPON_ITEMS[type]) return;
     if (!this.classOrbs) this.classOrbs = [];
+    this._pruneWeaponPickups(2);
+    if (!opts.force && this._liveWeaponPickups().length >= 2) return;
     const orb = new ClassOrb(
       Math.max(24, Math.min(this.levelW - 68, x - 22)),
       Math.max(-520, Math.min(this.levelH - 70, y - 22)),
       type,
-      { pickupCooldown }
+      { pickupCooldown, ammo: opts.ammo, bobTimer: opts.bobTimer }
     );
     this.classOrbs.push(orb);
+    this._pruneWeaponPickups(2);
     const wt = WEAPON_ITEMS[type];
     this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, wt.accentColor || wt.color, 150, 14));
     this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, wt.name.toUpperCase() + ' DROPPED', wt.accentColor || wt.color));
@@ -6361,16 +6393,19 @@ class Game {
 
     // Cutscene flash overlay
     if (this.player.ultCutscene) {
+      const palette = this.player.currentPaletteDef ? this.player.currentPaletteDef() : null;
+      const cutColor = palette ? (palette.color || palette.bodyColor || this.player.type.color) : this.player.type.color;
+      const cutAccent = palette ? (palette.accentColor || palette.color || this.player.type.accentColor) : this.player.type.accentColor;
       const flash = Math.min(1, (60 - this.player.ultCutsceneTimer) / 20);
       ctx.save();
       ctx.globalAlpha = flash * 0.3;
-      ctx.fillStyle = this.player.type.color;
+      ctx.fillStyle = cutColor;
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
       ctx.restore();
       // Elemental ring around player
       ctx.save();
       const ringR = 30 + (60 - this.player.ultCutsceneTimer) * 1.5;
-      ctx.strokeStyle = this.player.type.accentColor;
+      ctx.strokeStyle = cutAccent;
       ctx.lineWidth = 3;
       ctx.globalAlpha = 0.6;
       ctx.beginPath();
@@ -8961,6 +8996,11 @@ class Game {
       ctx.fillStyle = dark; ctx.fillRect(-18, -2, 25, 4); ctx.strokeRect(-18, -2, 25, 4);
       ctx.fillStyle = color; ctx.fillRect(7, -12, 15, 24); ctx.strokeRect(7, -12, 15, 24);
       ctx.fillStyle = accent; ctx.fillRect(9, -9, 11, 4);
+    } else if (kind === 'grenade') {
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(1, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = dark; ctx.fillRect(-3, -16, 8, 7); ctx.strokeRect(-3, -16, 8, 7);
+      ctx.strokeStyle = accent; ctx.beginPath(); ctx.arc(8, -14, 6, 0, Math.PI * 1.35); ctx.stroke();
+      ctx.fillStyle = accent; ctx.fillRect(-7, -3, 17, 3);
     } else {
       ctx.fillStyle = color; ctx.fillRect(-13, -5, 25, 10); ctx.strokeRect(-13, -5, 25, 10);
       ctx.fillStyle = accent; ctx.fillRect(8, -2, 10, 4);
