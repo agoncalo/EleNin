@@ -111,14 +111,12 @@ class Game {
     this.objectiveIndicatorIntroTimer = 0;
     this.gameWon = false;
     this.itemPickupOverlay = null; // { itemId, timer }
-    this.orbBucketChoice = null; // { buckets: [{type:count}x3], selected: 0 }
     this.bossRewardItems = [];   // up to 3 uncollected items offered on reward screen
     this.itemRewardScreen = null; // { itemId, bossType, roomId, selected, delay }
 
     // Choose-your-path system
     this.currentWaveDefIdx = 0;    // which WAVE_DEFS entry is active
     this.levelElement = null;      // elemental theme of current level (null = normal)
-    this.pathChoiceScreen = null;  // { choices:[{waveIdx,element,label}], selected, delay }
     // Dynamic boss progression pools (replaces static BOSS_PATH_POOLS)
     this.bossPool = null;          // early-group pool ([1,2,3] + replacements) for waves 1-3
     this.mandatoryPool = null;     // mandatory group pool ([5,6,7]) for waves 4-6
@@ -144,7 +142,6 @@ class Game {
     this.currentObjective = null;  // { type, filter?, label, desc, icon } from waveDef
     this.objZone = null;           // { x, y, w, h } for zone objective
     this.samurai = null;           // Friendly Ronin ally for defend objectives
-    this.pendingObjective = null;  // objective randomly picked at path choice, consumed by _initObjective
 
     // Weather & hazards
     this.levelHazards = [];
@@ -1961,7 +1958,7 @@ class Game {
     const pl = this.player;
     // Spawn new hazards periodically
     const spawnInterval = hazardType === 'thunder' ? 240 : (hazardType === 'rockfall' ? 180 : (hazardType === 'icicle' ? 200 : 0));
-    if (spawnInterval > 0 && this.hazardTimer % spawnInterval === 0 && !this.pathChoiceScreen && !this.orbBucketChoice) {
+    if (spawnInterval > 0 && this.hazardTimer % spawnInterval === 0) {
       const spawnX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
       if (hazardType === 'thunder') {
         // Warning first, then strike
@@ -2497,19 +2494,12 @@ class Game {
         desc: 'Defeat enemies to fill the objective bar and draw out the boss.',
         icon: ''
       };
-      this.pendingObjective = null;
       this._setupObjectiveActors(roomDef);
       return;
     }
-    // Consume a randomly pre-assigned objective if one was queued, else fall back to waveDef
-    if (this.pendingObjective) {
-      this.currentObjective = this.pendingObjective;
-      this.pendingObjective = null;
-    } else {
-      this.currentObjective = (waveDef && waveDef.objective)
+    this.currentObjective = (waveDef && waveDef.objective)
         ? waveDef.objective
         : { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' };
-    }
     this._setupObjectiveActors(null);
   }
 
@@ -2856,58 +2846,6 @@ class Game {
     const element = group[Math.abs(seed) % group.length] || null;
     if (bossType === 'flyshooter' && profileLane === 'hard' && group.includes('lightning')) return 'lightning';
     return element;
-  }
-
-  _routeObjectiveSet(roomDef, bossType, step) {
-    const enemies = (roomDef && roomDef.enemyTypes && roomDef.enemyTypes.length)
-      ? roomDef.enemyTypes
-      : ['walker', 'shooter', 'jumper'];
-    const huntTarget = enemies.find(t => t !== bossType) || enemies[0] || 'walker';
-    const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
-                       shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
-                       flyer:'Flyers', flyshooter:'Overlords' }[huntTarget] || huntTarget;
-    const depth = Math.max(0, step || 0);
-    const midMarker = this._routeMarkerFor('mid');
-    const hardMarker = this._routeMarkerFor('hard');
-    const midObj = depth % 2 === 0
-      ? Object.assign({}, ROUTE_OBJECTIVES[1], {
-        filter: { enemyType: huntTarget },
-        label: 'Hunt ' + typeName,
-        desc: 'Marked enemies force this route.',
-        target: 4 + Math.floor(depth * 1.5),
-        icon: midMarker.symbol,
-        marker: midMarker
-      })
-      : {
-        route: 'mid',
-        type: 'collect',
-        label: 'Collect Caches',
-        desc: 'Marked shuriken caches force this route.',
-        target: Math.min(10, 5 + depth),
-        icon: midMarker.symbol,
-        marker: midMarker
-      };
-    const hardObj = depth % 2 === 0
-      ? Object.assign({}, ROUTE_OBJECTIVES[2], {
-        targetSeconds: 18 + depth * 4,
-        target: 18 + depth * 4
-      })
-      : {
-        route: 'hard',
-        type: 'zone',
-        label: 'Hold Marker',
-        desc: 'Stand in the marked zone to force this route.',
-        targetSeconds: 15 + depth * 3,
-        target: 15 + depth * 3,
-        zoneSeconds: 0,
-        icon: hardMarker.symbol,
-        marker: hardMarker
-      };
-    return [
-      Object.assign({}, ROUTE_OBJECTIVES[0], { target: 12 + depth * 3 }),
-      midObj,
-      hardObj
-    ];
   }
 
   _routeConfigFor(step, lane, previousLane, history) {
@@ -3309,7 +3247,6 @@ class Game {
     this.routeObjectiveResult = null;
     this.routeObjectiveStart = null;
     if (this.routeState) this.routeState.next = null;
-    this.pendingObjective = null;
     this._recomputeRoomLevelBonuses();
     this._recomputeItemAttributeBonuses();
     this.wave = (cached.routeStep || 0) + 1;
@@ -3602,244 +3539,6 @@ class Game {
     this._enterMapRoom(room.id);
     const elemTag = this.levelElement ? ` [${this.levelElement.toUpperCase()}]` : '';
     this.showWaveMessage(this._objectiveStartMessage());
-  }
-
-  _getNextBossPool() {
-    const wave = this.wave; // current wave just completed (1-indexed)
-    if (wave === 1) {
-      this.bossPool = [1, 2, 3];
-      return this.bossPool.slice();
-    } else if (wave === 2) {
-      // Remove chosen, add GUARDIAN (6) in its place
-      const chosen = this.currentWaveDefIdx;
-      this.bossPool = (this.bossPool || [1, 2, 3]).filter(i => i !== chosen);
-      this.bossPool.push(6);
-      return this.bossPool.slice();
-    } else if (wave === 3) {
-      // Remove chosen, add BOUNCER (5) in its place
-      const chosen = this.currentWaveDefIdx;
-      this.bossPool = (this.bossPool || []).filter(i => i !== chosen);
-      this.bossPool.push(5);
-      return this.bossPool.slice();
-    } else if (wave === 4) {
-      // Start mandatory group: RONIN / AEGIS / NEMESIS
-      this.mandatoryPool = [4, 7, 8];
-      return this.mandatoryPool.slice();
-    } else if (wave === 5) {
-      // Remove first-chosen mandatory boss, show remaining 2
-      const chosen = this.currentWaveDefIdx;
-      this.mandatoryPool = (this.mandatoryPool || [4, 7, 8]).filter(i => i !== chosen);
-      return this.mandatoryPool.slice();
-    } else if (wave === 6) {
-      // Remove second-chosen, show last 1 (single-item confirmation)
-      const chosen = this.currentWaveDefIdx;
-      this.mandatoryPool = (this.mandatoryPool || []).filter(i => i !== chosen);
-      return this.mandatoryPool.slice(); // length === 1
-    } else if (wave === 7) {
-      // Round 8: OVERLORD — caller sets WAVE_DEFS[9] directly
-      return null;
-    }
-    return null;
-  }
-
-  // Randomly pick an objective for a wave def, deriving hunt filter from its enemy pool
-  _randomObjectiveFor(wd) {
-    const _pool = [
-      { type: 'kills',   label: 'Kill Enemies',         desc: 'Defeat enemies to charge Boss Orbs.',                       icon: '⚔' },
-      { type: 'hunt',    label: null,                   desc: null,                                                        icon: '◎' },
-      { type: 'survive', label: 'Survive',              desc: 'Survival time charges Boss Orbs. Stay alive!',              icon: '♥' },
-      { type: 'zone',    label: 'Protect the Zone',     desc: 'Stand in the marked zone to charge Boss Orbs.',             icon: '◈' },
-      { type: 'collect', label: 'Collect Shurikens',    desc: 'Collect 15 shurikens to charge the objective.',            icon: '✦' },
-      { type: 'defend',  label: 'Protect the Ronin',     desc: 'Keep the allied Ronin alive — they charge Boss Orbs.',    icon: '⊕' },
-    ];
-    const pick = _pool[Math.floor(Math.random() * _pool.length)];
-    if (pick.type === 'hunt') {
-      // Pick the highest-weight non-big, non-boss type from the pool as target
-      let best = null, bestW = 0;
-      for (const e of (wd.pool || [])) {
-        if (!e.big && e.weight > bestW) { bestW = e.weight; best = e; }
-      }
-      const targetType = best ? best.type : 'walker';
-      const typeName = { walker:'Brutes', shooter:'Gunners', jumper:'Leapers', bouncer:'Bouncers', rocketeer:'Rocketeers', charger:'Chargers',
-                         shielded:'Guards', deflector:'Ronin', protector:'Aegis', attacker:'Nemesis',
-                         flyer:'Flyers', flyshooter:'Overlords' }[targetType] || targetType;
-      return { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills charge Boss Orbs. One is always present.`, icon: '◎' };
-    }
-    return pick;
-  }
-
-  _generatePathChoices(pool, normalCount) {
-    normalCount = normalCount !== undefined ? normalCount : 1;
-    const shuffled = pool.slice().sort(() => Math.random() - 0.5);
-    const choices = [];
-    const usedElements = [];
-    for (let i = 0; i < shuffled.length; i++) {
-      const waveIdx = shuffled[i];
-      const wd = WAVE_DEFS[waveIdx];
-      let element = null;
-      if (i >= normalCount) {
-        const available = ENEMY_ELEMENTS.filter(el => !usedElements.includes(el));
-        if (available.length > 0) {
-          element = available[Math.floor(Math.random() * available.length)];
-          usedElements.push(element);
-        }
-      }
-      const bossName = BOSS_NAMES[wd.boss] || wd.boss.toUpperCase();
-      // Pre-generate the orb reward for this specific choice
-      const mult = element ? (ELEMENT_BUDGET_MULT[element] || 1.0) : 1.0;
-      const orbData = this._generateOrbBuckets(mult);
-      // Randomly assign objective (first wave = index 0, last = index 9 keep kills; rest are random)
-      const objective = (waveIdx === 0 || waveIdx === 9)
-        ? (wd.objective || { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' })
-        : this._randomObjectiveFor(wd);
-      choices.push({ waveIdx, element, bossName, bossType: wd.boss, reward: orbData.buckets[0], meta: orbData.meta, objective });
-    }
-    // Consume the boss item choices (shown at the top of the path screen)
-    const itemChoices = (this._legacyBossItemsEnabled() && this.bossRewardItems && this.bossRewardItems.length > 0) ? this.bossRewardItems.slice() : [];
-    this.bossRewardItems = [];
-    return { choices, selected: 0, delay: 60, itemChoices, itemSelected: 0, focus: 'boss' };
-  }
-
-  // ── Orb Bucket Generation ──
-  _generateOrbBuckets(budgetMult) {
-    budgetMult = budgetMult || 1.0;
-    const pl = this.player;
-
-    // How far behind the expected curve is the player?
-    let cumDrops = 0;
-    for (let i = 0; i < this.wave && i < WAVE_DEFS.length; i++) {
-      cumDrops += WAVE_DEFS[i].killsForBoss + (i + 2);
-    }
-    const expectedAll = cumDrops * (0.10 + 0.36 + 0.10 + 0.06 + 0.03 + 0.04 + 0.04 + 0.03 + 0.02);
-    const actualAll = (pl.maxHp - 20) +
-      pl.bonusDamage + pl.bonusElemental + pl.bonusSpeed + pl.bonusReach +
-      pl.bonusArmor + pl.bonusMana;
-    const deficit = Math.max(0, expectedAll - actualAll);
-    const deficitRatio = expectedAll > 0 ? Math.min(1, deficit / expectedAll) : 1;
-    const permTotal = pl.bonusDamage + pl.bonusElemental + pl.bonusSpeed + pl.bonusReach + pl.bonusArmor + pl.bonusMana;
-
-    // Orb pricing — element=50 is the reference unit
-    // Budget: 1 element minimum (50), 2 elements max (100) when no perms
-    // Scales up with wave and deficit
-    const baseBudget = 50 + this.wave * 8;
-    const budget = Math.round(baseBudget * (1 + deficitRatio * 0.6) * budgetMult);
-
-    const ORB_META = {
-      heal:      { icon: '\u2665', color: '#f44', label: 'HP',       per: 5,  cost: 5 },
-      maxhp:     { icon: '+',  color: '#4f4', label: 'MAX HP',   per: 1,  cost: 8 },
-      damage:    { icon: '!',  color: '#f80', label: 'ATK',      per: 1,  cost: 18 },
-      elDmg:     { icon: '\u2737', color: '#c4f', label: 'EL.DMG',  per: 1,  cost: 20 },
-      speed:     { icon: '\u00bb', color: '#0f0', label: 'SPD',      per: 1,  cost: 16 },
-      reach:     { icon: '\u2194', color: '#fa0', label: 'REACH',    per: 1,  cost: 16 },
-      armor:     { icon: '\u25a0', color: '#88f', label: 'ARMOR',    per: 1,  cost: 18 },
-      shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKENS', per: 1, cost: 14 },
-      ultcharge: { icon: '\u25A3', color: '#ffd86b', label: 'AMMO',     per: 50, cost: 6 },
-      element:   { icon: '\u25c8', color: '#f0f', label: 'SPECIAL',  per: 1,  cost: 50 },
-    };
-
-    // Filter useless orbs
-    const hpFull = pl.hp >= pl.maxHp;
-    const ultFull = pl.ultimateReady || pl.ultimateActive || pl.ultimateCharge >= pl.ultimateMax;
-
-    const _pick = (pool) => {
-      const total = pool.reduce((s, p) => s + p.w, 0);
-      let r = Math.random() * total;
-      for (const p of pool) { r -= p.w; if (r <= 0) return p.type; }
-      return pool[pool.length - 1].type;
-    };
-
-    const rareBoost = 1 + deficitRatio * 3;
-    const _basePool = () => {
-      const pool = [];
-      if (!hpFull) pool.push({ type: 'heal', w: 24 });
-      pool.push({ type: 'maxhp', w: 14 });
-      if (!ultFull) pool.push({ type: 'ultcharge', w: 10 });
-      pool.push({ type: 'damage', w: 6 * rareBoost });
-      pool.push({ type: 'elDmg', w: 4 * rareBoost });
-      pool.push({ type: 'speed', w: 6 * rareBoost });
-      pool.push({ type: 'reach', w: 6 * rareBoost });
-      pool.push({ type: 'armor', w: 5 * rareBoost });
-      pool.push({ type: 'shuriken', w: 6 * rareBoost });
-      pool.push({ type: 'element', w: 6 * rareBoost });
-      return pool;
-    };
-
-    const _makeBucket = () => {
-      const pool = _basePool();
-      const orbs = {};
-      let remaining = budget;
-      let elementCount = 0;
-      const slotCount = 1 + Math.floor(Math.random() * 2); // 1 or 2
-      const slots = [];
-      for (let s = 0; s < slotCount && pool.length > 0; s++) {
-        const type = _pick(pool);
-        if (!slots.includes(type)) slots.push(type);
-        const idx = pool.findIndex(p => p.type === type);
-        if (idx >= 0) pool.splice(idx, 1);
-      }
-      for (let safety = 0; safety < 200 && remaining > 0; safety++) {
-        const affordable = slots.filter(t => {
-          if (ORB_META[t].cost > remaining) return false;
-          if (t === 'element' && elementCount >= 2) return false;
-          // Don't offer more heal than missing HP
-          if (t === 'heal' && (orbs['heal'] || 0) * 5 >= pl.maxHp - pl.hp) return false;
-          return true;
-        });
-        if (!affordable.length) break;
-        const type = affordable[safety % affordable.length];
-        orbs[type] = (orbs[type] || 0) + 1;
-        remaining -= ORB_META[type].cost;
-        if (type === 'element') elementCount++;
-      }
-      return orbs;
-    };
-
-    // Check if bucket a is dominated by bucket b (b has >= of every type in a)
-    const _dominated = (a, b) => {
-      for (const t of Object.keys(a)) {
-        if ((b[t] || 0) < a[t]) return false;
-      }
-      return true;
-    };
-
-    const buckets = [];
-    for (let b = 0; b < 3; b++) {
-      let orbs;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        orbs = _makeBucket();
-        // Ensure this bucket isn't dominated by any existing one,
-        // and no existing one is dominated by this one
-        let dominated = false;
-        for (const other of buckets) {
-          if (_dominated(orbs, other) || _dominated(other, orbs)) {
-            dominated = true; break;
-          }
-        }
-        if (!dominated) break;
-      }
-      buckets.push(orbs);
-    }
-    return { buckets, selected: 0, meta: ORB_META };
-  }
-
-  _applyOrbBucket(orbs) {
-    const pl = this.player;
-    for (const [type, count] of Object.entries(orbs)) {
-      for (let i = 0; i < count; i++) {
-        switch (type) {
-          case 'heal':      pl.hp = Math.min(pl.hp + 5, pl.maxHp); break;
-          case 'maxhp':     pl.maxHp += 1; pl.hp = Math.min(pl.hp + 1, pl.maxHp); break;
-          case 'damage':    pl.bonusDamage += 1; break;
-          case 'elDmg':     pl.bonusElemental += 1; break;
-          case 'speed':     pl.bonusSpeed += 1; break;
-          case 'reach':     pl.bonusReach += 1; break;
-          case 'armor':     pl.bonusArmor += 1; break;
-          case 'ultcharge': if (!pl.ultimateReady && !pl.ultimateActive) pl.addUltimateCharge(50); break;
-          case 'shuriken':  pl.maxShurikens += 1; break;
-          case 'element':   pl.bonusMana += 1; pl.maxMana += 1; pl.mana = pl.maxMana; break;
-        }
-      }
-    }
   }
 
   advanceWave() {
@@ -4889,101 +4588,11 @@ class Game {
       return;
     }
 
-    // Path choice screen (combined boss selection + reward preview)
-    if (this.pathChoiceScreen) {
-      const pcs = this.pathChoiceScreen;
-      const numChoices = pcs.choices.length;
-      const numItems = pcs.itemChoices ? pcs.itemChoices.length : 0;
-      if (pcs.delay > 0) {
-        pcs.delay--;
-        // Only eat confirm buttons during delay; let arrows through
-        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
-      }
-      if (consumePress('ArrowLeft') || consumePress('KeyA')) pcs.selected = (pcs.selected + numChoices - 1) % numChoices;
-      if (consumePress('ArrowRight') || consumePress('KeyD')) pcs.selected = (pcs.selected + 1) % numChoices;
-      if (pcs.delay <= 0) {
-        if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
-          const chosen = pcs.choices[pcs.selected];
-          this.currentWaveDefIdx = chosen.waveIdx;
-          this.levelElement = chosen.element;
-          this.pendingObjective = chosen.objective || null; // carry random objective into next wave
-          this.pathChoiceScreen = null;
-          // Apply the selected boss item
-          if (this._legacyBossItemsEnabled() && numItems > 0) {
-            const chosenItem = pcs.itemChoices[pcs.selected];
-            if (chosenItem) {
-              this.player.items[chosenItem] = true;
-              if (chosenItem === 'deathsKey') this.player.deathsKeyUsed = false;
-              this.itemPickupOverlay = { itemId: chosenItem, timer: 180 };
-              recordItemFound(chosenItem);
-            }
-          }
-          // Apply the pre-generated orb reward for the chosen path
-          this._applyOrbBucket(chosen.reward);
-          this.advanceWave();
-        }
-      }
-      return;
-    }
-
-    // Orb bucket choice menu
-    if (this.orbBucketChoice) {
-      const obc = this.orbBucketChoice;
-      const numOrbItems = obc.itemChoices ? obc.itemChoices.length : 0;
-      if (obc.delay > 0) {
-        obc.delay--;
-        // Only eat confirm buttons during delay; let arrows through
-        consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
-      }
-      if (consumePress('ArrowLeft') || consumePress('KeyA')) obc.selected = (obc.selected + 2) % 3;
-      if (consumePress('ArrowRight') || consumePress('KeyD')) obc.selected = (obc.selected + 1) % 3;
-      if (obc.delay <= 0) {
-        if (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
-          this._applyOrbBucket(obc.buckets[obc.selected]);
-          // Apply the selected boss item
-          if (this._legacyBossItemsEnabled() && numOrbItems > 0) {
-            const chosenOrbItem = obc.itemChoices[obc.selected];
-            if (chosenOrbItem) {
-              this.player.items[chosenOrbItem] = true;
-              if (chosenOrbItem === 'deathsKey') this.player.deathsKeyUsed = false;
-              this.itemPickupOverlay = { itemId: chosenOrbItem, timer: 180 };
-              recordItemFound(chosenOrbItem);
-            }
-          }
-          this.orbBucketChoice = null;
-          this.advanceWave();
-        }
-      }
-      return;
-    }
-
-    // Cheat: + to skip wave (grant average stats for the wave being skipped)
+    // Cheat: + to skip wave
     if (consumePress('Equal') || consumePress('NumpadAdd')) {
       this.cheated = true;
       recordCheatUsed();
       if (this.boss && !this.boss.dead) this.boss.hp = 0;
-      if (false) {
-      const waveDef = WAVE_DEFS[this.currentWaveDefIdx] || WAVE_DEFS[0];
-      if (waveDef) {
-        const pl = this.player;
-        const kills = 20 + this.wave * 5; // estimate: roughly scales with wave
-        const bossOrbs = this.wave + 1; // avg boss orb count (wave + random 0-2)
-        const drops = kills + bossOrbs;
-        // Actual drop table rates × orb stat values per drop
-        pl.maxHp          += Math.round(drops * 0.10);  // maxhp: 10% × +1
-        pl.hp              = pl.maxHp;
-        pl.bonusDamage    += Math.round(drops * 0.06);  // damage: 6% × +1
-        pl.bonusElemental += Math.round(drops * 0.03);  // elDmg: 3% × +1
-        pl.bonusSpeed     += Math.round(drops * 0.04);  // speed: 4% × +1
-        pl.bonusReach     += Math.round(drops * 0.04);  // reach: 4% × +1
-        pl.bonusArmor     += Math.round(drops * 0.03);  // armor: 3% × +1
-        pl.bonusMana      += Math.round(drops * 0.02);  // element: 2% × +1
-        pl.maxMana        += Math.round(drops * 0.02);
-        pl.mana            = pl.maxMana;
-        pl.ultimateCharge  = 0;
-        pl.ultimateReady   = false;
-      }
-      }
       this._completeCurrentMapRoom();
     }
     // Cheat: 0 to toggle god mode
@@ -4993,38 +4602,14 @@ class Game {
       this.player.godMode = !this.player.godMode;
       this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
     }
-    // Cheat: - to spawn boss with average end-of-wave stats
+    // Cheat: - to spawn boss
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
       this.cheated = true;
       recordCheatUsed();
-      const pl = this.player;
-      if (false) {
-      // Total orb sources: completed waves (enemies + boss orbs) + current wave enemies
-      let totalDrops = 0;
-      for (let i = 0; i < this.wave - 1 && i < WAVE_DEFS.length; i++) {
-        totalDrops += (20 + i * 5) + (i + 2); // estimated enemies + avg boss orbs
-      }
-      if (this.wave - 1 < WAVE_DEFS.length) {
-        totalDrops += 20 + (this.wave - 1) * 5; // current wave estimated enemies
-      }
-      // Set absolute stats: base + average gains from all drops
-      pl.maxHp          = 10 + Math.round(totalDrops * 0.10);  // base 10 + maxhp orbs
-      pl.hp             = pl.maxHp;
-      pl.displayHp      = pl.maxHp;
-      pl.bonusDamage    = Math.round(totalDrops * 0.06);
-      pl.bonusElemental = Math.round(totalDrops * 0.03);
-      pl.bonusSpeed     = Math.round(totalDrops * 0.04);
-      pl.bonusReach     = Math.round(totalDrops * 0.04);
-      pl.bonusArmor     = Math.round(totalDrops * 0.03);
-      pl.bonusMana      = Math.round(totalDrops * 0.02);
-      pl.maxMana        = 2 + pl.bonusMana;
-      pl.mana           = pl.maxMana;
-      pl.ultimateCharge = 0;
-      pl.ultimateReady  = false;
-      }
       if (!this.bossActive) {
         this.spawnBoss();
       } else {
+        const pl = this.player;
         pl.ultimateCharge = pl.ultimateMax;
         pl.ultimateReady = true;
       }
@@ -5113,10 +4698,8 @@ class Game {
     compactLiveArray(this.fireTrails, keepPositiveLife, GAME_OBJECT_LIMITS.fireTrails);
 
     // Weather & hazard updates
-    if (!this.pathChoiceScreen && !this.orbBucketChoice) {
-      this._updateWeather();
-      this._updateHazards();
-    }
+    this._updateWeather();
+    this._updateHazards();
 
     // Wave / spawn logic
     if (!this.gameWon) {
@@ -5198,30 +4781,6 @@ class Game {
             : 'BOSS SUMMONED!';
           this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 20, txt, '#f80'));
           if (this.bossOrbsCollected >= this.bossOrbsRequired) this.spawnBoss();
-          if (false) {
-          const orbSpawnX = this.camera.x + 80 + Math.random() * (CANVAS_W - 160);
-          const orbSpawnY = this.camera.y + 80 + Math.random() * (CANVAS_H - 200);
-          this.bossOrbPickups.push({
-            x: orbSpawnX, y: orbSpawnY,
-            bobTimer: Math.random() * Math.PI * 2, life: 1800, done: false, w: 28, h: 28,
-            vx: 0, vy: 0,
-          });
-          // ── Boss Orb spawn burst ──
-          this.effects.push(new SlamRing(orbSpawnX + 14, orbSpawnY + 14, '#f80', 120, 18));
-          this.effects.push(new SlamRing(orbSpawnX + 14, orbSpawnY + 14, '#fa0', 70, 10));
-          for (let _i = 0; _i < 10; _i++) {
-            const _a = (_i / 10) * Math.PI * 2;
-            const _spd = 3 + Math.random() * 3;
-            const _p = new Projectile(orbSpawnX + 14, orbSpawnY + 14, Math.cos(_a) * _spd, Math.sin(_a) * _spd, '#fa0', 0, 'none');
-            _p.w = 4; _p.h = 4; _p.life = 30; _p.noPlat = true; _p.passThrough = true;
-            this.projectiles.push(_p);
-          }
-          this.effects.push(new Effect(orbSpawnX + 14, orbSpawnY + 14, '#fff', 22, 7, 20));
-          this.effects.push(new Effect(orbSpawnX + 14, orbSpawnY + 14, '#f80', 16, 5, 18));
-          SFX.wave();
-          const pl = this.player;
-          this.effects.push(new TextEffect(pl.x + pl.w / 2, pl.y - 30, '\u2606 BOSS ORB!', '#f80'));
-          }
         }
         }
         // Update and collect pickups
@@ -5259,7 +4818,7 @@ class Game {
         compactLiveArray(this.bossOrbPickups, keepNotDone);
       }
       if (this.bossDeathRewardDelay > 0) this.bossDeathRewardDelay--;
-      if (this.boss && this.boss.dead && this.bossDeathRewardDelay <= 0 && !this.orbBucketChoice && !this.pathChoiceScreen) {
+      if (this.boss && this.boss.dead && this.bossDeathRewardDelay <= 0) {
         this._completeCurrentMapRoom();
       }
     }
@@ -7920,422 +7479,6 @@ class Game {
 
     if (this.mapScreen && (!this.itemRewardScreen || !this._legacyBossItemsEnabled())) {
       this.renderMapScreen(ctx);
-    }
-
-    // Path choice overlay — combined boss selection + reward preview
-    if (this.pathChoiceScreen) {
-      const pcs = this.pathChoiceScreen;
-      const choices = pcs.choices;
-      ctx.fillStyle = 'rgba(0,0,0,0.82)';
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-      let bannerH = 0;
-
-      // Title
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 20px monospace';
-      const titleTxt = 'Choose Your Path';
-      ctx.fillText(titleTxt, CANVAS_W / 2 - ctx.measureText(titleTxt).width / 2, bannerH + 28);
-      ctx.font = '11px monospace';
-      ctx.fillStyle = '#aaa';
-      const subTxt = pcs.delay > 0
-        ? '\u22ef ' + Math.ceil(pcs.delay / 60) + '\u22ef'
-        : '\u2190 A/D \u2192 choose path   Z confirm';
-      ctx.fillText(subTxt, CANVAS_W / 2 - ctx.measureText(subTxt).width / 2, bannerH + 46);
-
-      // Cards
-      const cardW = 218, cardH = 390, cardGap = 12;
-      const numCards = choices.length;
-      const totalCardW = cardW * numCards + cardGap * (numCards - 1);
-      const startCX = CANVAS_W / 2 - totalCardW / 2;
-      const startCY = bannerH + 56;
-
-      for (let ci = 0; ci < numCards; ci++) {
-        const ch = choices[ci];
-        const cx = startCX + ci * (cardW + cardGap);
-        const cy = startCY;
-        const isSel = ci === pcs.selected;
-        const elemColors = ch.element ? ELEMENT_COLORS[ch.element] : null;
-        const borderColor = isSel ? (elemColors ? elemColors.accent : '#ffe033') : (elemColors ? elemColors.body : '#444');
-
-        // Card bg
-        ctx.fillStyle = isSel ? 'rgba(255,255,255,0.08)' : 'rgba(10,10,20,0.80)';
-        ctx.fillRect(cx, cy, cardW, cardH);
-        ctx.strokeStyle = borderColor;
-        ctx.lineWidth = isSel ? 3 : 1.5;
-        ctx.strokeRect(cx, cy, cardW, cardH);
-
-        // Element color strip at top
-        if (elemColors) {
-          ctx.fillStyle = elemColors.body;
-          ctx.fillRect(cx, cy, cardW, 5);
-        }
-
-        // ── Boss sprite preview (top 110px) ──
-        const previewCX = cx + cardW / 2;
-        const previewCY = cy + 62;
-        this._drawBossPreview(ctx, ch.bossType, ch.element, previewCX, previewCY);
-
-        // Boss name
-        ctx.fillStyle = isSel ? '#fff' : '#ccc';
-        ctx.font = 'bold 15px monospace';
-        const bossLabel = ch.bossName;
-        ctx.fillText(bossLabel, cx + cardW / 2 - ctx.measureText(bossLabel).width / 2, cy + 125);
-
-        // Element / variant tag
-        if (ch.element && elemColors) {
-          ctx.fillStyle = elemColors.accent;
-          ctx.font = 'bold 11px monospace';
-          const elLabel = '\u25c6 ' + ch.element.toUpperCase() + ' VARIANT';
-          ctx.fillText(elLabel, cx + cardW / 2 - ctx.measureText(elLabel).width / 2, cy + 142);
-          // Difficulty stars
-          const mult = ELEMENT_BUDGET_MULT[ch.element] || 1.0;
-          const stars = Math.max(1, Math.round((mult - 1.0) / 0.1));
-          ctx.fillStyle = '#ffd700';
-          ctx.font = '12px monospace';
-          const starStr = '\u2605'.repeat(Math.min(stars, 7));
-          ctx.fillText(starStr, cx + cardW / 2 - ctx.measureText(starStr).width / 2, cy + 158);
-        } else {
-          ctx.fillStyle = '#888';
-          ctx.font = '11px monospace';
-          const normalLabel = '\u25cb NORMAL';
-          ctx.fillText(normalLabel, cx + cardW / 2 - ctx.measureText(normalLabel).width / 2, cy + 142);
-        }
-
-        // ── Objective section ──
-        if (ch.objective) {
-          const _chObj = ch.objective;
-          const _objIconColor = _chObj.type === 'survive' ? '#f44' : (_chObj.type === 'zone' ? '#88f' : (_chObj.type === 'hunt' ? '#ff0' : (_chObj.type === 'defend' ? '#4f4' : (_chObj.type === 'collect' ? '#ccc' : '#f80'))));
-          ctx.fillStyle = _objIconColor;
-          ctx.font = 'bold 12px monospace';
-          ctx.fillText(_chObj.icon || '◆', cx + 14, cy + 164);
-          ctx.fillStyle = isSel ? '#ddd' : '#aaa';
-          ctx.font = 'bold 10px monospace';
-          ctx.fillText(_chObj.label, cx + 28, cy + 164);
-        }
-
-        // Divider
-        ctx.strokeStyle = isSel ? (elemColors ? elemColors.body : '#555') : '#333';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(cx + 12, cy + 170);
-        ctx.lineTo(cx + cardW - 12, cy + 170);
-        ctx.stroke();
-
-        // ── Rewards section ──
-        ctx.fillStyle = '#aaa';
-        ctx.font = '10px monospace';
-        ctx.fillText('REWARDS', cx + 12, cy + 183);
-
-        if (ch.reward && ch.meta) {
-          const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','heal'];
-          const entries = Object.entries(ch.reward)
-            .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
-          let ey = cy + 197;
-          for (const [type, count] of entries) {
-            const m = ch.meta[type];
-            if (!m) continue;
-            const totalVal = count * m.per;
-            ctx.fillStyle = m.color;
-            ctx.font = 'bold 13px monospace';
-            ctx.fillText(m.icon, cx + 14, ey + 3);
-            ctx.font = '11px monospace';
-            ctx.fillText('+' + totalVal + ' ' + m.label, cx + 32, ey + 3);
-            if (count > 1) {
-              ctx.fillStyle = '#666';
-              ctx.font = '9px monospace';
-              ctx.fillText('x' + count, cx + cardW - 28, ey + 2);
-            }
-            ey += 20;
-            if (ey > cy + cardH - 100) break; // leave room for item section
-          }
-        }
-
-        // Selection arrow
-        if (isSel) {
-          ctx.fillStyle = elemColors ? elemColors.accent : '#ffe033';
-          ctx.font = 'bold 18px monospace';
-          ctx.fillText('\u25bc', cx + cardW / 2 - 7, cy + cardH - 12);
-        }
-
-        // ── Element ambient particles (drawn on top of card content) ──
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(cx + 1, cy + 1, cardW - 2, cardH - 2);
-        ctx.clip();
-        const t = this.tick;
-        const alpha = isSel ? 0.90 : 0.60;
-        if (ch.element === 'fire') {
-          // Rising ember sparks with glow
-          for (let k = 0; k < 14; k++) {
-            const phase = (t * 1.4 + k * 31) % (cardH + 20);
-            const px = cx + 10 + ((k * 53 + 17) % (cardW - 20));
-            const py = cy + cardH - phase;
-            const r = 2.5 + (k % 3) * 1.2;
-            const col = k % 2 === 0 ? '#ff6a00' : '#ffcc00';
-            ctx.globalAlpha = alpha * (0.4 + 0.6 * (phase / (cardH + 20)));
-            ctx.shadowColor = col; ctx.shadowBlur = 8;
-            ctx.fillStyle = col;
-            ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
-          }
-          ctx.shadowBlur = 0;
-        } else if (ch.element === 'ghost') {
-          // Drifting wisp rings with glow
-          for (let k = 0; k < 7; k++) {
-            const phase = (t * 0.7 + k * 55) % 280;
-            const px = cx + 16 + ((k * 47 + 10) % (cardW - 32));
-            const py = cy + cardH * 0.25 + Math.sin(t * 0.05 + k * 1.2) * 40 - phase * 0.2;
-            const fade = 1 - phase / 280;
-            ctx.globalAlpha = alpha * fade;
-            ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 12;
-            ctx.strokeStyle = k % 2 === 0 ? '#7cfc00' : '#00ff88';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.arc(px, py, 7 + k * 2.5, 0, Math.PI * 2); ctx.stroke();
-          }
-          ctx.shadowBlur = 0;
-        } else if (ch.element === 'water') {
-          // Falling raindrops with shimmer
-          for (let k = 0; k < 18; k++) {
-            const phase = (t * 3.0 + k * 29) % (cardH + 16);
-            const px = cx + 6 + ((k * 13 + 3) % (cardW - 12));
-            const py = cy + phase;
-            ctx.globalAlpha = alpha * 0.85;
-            ctx.shadowColor = '#4af'; ctx.shadowBlur = 6;
-            ctx.strokeStyle = k % 3 === 0 ? '#8ef' : '#4af';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 1, py + 7); ctx.stroke();
-          }
-          ctx.shadowBlur = 0;
-        } else if (ch.element === 'crystal') {
-          // Rotating sparkle crosses with glow
-          for (let k = 0; k < 8; k++) {
-            const px = cx + 16 + ((k * 29 + 8) % (cardW - 32));
-            const py = cy + 20 + ((k * 41 + 14) % (cardH - 36));
-            const angle = (t * 0.05 + k * 0.7) % (Math.PI * 2);
-            ctx.globalAlpha = alpha * (0.55 + 0.45 * Math.sin(t * 0.08 + k));
-            ctx.shadowColor = '#aef'; ctx.shadowBlur = 10;
-            ctx.strokeStyle = k % 2 === 0 ? '#aef' : '#fff';
-            ctx.lineWidth = 1.5;
-            ctx.save();
-            ctx.translate(px, py);
-            ctx.rotate(angle);
-            const s = 6 + k % 4;
-            ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s, 0); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(0, s); ctx.stroke();
-            ctx.restore();
-          }
-          ctx.shadowBlur = 0;
-        } else if (ch.element === 'wind') {
-          // Sweeping streaks across the full card
-          for (let k = 0; k < 10; k++) {
-            const phase = (t * 4.5 + k * 41) % (cardW + 80);
-            const py = cy + 16 + ((k * 37) % (cardH - 28));
-            const px = cx - 30 + phase;
-            const len = 24 + (k % 4) * 8;
-            ctx.globalAlpha = alpha * (0.4 + 0.6 * (1 - Math.abs(phase - (cardW / 2 + 40)) / (cardW / 2 + 40)));
-            ctx.shadowColor = '#8f8'; ctx.shadowBlur = 6;
-            ctx.strokeStyle = k % 2 === 0 ? '#cfc' : '#8f8';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + len, py + 4); ctx.stroke();
-          }
-          ctx.shadowBlur = 0;
-        } else if (ch.element === 'lightning') {
-          // Persistent edge sparks + periodic full bolt
-          const bolt = Math.floor(t / 12) % 8 === 0;
-          if (bolt) {
-            ctx.globalAlpha = alpha;
-            ctx.shadowColor = '#6ff'; ctx.shadowBlur = 16;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 2;
-            const by = cy + cardH * 0.5 + (Math.sin(t * 0.3) * 30);
-            ctx.beginPath();
-            let lx = cx + 6;
-            ctx.moveTo(lx, by);
-            while (lx < cx + cardW - 6) {
-              lx += 8 + Math.random() * 10;
-              ctx.lineTo(lx, by + (Math.random() * 18 - 9));
-            }
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-          }
-          // Persistent crackling corner sparks
-          const corners = [[cx + 6, cy + 6], [cx + cardW - 6, cy + 6], [cx + 6, cy + cardH - 6], [cx + cardW - 6, cy + cardH - 6]];
-          for (let k = 0; k < 4; k++) {
-            ctx.globalAlpha = alpha * (0.5 + 0.5 * Math.abs(Math.sin(t * 0.18 + k * 1.8)));
-            ctx.shadowColor = '#6ff'; ctx.shadowBlur = 14;
-            ctx.fillStyle = '#6ff';
-            ctx.beginPath(); ctx.arc(corners[k][0], corners[k][1], 3.5, 0, Math.PI * 2); ctx.fill();
-          }
-          ctx.shadowBlur = 0;
-          // Arc lines from edges
-          for (let k = 0; k < 3; k++) {
-            if ((t + k * 7) % 20 < 3) {
-              const ey = cy + 30 + k * 110;
-              ctx.globalAlpha = alpha * 0.8;
-              ctx.shadowColor = '#6ff'; ctx.shadowBlur = 8;
-              ctx.strokeStyle = '#6ff'; ctx.lineWidth = 1;
-              ctx.beginPath(); ctx.moveTo(cx + 1, ey);
-              ctx.lineTo(cx + 12 + Math.random() * 10, ey + (Math.random() * 16 - 8));
-              ctx.stroke();
-              ctx.shadowBlur = 0;
-            }
-          }
-        } else if (ch.element === 'spiky') {
-          // Falling rock chunks
-          for (let k = 0; k < 12; k++) {
-            const phase = (t * 2.2 + k * 33) % (cardH + 24);
-            const px = cx + 8 + ((k * 19 + 5) % (cardW - 16));
-            const py = cy + phase - 12;
-            ctx.globalAlpha = alpha * 0.9;
-            ctx.fillStyle = k % 3 === 0 ? '#c8a' : k % 3 === 1 ? '#a86' : '#745';
-            const s = 3 + k % 4;
-            ctx.fillRect(px, py, s, s);
-            // small shadow below
-            ctx.globalAlpha = alpha * 0.25;
-            ctx.fillStyle = '#000';
-            ctx.fillRect(px + 1, py + s, s - 1, 2);
-          }
-        } else {
-          // Normal: drifting light orbs
-          for (let k = 0; k < 6; k++) {
-            const phase = (t * 0.5 + k * 75) % 360;
-            const px = cx + cardW * 0.2 + Math.sin(phase * Math.PI / 180 + k) * cardW * 0.38;
-            const py = cy + cardH * 0.5 + Math.cos(phase * Math.PI / 180 + k * 0.8) * cardH * 0.28;
-            ctx.globalAlpha = alpha * 0.55;
-            ctx.shadowColor = '#fff'; ctx.shadowBlur = 6;
-            ctx.fillStyle = '#fff';
-            ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
-          }
-          ctx.shadowBlur = 0;
-        }
-        ctx.restore();
-        // ── Item reward embedded in card ──
-        const _cItem = (this._legacyBossItemsEnabled() && pcs.itemChoices && pcs.itemChoices[ci]) || null;
-        const _cItemDef = _cItem ? BOSS_ITEMS[_cItem] : null;
-        if (_cItemDef) {
-          ctx.globalAlpha = 1;
-          ctx.strokeStyle = isSel ? '#555' : '#2a2a2a';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(cx + 12, cy + cardH - 92); ctx.lineTo(cx + cardW - 12, cy + cardH - 92); ctx.stroke();
-          ctx.fillStyle = '#666'; ctx.font = '9px monospace';
-          ctx.fillText('ITEM REWARD', cx + 12, cy + cardH - 79);
-          if (isSel) { ctx.shadowColor = _cItemDef.color; ctx.shadowBlur = 8; }
-          drawItemIcon(ctx, _cItem, cx + 20, cy + cardH - 56, 18, _cItemDef.color);
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = isSel ? _cItemDef.color : '#aaa'; ctx.font = 'bold 11px monospace';
-          ctx.fillText(_cItemDef.name, cx + 36, cy + cardH - 63);
-          ctx.fillStyle = '#777'; ctx.font = '9px monospace';
-          const _ciWords = _cItemDef.desc.split(' ');
-          let _ciLn = '', _ciY = cy + cardH - 49, _ciN = 0;
-          for (const _cw of _ciWords) {
-            const _ct = _ciLn ? _ciLn + ' ' + _cw : _cw;
-            if (ctx.measureText(_ct).width > cardW - 50) {
-              ctx.fillText(_ciLn, cx + 36, _ciY); _ciLn = _cw; _ciY += 11; _ciN++;
-              if (_ciN >= 2) break;
-            } else _ciLn = _ct;
-          }
-          if (_ciLn && _ciN < 2) ctx.fillText(_ciLn, cx + 36, _ciY);
-        }
-      }
-    }
-
-    // Orb bucket choice overlay
-    if (this.orbBucketChoice) {
-      const obc = this.orbBucketChoice;
-      const meta = obc.meta;
-      // Darken
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-      let headerH = 60;
-      // Title
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 20px monospace';
-      const title = 'Choose Your Reward';
-      const titleW = ctx.measureText(title).width;
-      ctx.fillText(title, CANVAS_W / 2 - titleW / 2, headerH + 20);
-      ctx.font = '11px monospace';
-      ctx.fillStyle = '#aaa';
-      const sub = obc.delay > 0
-        ? '...' + Math.ceil(obc.delay / 60)
-        : '\u2190 A/D \u2192 choose bonus   Z confirm';
-      const subW = ctx.measureText(sub).width;
-      ctx.fillText(sub, CANVAS_W / 2 - subW / 2, headerH + 40);
-      // Draw 3 buckets
-      const boxW = 200, boxH = 268, boxGap = 30;
-      const totalW = boxW * 3 + boxGap * 2;
-      const startX = CANVAS_W / 2 - totalW / 2;
-      const startY = headerH + 56;
-      for (let b = 0; b < 3; b++) {
-        const bx = startX + b * (boxW + boxGap);
-        const by = startY;
-        const isSel = b === obc.selected;
-        // Box bg
-        ctx.fillStyle = isSel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.6)';
-        ctx.fillRect(bx, by, boxW, boxH);
-        ctx.strokeStyle = isSel ? '#ff0' : '#555';
-        ctx.lineWidth = isSel ? 3 : 1;
-        ctx.strokeRect(bx, by, boxW, boxH);
-        // Bucket number
-        ctx.fillStyle = isSel ? '#ff0' : '#888';
-        ctx.font = 'bold 14px monospace';
-        ctx.fillText((b + 1) + '', bx + boxW / 2 - 4, by + 20);
-        // Orb entries — sorted by rarity (rarest first)
-        const _orbOrder = ['element','elDmg','damage','armor','speed','reach','shuriken','maxhp','ultcharge','heal'];
-        const entries = Object.entries(obc.buckets[b])
-          .sort((a, b) => _orbOrder.indexOf(a[0]) - _orbOrder.indexOf(b[0]));
-        let ey = by + 38;
-        for (const [type, count] of entries) {
-          const m = meta[type];
-          if (!m) continue;
-          const totalVal = count * m.per;
-          // Icon
-          ctx.fillStyle = m.color;
-          ctx.font = 'bold 16px monospace';
-          ctx.fillText(m.icon, bx + 14, ey + 5);
-          // Label
-          ctx.fillStyle = m.color;
-          ctx.font = '12px monospace';
-          const valStr = '+' + totalVal + ' ' + m.label;
-          ctx.fillText(valStr, bx + 36, ey + 4);
-          // Count hint
-          if (count > 1) {
-            ctx.fillStyle = '#888';
-            ctx.font = '10px monospace';
-            ctx.fillText('x' + count, bx + boxW - 30, ey + 4);
-          }
-          ey += 24;
-          if (ey > by + boxH - 76) break; // leave room for item section
-        }
-        // ── Item reward embedded in bucket ──
-        const _bItem = (this._legacyBossItemsEnabled() && obc.itemChoices && obc.itemChoices[b]) || null;
-        const _bItemDef = _bItem ? BOSS_ITEMS[_bItem] : null;
-        if (_bItemDef) {
-          ctx.globalAlpha = 1;
-          ctx.strokeStyle = isSel ? '#555' : '#2a2a2a';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(bx + 8, by + boxH - 72); ctx.lineTo(bx + boxW - 8, by + boxH - 72); ctx.stroke();
-          ctx.fillStyle = '#666'; ctx.font = '9px monospace';
-          ctx.fillText('ITEM REWARD', bx + 10, by + boxH - 59);
-          if (isSel) { ctx.shadowColor = _bItemDef.color; ctx.shadowBlur = 8; }
-          drawItemIcon(ctx, _bItem, bx + 18, by + boxH - 38, 18, _bItemDef.color);
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = isSel ? _bItemDef.color : '#aaa'; ctx.font = 'bold 11px monospace';
-          ctx.fillText(_bItemDef.name, bx + 34, by + boxH - 44);
-          ctx.fillStyle = '#777'; ctx.font = '9px monospace';
-          const _biWords = _bItemDef.desc.split(' ');
-          let _biLn = '', _biY = by + boxH - 30, _biN = 0;
-          for (const _bw of _biWords) {
-            const _bt = _biLn ? _biLn + ' ' + _bw : _bw;
-            if (ctx.measureText(_bt).width > boxW - 44) {
-              ctx.fillText(_biLn, bx + 34, _biY); _biLn = _bw; _biY += 11; _biN++;
-              if (_biN >= 1) break;
-            } else _biLn = _bt;
-          }
-          if (_biLn && _biN < 2) ctx.fillText(_biLn, bx + 34, _biY);
-        }
-      }
     }
 
     // Game Over screen

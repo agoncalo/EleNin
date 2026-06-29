@@ -2160,10 +2160,6 @@ class Enemy {
     const ox = this.x + this.w / 2 - 5;
     if (this.big || this instanceof Boss) {
       game.orbs.push(new Orb(ox, this.y, 'ultcharge'));
-      // Upgrade orb — always (tiered upgrade pool)
-      const upgradePool = ['damage','elDmg','speed','reach','armor','element','maxhp','ultcharge'];
-      const upType = upgradePool[Math.floor(Math.random() * upgradePool.length)];
-      if (false) game.orbs.push(new Orb(ox, this.y, upType));
     } else {
       if (r < 0.65) {                                        // T1: heal 65%
         game.orbs.push(new Orb(ox, this.y, 'heal'));

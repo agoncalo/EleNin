@@ -803,11 +803,6 @@ const ROUTE_MARKERS = {
   mid: { symbol: '◆', color: '#4af' },
   hard: { symbol: '●', color: '#f66' },
 };
-const ROUTE_OBJECTIVES = [
-  { route: 'easy', type: 'kills', label: 'Breakthrough', desc: 'Defeat enough enemies to force this route.', icon: '', marker: null },
-  { route: 'mid', type: 'hunt', label: 'Target Hunt', desc: 'Hunt marked enemies to force this route.', icon: '◆', marker: ROUTE_MARKERS.mid },
-  { route: 'hard', type: 'survive', label: 'Endure', desc: 'Hold out under pressure to force this route.', icon: '', marker: null },
-];
 const ROUTE_STAGE_LAYOUTS = [
   { name: 'Forest Outpost', lanes: { easy: 'forest-walker-normal', mid: 'forest-walker-normal', hard: 'forest-walker-normal' } },
   { name: 'River Ambush', lanes: { easy: 'forest-shooter-normal', mid: 'forest-shooter-normal', hard: 'forest-shooter-normal' } },

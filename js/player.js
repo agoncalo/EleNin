@@ -2157,28 +2157,6 @@ class Player {
           }
           game.deaths++;
           game.lives = 0;
-          if (false) {
-            game.killerInfo = burnKiller;
-            game.gameOverDelay = 120;
-            game.phraseText = '';
-            game.phraseTimer = 0;
-            game.ninjaResponseText = '';
-            game.ninjaResponseTimer = 0;
-            game.ninjaResponseActive = false;
-            // Override with boss phrase on game over
-            if (game.bossActive && game.boss && !game.boss.dead) {
-              const waveDef = WAVE_DEFS[game.wave - 1];
-              const bossPhrase = getKillPhrase(waveDef.boss, this.ninjaType, game.boss.element);
-              if (bossPhrase) {
-                game.killPhraseText = bossPhrase;
-                game.killPhraseTimer = 90;
-                game.killPhraseMaxTimer = 90;
-                game.killPhraseColor = game.boss.element && ELEMENT_COLORS[game.boss.element] ? ELEMENT_COLORS[game.boss.element].accent : '#f88';
-                game.killPhrasePos = { x: game.boss.x + game.boss.w / 2, y: game.boss.y };
-              }
-            }
-            recordGameOver(game.totalKills);
-          }
         }
       }
       // Fire particles
@@ -3870,28 +3848,6 @@ class Player {
       }
       game.deaths++;
       game.lives = 0;
-      if (false) {
-        game.killerInfo = killerInfo || null;
-        game.gameOverDelay = 120;
-        game.phraseText = '';
-        game.phraseTimer = 0;
-        game.ninjaResponseText = '';
-        game.ninjaResponseTimer = 0;
-        game.ninjaResponseActive = false;
-        // On game over, override kill phrase with boss if boss is active
-        if (game.bossActive && game.boss && !game.boss.dead) {
-          const waveDef = WAVE_DEFS[game.wave - 1];
-          const bossPhrase = getKillPhrase(waveDef.boss, this.ninjaType, game.boss.element);
-          if (bossPhrase) {
-            game.killPhraseText = bossPhrase;
-            game.killPhraseTimer = 90;
-            game.killPhraseMaxTimer = 90;
-            game.killPhraseColor = game.boss.element && ELEMENT_COLORS[game.boss.element] ? ELEMENT_COLORS[game.boss.element].accent : '#f88';
-            game.killPhrasePos = { x: game.boss.x + game.boss.w / 2, y: game.boss.y };
-          }
-        }
-        recordGameOver(game.totalKills);
-      }
     }
   }
 
