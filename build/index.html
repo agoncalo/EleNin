@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-29 12:01 UTC
-console.log("EleNin build: 2026-06-29 12:01 UTC");
+// BUILD TIMESTAMP: 2026-06-29 12:31 UTC
+console.log("EleNin build: 2026-06-29 12:31 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -453,13 +453,23 @@ const BOSS_NAMES = {
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
 };
 
-const WEAPON_ORDER = ['flamethrower', 'bubbleGun', 'smokeBomb', 'crystalStaff', 'crossbow', 'pistol', 'shotgun', 'rpg'];
+const WEAPON_ORDER = [
+  'flamethrower', 'rpg', 'meteorCannon',
+  'bubbleGun', 'pistol', 'shotgun',
+  'smokeBomb', 'shadowPistol', 'chainHook',
+  'crystalStaff', 'shardRifle', 'prismLance',
+  'crossbow', 'galePistol', 'tempestBow',
+  'quakeHammer', 'stoneCannon', 'drillLance',
+  'teslaCoil', 'stormPistol', 'thunderShotgun'
+];
 const WEAPON_ITEMS = {
   flamethrower: {
     name: 'Flamethrower',
     shortName: 'FLAME',
     power: 'fire',
     crashPower: 'fire',
+    family: 'fire',
+    kind: 'flamethrower',
     color: '#f45',
     accentColor: '#ffb347',
     bodyColor: '#7c1f1f',
@@ -474,6 +484,8 @@ const WEAPON_ITEMS = {
     shortName: 'BUBBLE',
     power: 'bubble',
     crashPower: 'bubble',
+    family: 'bubble',
+    kind: 'bubbleGun',
     color: '#4af',
     accentColor: '#aef',
     bodyColor: '#17467a',
@@ -488,6 +500,8 @@ const WEAPON_ITEMS = {
     shortName: 'SMOKE',
     power: 'shadow',
     crashPower: 'shadow',
+    family: 'shadow',
+    kind: 'orb',
     color: '#6b3aa8',
     accentColor: '#d7b4ff',
     bodyColor: '#38204f',
@@ -502,6 +516,8 @@ const WEAPON_ITEMS = {
     shortName: 'CRYSTAL',
     power: 'crystal',
     crashPower: 'crystal',
+    family: 'crystal',
+    kind: 'staff',
     color: '#31c6cf',
     accentColor: '#dfffff',
     bodyColor: '#17666c',
@@ -516,6 +532,8 @@ const WEAPON_ITEMS = {
     shortName: 'XBOW',
     power: 'wind',
     crashPower: 'wind',
+    family: 'wind',
+    kind: 'crossbow',
     color: '#6bc070',
     accentColor: '#d7ffd6',
     bodyColor: '#2f6a38',
@@ -526,43 +544,260 @@ const WEAPON_ITEMS = {
     icon: 'X'
   },
   pistol: {
-    name: 'Pistol',
-    shortName: 'PISTOL',
+    name: 'Bubble Pistol',
+    shortName: 'B-PISTOL',
     power: 'basic',
-    color: '#c8c8c8',
-    accentColor: '#fff',
-    bodyColor: '#303030',
-    hatColor: '#111',
+    crashPower: 'bubble',
+    family: 'bubble',
+    kind: 'pistol',
+    color: '#55bfff',
+    accentColor: '#d9fbff',
+    bodyColor: '#1b5274',
+    hatColor: '#0b2230',
     ammoMax: 72,
     ammoPickup: 24,
     ammoCost: 2,
     icon: 'P'
   },
   shotgun: {
-    name: 'Shotgun',
-    shortName: 'SHOTGUN',
+    name: 'Bubble Shotgun',
+    shortName: 'B-SHOT',
     power: 'basic',
-    color: '#c89052',
-    accentColor: '#ffe0a8',
-    bodyColor: '#69451f',
-    hatColor: '#23180d',
+    crashPower: 'bubble',
+    family: 'bubble',
+    kind: 'shotgun',
+    color: '#3aa8ff',
+    accentColor: '#b8f6ff',
+    bodyColor: '#174a82',
+    hatColor: '#0b1d35',
     ammoMax: 30,
     ammoPickup: 10,
     ammoCost: 5,
     icon: 'G'
   },
   rpg: {
-    name: 'RPG',
-    shortName: 'RPG',
+    name: 'Flame RPG',
+    shortName: 'F-RPG',
     power: 'basic',
-    color: '#9aa062',
+    crashPower: 'fire',
+    family: 'fire',
+    kind: 'rpg',
+    color: '#d06028',
     accentColor: '#fff28a',
-    bodyColor: '#4f5730',
-    hatColor: '#1d2110',
+    bodyColor: '#6e2d16',
+    hatColor: '#241008',
     ammoMax: 12,
     ammoPickup: 4,
     ammoCost: 4,
     icon: 'R'
+  },
+  meteorCannon: {
+    name: 'Meteor Cannon',
+    shortName: 'METEOR',
+    power: 'basic',
+    crashPower: 'fire',
+    family: 'fire',
+    kind: 'rpg',
+    color: '#ff7a2f',
+    accentColor: '#ffe066',
+    bodyColor: '#7b2418',
+    hatColor: '#2a0f0a',
+    ammoMax: 16,
+    ammoPickup: 5,
+    ammoCost: 5,
+    icon: 'M'
+  },
+  shadowPistol: {
+    name: 'Shadow Pistol',
+    shortName: 'S-PISTOL',
+    power: 'basic',
+    crashPower: 'shadow',
+    family: 'shadow',
+    kind: 'pistol',
+    color: '#8661c9',
+    accentColor: '#e3c7ff',
+    bodyColor: '#3a255a',
+    hatColor: '#171020',
+    ammoMax: 56,
+    ammoPickup: 18,
+    ammoCost: 3,
+    icon: 'P'
+  },
+  chainHook: {
+    name: 'Chain Hook',
+    shortName: 'CHAIN',
+    power: 'basic',
+    crashPower: 'shadow',
+    family: 'shadow',
+    kind: 'crossbow',
+    color: '#5f3a8c',
+    accentColor: '#d7b4ff',
+    bodyColor: '#2b1b3f',
+    hatColor: '#120b1c',
+    ammoMax: 30,
+    ammoPickup: 10,
+    ammoCost: 4,
+    icon: 'H'
+  },
+  shardRifle: {
+    name: 'Shard Rifle',
+    shortName: 'SHARD',
+    power: 'basic',
+    crashPower: 'crystal',
+    family: 'crystal',
+    kind: 'pistol',
+    color: '#46d8e4',
+    accentColor: '#efffff',
+    bodyColor: '#17666c',
+    hatColor: '#0b252a',
+    ammoMax: 48,
+    ammoPickup: 16,
+    ammoCost: 3,
+    icon: 'S'
+  },
+  prismLance: {
+    name: 'Prism Lance',
+    shortName: 'PRISM',
+    power: 'basic',
+    crashPower: 'crystal',
+    family: 'crystal',
+    kind: 'staff',
+    color: '#80f1ff',
+    accentColor: '#ffffff',
+    bodyColor: '#205f73',
+    hatColor: '#0d2631',
+    ammoMax: 24,
+    ammoPickup: 8,
+    ammoCost: 4,
+    icon: 'L'
+  },
+  galePistol: {
+    name: 'Gale Pistol',
+    shortName: 'G-PISTOL',
+    power: 'basic',
+    crashPower: 'wind',
+    family: 'wind',
+    kind: 'pistol',
+    color: '#79d985',
+    accentColor: '#e6ffe2',
+    bodyColor: '#2f6a38',
+    hatColor: '#102817',
+    ammoMax: 64,
+    ammoPickup: 20,
+    ammoCost: 2,
+    icon: 'P'
+  },
+  tempestBow: {
+    name: 'Tempest Bow',
+    shortName: 'TEMPEST',
+    power: 'basic',
+    crashPower: 'wind',
+    family: 'wind',
+    kind: 'crossbow',
+    color: '#87d98c',
+    accentColor: '#f3ffe7',
+    bodyColor: '#285d34',
+    hatColor: '#0f2416',
+    ammoMax: 36,
+    ammoPickup: 12,
+    ammoCost: 3,
+    icon: 'T'
+  },
+  quakeHammer: {
+    name: 'Quake Hammer',
+    shortName: 'QUAKE',
+    power: 'basic',
+    crashPower: 'earth',
+    family: 'earth',
+    kind: 'hammer',
+    color: '#b58a55',
+    accentColor: '#f0d1a0',
+    bodyColor: '#5b3c22',
+    hatColor: '#21170d',
+    ammoMax: 24,
+    ammoPickup: 8,
+    ammoCost: 4,
+    icon: 'Q'
+  },
+  stoneCannon: {
+    name: 'Stone Cannon',
+    shortName: 'STONE',
+    power: 'basic',
+    crashPower: 'earth',
+    family: 'earth',
+    kind: 'rpg',
+    color: '#9b7a58',
+    accentColor: '#dec19a',
+    bodyColor: '#514236',
+    hatColor: '#201a14',
+    ammoMax: 18,
+    ammoPickup: 6,
+    ammoCost: 5,
+    icon: 'C'
+  },
+  drillLance: {
+    name: 'Drill Lance',
+    shortName: 'DRILL',
+    power: 'basic',
+    crashPower: 'earth',
+    family: 'earth',
+    kind: 'staff',
+    color: '#c0925a',
+    accentColor: '#ffe0a8',
+    bodyColor: '#60462b',
+    hatColor: '#24190f',
+    ammoMax: 30,
+    ammoPickup: 10,
+    ammoCost: 4,
+    icon: 'D'
+  },
+  teslaCoil: {
+    name: 'Tesla Coil',
+    shortName: 'TESLA',
+    power: 'basic',
+    crashPower: 'storm',
+    family: 'storm',
+    kind: 'staff',
+    color: '#4b88ff',
+    accentColor: '#fff35c',
+    bodyColor: '#1e3f86',
+    hatColor: '#0b1835',
+    ammoMax: 36,
+    ammoPickup: 12,
+    ammoCost: 3,
+    icon: 'T'
+  },
+  stormPistol: {
+    name: 'Storm Pistol',
+    shortName: 'S-PISTOL',
+    power: 'basic',
+    crashPower: 'storm',
+    family: 'storm',
+    kind: 'pistol',
+    color: '#3f78ff',
+    accentColor: '#fff36b',
+    bodyColor: '#1b3470',
+    hatColor: '#0a142d',
+    ammoMax: 60,
+    ammoPickup: 20,
+    ammoCost: 2,
+    icon: 'P'
+  },
+  thunderShotgun: {
+    name: 'Thunder Shotgun',
+    shortName: 'THUNDER',
+    power: 'basic',
+    crashPower: 'storm',
+    family: 'storm',
+    kind: 'shotgun',
+    color: '#3268e8',
+    accentColor: '#fff06a',
+    bodyColor: '#19305f',
+    hatColor: '#081329',
+    ammoMax: 28,
+    ammoPickup: 9,
+    ammoCost: 5,
+    icon: 'G'
   }
 };
 
@@ -8452,6 +8687,8 @@ class ClassOrb {
     this.w = 52;
     this.h = 36;
     this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'flamethrower';
+    const def = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    this.ammo = opts.ammo === undefined ? Math.ceil((def.ammoMax || 0) * 0.5) : Math.max(0, Math.min(def.ammoMax || 0, Math.round(opts.ammo)));
     this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
     this.pickupCooldown = opts.pickupCooldown || 0;
     this.done = false;
@@ -8463,13 +8700,13 @@ class ClassOrb {
     this.bobTimer += 0.055;
     const pl = game.player;
     if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
-    if (pl.heldItem === this.weaponId) return;
     const oldItem = pl.heldItem;
-    if (!pl.equipWeapon(this.weaponId, game)) return;
+    const oldAmmo = pl.itemAmmo || 0;
+    if (!pl.equipWeapon(this.weaponId, game, { ammo: this.ammo })) return;
     this.done = true;
     SFX.weaponPickup();
     if (oldItem && WEAPON_ITEMS[oldItem]) {
-      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { ammo: oldAmmo, pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
     }
     const wt = WEAPON_ITEMS[this.weaponId];
     const cx = pl.x + pl.w / 2;
@@ -8533,26 +8770,31 @@ class ClassOrb {
     ctx.fillStyle = wt.color;
     ctx.strokeStyle = wt.accentColor || '#fff';
     ctx.lineWidth = 2;
-    if (this.weaponId === 'bubbleGun') {
+    const kind = wt.kind || 'pistol';
+    if (kind === 'bubbleGun') {
       ctx.fillRect(-14, -4, 22, 8);
       ctx.strokeRect(-14, -4, 22, 8);
       ctx.beginPath(); ctx.arc(13, 0, 6, 0, Math.PI * 2); ctx.stroke();
-    } else if (this.weaponId === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillRect(-2, -15, 4, 8);
-    } else if (this.weaponId === 'crystalStaff') {
+    } else if (kind === 'staff') {
       ctx.fillRect(-2, -14, 4, 28);
       ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(8, -10); ctx.lineTo(0, -4); ctx.lineTo(-8, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (this.weaponId === 'crossbow') {
+    } else if (kind === 'crossbow') {
       ctx.fillRect(-15, -2, 30, 4);
       ctx.beginPath(); ctx.arc(0, 0, 14, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
-    } else if (this.weaponId === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillRect(-18, -4, 30, 8);
       ctx.fillRect(8, 0, 12, 4);
       ctx.strokeRect(-18, -4, 38, 8);
-    } else if (this.weaponId === 'rpg') {
+    } else if (kind === 'rpg') {
       ctx.fillRect(-18, -5, 34, 10);
       ctx.beginPath(); ctx.moveTo(18, -8); ctx.lineTo(26, 0); ctx.lineTo(18, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (kind === 'hammer') {
+      ctx.fillRect(-16, -2, 24, 4);
+      ctx.fillRect(7, -12, 14, 24);
+      ctx.strokeRect(7, -12, 14, 24);
     } else {
       ctx.fillRect(-14, -4, 28, 8);
       ctx.fillRect(8, 0, 8, 5);
@@ -8701,7 +8943,7 @@ class Player {
     this.displayShield = 0;
     this.ninjaType = 'basic';
     this.heldItem = 'flamethrower';
-    this.itemAmmo = WEAPON_ITEMS.flamethrower.ammoMax;
+    this.itemAmmo = Math.ceil(WEAPON_ITEMS.flamethrower.ammoMax * 0.5);
     this.itemAmmoMax = WEAPON_ITEMS.flamethrower.ammoMax;
     this.lastHeldItem = this.heldItem;
     this.itemUseFlash = 0;
@@ -9287,7 +9529,7 @@ class Player {
     this.parryTimer = 0;
   }
 
-  equipWeapon(weaponId, game) {
+  equipWeapon(weaponId, game, opts = {}) {
     const def = WEAPON_ITEMS[weaponId];
     if (!def) return false;
     if (this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false;
@@ -9295,7 +9537,9 @@ class Player {
     this.heldItem = weaponId;
     this.lastHeldItem = weaponId;
     this.itemAmmoMax = def.ammoMax || 0;
-    this.itemAmmo = Math.max(def.ammoCost || 1, Math.ceil((def.ammoMax || 0) * 0.55));
+    const defaultAmmo = Math.ceil((def.ammoMax || 0) * 0.5);
+    const pickedAmmo = opts.ammo === undefined ? defaultAmmo : opts.ammo;
+    this.itemAmmo = Math.max(0, Math.min(this.itemAmmoMax, Math.round(pickedAmmo)));
     this.ninjaType = 'basic';
     this.ultimateCharge = 0;
     this.ultimateReady = !!def.crashPower;
@@ -9350,24 +9594,60 @@ class Player {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const dir = this.facing || 1;
-    if (def === WEAPON_ITEMS.shotgun) {
+    const kind = def.kind || 'pistol';
+    const family = def.family || def.crashPower || 'basic';
+    const color = def.color || '#e8e8e8';
+    const accent = def.accentColor || color;
+    const applyProjectileTheme = (p) => {
+      p.fromSpecial = true;
+      if (family === 'fire') {
+        p.isFireball = true;
+      } else if (family === 'bubble') {
+        p.soaking = true;
+      } else if (family === 'shadow') {
+        p.shadowParalyse = true;
+      } else if (family === 'crystal') {
+        p.freezeDust = true;
+      } else if (family === 'wind') {
+        p.windPierce = true;
+        p.piercing = true;
+      } else if (family === 'storm') {
+        p.soaking = true;
+        p.shadowParalyse = true;
+      }
+      return p;
+    };
+    if (kind === 'shotgun') {
       for (let i = -2; i <= 2; i++) {
-        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, '#ffd08a', this.type.attackDamage + this.bonusElemental + 2, 'player');
-        p.w = 10; p.h = 5; p.life = 46; p.piercing = false; p.fromSpecial = true;
-        game.projectiles.push(p);
+        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
+        p.w = 10; p.h = 5; p.life = 46; p.piercing = false;
+        game.projectiles.push(applyProjectileTheme(p));
       }
       triggerScreenShake(2, 4);
-    } else if (def === WEAPON_ITEMS.rpg) {
-      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, '#d8d060', this.type.attackDamage + this.bonusElemental + 8, 'player');
-      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = 105; p.fromSpecial = true;
-      game.projectiles.push(p);
+    } else if (kind === 'rpg') {
+      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, color, this.type.attackDamage + this.bonusElemental + 8, 'player');
+      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = family === 'earth' ? 90 : 105;
+      game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(3, 5);
+    } else if (kind === 'crossbow') {
+      const p = new Projectile(cx + dir * 17, cy - 4, dir * 11.5, -0.1, color, this.type.attackDamage + this.bonusElemental + 3, 'player');
+      p.w = 16; p.h = 4; p.life = 72; p.piercing = true;
+      game.projectiles.push(applyProjectileTheme(p));
+    } else if (kind === 'staff') {
+      const p = new Projectile(cx + dir * 16, cy - 8, dir * 7.6, -0.35, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
+      p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
+      game.projectiles.push(applyProjectileTheme(p));
+    } else if (kind === 'hammer') {
+      const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
+      p.w = 18; p.h = 14; p.life = 58; p.explosive = true; p.explosionRadius = 70;
+      game.projectiles.push(applyProjectileTheme(p));
+      triggerScreenShake(2, 5);
     } else {
-      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, '#e8e8e8', this.type.attackDamage + this.bonusElemental + 1, 'player');
-      p.w = 9; p.h = 5; p.life = 80; p.fromSpecial = true;
-      game.projectiles.push(p);
+      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, color, this.type.attackDamage + this.bonusElemental + 1, 'player');
+      p.w = 9; p.h = 5; p.life = 80;
+      game.projectiles.push(applyProjectileTheme(p));
     }
-    game.effects.push(new Effect(cx + dir * 20, cy, def.accentColor || def.color, 7, 3, 8));
+    game.effects.push(new Effect(cx + dir * 20, cy, accent, 7, 3, 8));
   }
 
   activateItemCrash(game) {
@@ -12380,6 +12660,7 @@ class Player {
     const metal = def.color || '#ccc';
     const accent = def.accentColor || '#fff';
     const dark = def.hatColor || '#171717';
+    const kind = def.kind || 'pistol';
     const wood = '#6b3f22';
     const drawBarrel = (x, y, w, h, color = metal) => {
       ctx.fillStyle = color;
@@ -12390,7 +12671,7 @@ class Player {
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillRect(x + 2, y + 1, Math.max(2, w - 4), 2);
     };
-    if (id === 'flamethrower') {
+    if (kind === 'flamethrower') {
       ctx.fillStyle = dark;
       ctx.fillRect(-17, -7, 14, 14);
       ctx.strokeStyle = accent;
@@ -12411,7 +12692,7 @@ class Player {
         ctx.closePath();
         ctx.fill();
       }
-    } else if (id === 'bubbleGun') {
+    } else if (kind === 'bubbleGun') {
       drawBarrel(-14, -6, 27, 12, '#205b86');
       ctx.fillStyle = dark;
       ctx.fillRect(-11, 5, 9, 9);
@@ -12422,7 +12703,7 @@ class Player {
       ctx.strokeStyle = accent;
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(24, 0, 8, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.fillStyle = dark;
       ctx.fillRect(-14, -3, 15, 6);
       ctx.fillStyle = metal;
@@ -12432,7 +12713,7 @@ class Player {
       ctx.fillRect(6, -16, 8, 8);
       ctx.strokeStyle = accent;
       ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'crystalStaff') {
+    } else if (kind === 'staff') {
       drawBarrel(-18, -2, 35, 4, '#2b5961');
       ctx.shadowBlur = hand ? 10 : 5;
       ctx.fillStyle = accent;
@@ -12443,7 +12724,7 @@ class Player {
       ctx.globalAlpha = 0.65;
       ctx.beginPath(); ctx.moveTo(25, -9); ctx.lineTo(31, -2); ctx.lineTo(26, 5); ctx.closePath(); ctx.fill();
       ctx.globalAlpha = 1;
-    } else if (id === 'crossbow') {
+    } else if (kind === 'crossbow') {
       drawBarrel(-14, -2, 30, 4, wood);
       ctx.fillStyle = metal;
       ctx.fillRect(2, -8, 6, 16);
@@ -12453,14 +12734,14 @@ class Player {
       ctx.beginPath(); ctx.moveTo(7, -15); ctx.lineTo(7, 15); ctx.stroke();
       ctx.fillStyle = '#ddd';
       ctx.fillRect(15, -1, 18, 2);
-    } else if (id === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillStyle = wood;
       ctx.fillRect(-18, -5, 14, 10);
       drawBarrel(-5, -5, 38, 5, metal);
       drawBarrel(-5, 1, 38, 5, metal);
       ctx.fillStyle = dark;
       ctx.fillRect(-10, 5, 9, 9);
-    } else if (id === 'rpg') {
+    } else if (kind === 'rpg') {
       drawBarrel(-18, -7, 36, 14, metal);
       ctx.fillStyle = accent;
       ctx.beginPath(); ctx.moveTo(19, -11); ctx.lineTo(34, 0); ctx.lineTo(19, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -12468,6 +12749,17 @@ class Player {
       ctx.fillRect(-5, 6, 10, 11);
       ctx.fillStyle = '#333';
       ctx.fillRect(-23, -5, 6, 10);
+    } else if (kind === 'hammer') {
+      ctx.fillStyle = dark;
+      ctx.fillRect(-18, -3, 26, 6);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-18, -3, 26, 6);
+      ctx.fillStyle = metal;
+      ctx.fillRect(8, -12, 15, 24);
+      ctx.strokeRect(8, -12, 15, 24);
+      ctx.fillStyle = accent;
+      ctx.fillRect(10, -9, 11, 4);
     } else {
       drawBarrel(-11, -4, 25, 8, metal);
       ctx.fillStyle = accent;
@@ -24304,6 +24596,61 @@ class Game {
     return (stage && stage.lanes && (stage.lanes[lane] || stage.lanes.mid || stage.lanes.easy)) || MAP_START_ROOM_ID;
   }
 
+  _routeNodeLanes(step) {
+    step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, step || 0));
+    return (step === 0 || step === ROUTE_STAGE_LAYOUTS.length - 1) ? ['mid'] : ROUTE_LANES.slice();
+  }
+
+  _initRouteFreeTravelSelection() {
+    if (!this.mapScreen) return;
+    const route = this.routeState || this._freshMapState().route;
+    const step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, route.step || 0));
+    const lane = this._routeNodeLanes(step).includes(route.lane) ? route.lane : 'mid';
+    this.mapScreen.routeFreeStep = this.mapScreen.routeFreeStep === undefined ? step : this.mapScreen.routeFreeStep;
+    this.mapScreen.routeFreeLane = this.mapScreen.routeFreeLane || lane;
+  }
+
+  _selectRouteFreeTravelNode(dx, dy) {
+    if (!this.mapScreen) return;
+    this._initRouteFreeTravelSelection();
+    const ms = this.mapScreen;
+    const steps = ROUTE_STAGE_LAYOUTS.length;
+    let step = Math.max(0, Math.min(steps - 1, ms.routeFreeStep || 0));
+    let lane = ms.routeFreeLane || 'mid';
+    if (dx !== 0) step = Math.max(0, Math.min(steps - 1, step + dx));
+    const lanes = this._routeNodeLanes(step);
+    if (!lanes.includes(lane)) lane = 'mid';
+    if (dy !== 0 && lanes.length > 1) {
+      const visual = ['hard', 'mid', 'easy'];
+      let idx = Math.max(0, visual.indexOf(lane));
+      idx = Math.max(0, Math.min(visual.length - 1, idx + dy));
+      lane = visual[idx];
+    }
+    ms.routeFreeStep = step;
+    ms.routeFreeLane = lanes.includes(lane) ? lane : 'mid';
+  }
+
+  _confirmRouteFreeTravel() {
+    if (!this.mapScreen || !this.mapScreen.freeTravel) return false;
+    this._initRouteFreeTravelSelection();
+    const step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, this.mapScreen.routeFreeStep || 0));
+    const lane = this._routeNodeLanes(step).includes(this.mapScreen.routeFreeLane) ? this.mapScreen.routeFreeLane : 'mid';
+    const previousLane = lane;
+    const route = this.routeState || this._freshMapState().route;
+    route.step = step;
+    route.lane = lane;
+    route.previousLane = previousLane;
+    route.next = this._routeConfigFor(step, lane, previousLane, route.history || []);
+    this.routeState = route;
+    this.mapState.route = route;
+    this.mapState.unlocked[route.next.roomId] = true;
+    this._saveMapState();
+    this.mapScreen = null;
+    this._enterMapRoom(route.next.roomId);
+    this.showWaveMessage(this._objectiveStartMessage());
+    return true;
+  }
+
   _routeBossFor(step, lane, previousLane, history) {
     if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
     if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
@@ -25431,7 +25778,9 @@ class Game {
       if (id === current) continue;
       const def = WEAPON_ITEMS[id];
       if (!def) continue;
-      const weight = def.crashPower ? 1 : (id === 'rpg' ? 2 : 4);
+      const familyWeight = (def.family === 'fire' || def.family === 'bubble') ? 4 : (def.family === 'earth' || def.family === 'storm' ? 2 : 3);
+      const kindPenalty = (def.kind === 'rpg' || def.kind === 'hammer') ? -1 : 0;
+      const weight = Math.max(1, familyWeight + kindPenalty);
       for (let i = 0; i < weight; i++) weighted.push(id);
     }
     return weighted.length ? weighted[Math.floor(Math.random() * weighted.length)] : 'pistol';
@@ -26239,7 +26588,17 @@ class Game {
         ms.delay--;
         consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
       }
-      if (ms.routeAutoAdvance) {
+      if (consumePress('Digit0') || consumePress('Numpad0')) {
+        this.cheated = true;
+        recordCheatUsed();
+        ms.freeTravel = !ms.freeTravel;
+        if (ms.freeTravel) {
+          ms.delay = 0;
+          this._initRouteFreeTravelSelection();
+        }
+        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 20, ms.freeTravel ? 'ROUTE FREE TRAVEL' : 'ROUTE LOCKED', ms.freeTravel ? '#7df' : '#aaa'));
+      }
+      if (ms.routeAutoAdvance && !ms.freeTravel) {
         if (ms.delay <= 0 || consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this.mapScreen = null;
           this._enterMapRoom(ms.nextRoomId || this._routeLayoutRoomId((this.routeState && this.routeState.step) || 0, (this.routeState && this.routeState.lane) || 'mid'));
@@ -26253,7 +26612,10 @@ class Game {
       const navDown = consumePress('ArrowDown') || consumePress('KeyS');
       const navDx = navLeft ? -1 : navRight ? 1 : 0;
       const navDy = navUp ? -1 : navDown ? 1 : 0;
-      if (navDx || navDy) this._selectNextMapRoom(navDx, navDy);
+      if (navDx || navDy) {
+        if (ms.freeTravel) this._selectRouteFreeTravelNode(navDx, navDy);
+        else this._selectNextMapRoom(navDx, navDy);
+      }
       if (consumePress('KeyQ') || consumePress('Minus') || consumePress('NumpadSubtract')) {
         ms.zoom = Math.max(0.3, Math.round(((ms.zoom || 1) - 0.15) * 100) / 100);
         this.mapZoom = ms.zoom;
@@ -26262,12 +26624,9 @@ class Game {
         ms.zoom = Math.min(1.9, Math.round(((ms.zoom || 1) + 0.15) * 100) / 100);
         this.mapZoom = ms.zoom;
       }
-      if (consumePress('Digit0') || consumePress('Numpad0')) {
-        ms.freeTravel = !ms.freeTravel;
-        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 20, ms.freeTravel ? 'MAP FREE TRAVEL' : 'MAP LOCKED PATHS', ms.freeTravel ? '#7df' : '#aaa'));
-      }
       if (ms.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
-        this._confirmMapRoom();
+        if (ms.freeTravel) this._confirmRouteFreeTravel();
+        else this._confirmMapRoom();
       }
       return;
     }
@@ -29833,8 +30192,8 @@ class Game {
     ctx.font = '11px monospace';
     ctx.fillStyle = '#aaa';
     const hint = ms && ms.routeAutoAdvance
-      ? (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) : 'Z confirm next mission')
-      : 'Route advances by mission performance';
+      ? (ms.freeTravel ? 'FREE TRAVEL: arrows select stage   Z enter   0 lock route' : (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) + '   0 free travel' : 'Z confirm next mission   0 free travel'))
+      : (ms && ms.freeTravel ? 'FREE TRAVEL: arrows select stage   Z enter   0 lock route' : 'Route advances by mission performance   0 free travel');
     ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
 
     const mapX = 70, mapY = 96, mapW = 610, mapH = 360;
@@ -29856,6 +30215,11 @@ class Game {
     const nodeKey = (step, lane) => step + ':' + lane;
     const activeStep = route.step || 0;
     const activeLane = route.lane || 'mid';
+    if (ms && ms.freeTravel) this._initRouteFreeTravelSelection();
+    const selectedStep = ms && ms.freeTravel ? Math.max(0, Math.min(steps - 1, ms.routeFreeStep || 0)) : activeStep;
+    const selectedLane = ms && ms.freeTravel
+      ? (this._routeNodeLanes(selectedStep).includes(ms.routeFreeLane) ? ms.routeFreeLane : 'mid')
+      : activeLane;
     const visited = new Set(['0:mid']);
     let prevLane = 'mid';
     for (const h of history) {
@@ -29898,15 +30262,16 @@ class Game {
       for (const lane of nodeLaneList(step)) {
         const x = nodeX(step), y = nodeY(step, lane);
         const isCurrent = step === activeStep && (step === 0 || step === steps - 1 || lane === activeLane);
+        const selected = ms && ms.freeTravel && step === selectedStep && (step === 0 || step === steps - 1 || lane === selectedLane);
         const seen = visited.has(nodeKey(step, lane));
         const marker = step === 0 || step === steps - 1 ? { symbol: '', color: '#ffe033' } : this._routeMarkerFor(lane);
-        const nodeColor = (seen || isCurrent) ? marker.color : '#686a72';
+        const nodeColor = (seen || isCurrent || selected || (ms && ms.freeTravel)) ? marker.color : '#686a72';
         ctx.save();
-        ctx.fillStyle = seen ? 'rgba(255,255,255,0.12)' : 'rgba(110,112,122,0.10)';
-        ctx.strokeStyle = isCurrent ? '#fff' : nodeColor;
-        ctx.lineWidth = isCurrent ? 4 : 2;
-        ctx.shadowColor = isCurrent ? '#fff' : nodeColor;
-        ctx.shadowBlur = seen || isCurrent ? 10 : 0;
+        ctx.fillStyle = selected ? 'rgba(125,220,255,0.22)' : (seen ? 'rgba(255,255,255,0.12)' : 'rgba(110,112,122,0.10)');
+        ctx.strokeStyle = selected ? '#7df' : (isCurrent ? '#fff' : nodeColor);
+        ctx.lineWidth = selected ? 5 : (isCurrent ? 4 : 2);
+        ctx.shadowColor = selected ? '#7df' : (isCurrent ? '#fff' : nodeColor);
+        ctx.shadowBlur = selected || seen || isCurrent ? 10 : 0;
         ctx.beginPath();
         ctx.arc(x, y, isCurrent ? 18 : 14, 0, Math.PI * 2);
         ctx.fill();
@@ -29929,11 +30294,13 @@ class Game {
     ctx.strokeStyle = '#334';
     ctx.lineWidth = 2;
     ctx.strokeRect(panelX, panelY, panelW, panelH);
-    const cfg = this._routeConfigFor(activeStep, activeLane, route.previousLane || 'mid', history);
+    const cfgStep = ms && ms.freeTravel ? selectedStep : activeStep;
+    const cfgLane = ms && ms.freeTravel ? selectedLane : activeLane;
+    const cfg = this._routeConfigFor(cfgStep, cfgLane, route.previousLane || cfgLane || 'mid', history);
     const bossName = BOSS_NAMES[cfg.bossType] || cfg.bossType.toUpperCase();
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px monospace';
-    ctx.fillText('Current Mission', panelX + 14, panelY + 28);
+    ctx.fillText(ms && ms.freeTravel ? 'Free Travel' : 'Current Mission', panelX + 14, panelY + 28);
     ctx.fillStyle = '#bbb';
     ctx.font = '11px monospace';
     ctx.fillText('Step ' + (activeStep + 1) + '/' + steps, panelX + 14, panelY + 54);
@@ -30411,17 +30778,18 @@ class Game {
     ctx.textAlign = 'left';
     ctx.fillStyle = def ? '#fff' : '#999';
     ctx.fillText(def ? def.shortName : 'NO ITEM', x + 36, y + 11);
-    ctx.font = '900 12px monospace';
+    ctx.font = '900 24px monospace';
+    ctx.textAlign = 'right';
     ctx.fillStyle = def ? (def.accentColor || def.color) : '#777';
-    const ammoText = def ? (Math.max(0, Math.floor(pl.itemAmmo || 0)) + '/' + (def.ammoMax || 0)) : '--';
-    ctx.fillText(ammoText, x + 36, y + 24);
+    const shotsText = def ? String(Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1)))) : '--';
+    ctx.fillText(shotsText, x + w - 8, y + 25);
     if (def && def.crashPower) {
       const pulse = 0.65 + 0.25 * Math.sin(this.tick * 0.18);
       ctx.globalAlpha = pulse;
       ctx.fillStyle = def.accentColor || def.color;
-      ctx.font = '900 10px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText('CRASH', x + w - 8, y + 18);
+      ctx.font = '900 8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('CRASH', x + 36, y + 23);
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -30434,6 +30802,7 @@ class Game {
     const dark = def.hatColor || '#222';
     const stroke = 'rgba(0,0,0,0.85)';
     const wood = '#6b3f22';
+    const kind = def.kind || 'pistol';
     ctx.save();
     ctx.scale(s, s);
     ctx.shadowColor = accent;
@@ -30441,30 +30810,34 @@ class Game {
     ctx.fillStyle = color;
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 2;
-    if (id === 'flamethrower') {
+    if (kind === 'flamethrower') {
       ctx.fillStyle = dark; ctx.fillRect(-18, -7, 12, 14); ctx.strokeRect(-18, -7, 12, 14);
       ctx.fillStyle = color; ctx.fillRect(-6, -5, 30, 10); ctx.strokeRect(-6, -5, 30, 10);
       ctx.fillStyle = accent; ctx.fillRect(19, -3, 8, 6);
-    } else if (id === 'bubbleGun') {
+    } else if (kind === 'bubbleGun') {
       ctx.fillStyle = '#205b86'; ctx.fillRect(-16, -6, 25, 12); ctx.strokeRect(-16, -6, 25, 12);
       ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(20, 0, 8, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.fillStyle = color; ctx.beginPath(); ctx.arc(3, 0, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = accent; ctx.fillRect(-1, -15, 8, 8);
-    } else if (id === 'crystalStaff') {
+    } else if (kind === 'staff') {
       ctx.fillStyle = '#2b5961'; ctx.fillRect(-18, -2, 32, 4); ctx.strokeRect(-18, -2, 32, 4);
       ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(20, -13); ctx.lineTo(31, -2); ctx.lineTo(25, 10); ctx.lineTo(14, 3); ctx.lineTo(13, -7); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (id === 'crossbow') {
+    } else if (kind === 'crossbow') {
       ctx.fillStyle = wood; ctx.fillRect(-16, -2, 29, 4); ctx.strokeRect(-16, -2, 29, 4);
       ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(5, -15); ctx.quadraticCurveTo(24, -10, 28, 0); ctx.quadraticCurveTo(24, 10, 5, 15); ctx.stroke();
       ctx.strokeStyle = '#eee'; ctx.beginPath(); ctx.moveTo(5, -15); ctx.lineTo(5, 15); ctx.stroke();
-    } else if (id === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillStyle = wood; ctx.fillRect(-18, -5, 12, 10);
       ctx.fillStyle = color; ctx.fillRect(-6, -5, 34, 5); ctx.fillRect(-6, 1, 34, 5);
       ctx.strokeRect(-6, -5, 34, 11);
-    } else if (id === 'rpg') {
+    } else if (kind === 'rpg') {
       ctx.fillStyle = color; ctx.fillRect(-18, -7, 34, 14); ctx.strokeRect(-18, -7, 34, 14);
       ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(18, -11); ctx.lineTo(31, 0); ctx.lineTo(18, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (kind === 'hammer') {
+      ctx.fillStyle = dark; ctx.fillRect(-18, -2, 25, 4); ctx.strokeRect(-18, -2, 25, 4);
+      ctx.fillStyle = color; ctx.fillRect(7, -12, 15, 24); ctx.strokeRect(7, -12, 15, 24);
+      ctx.fillStyle = accent; ctx.fillRect(9, -9, 11, 4);
     } else {
       ctx.fillStyle = color; ctx.fillRect(-13, -5, 25, 10); ctx.strokeRect(-13, -5, 25, 10);
       ctx.fillStyle = accent; ctx.fillRect(8, -2, 10, 4);

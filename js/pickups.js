@@ -327,6 +327,8 @@ class ClassOrb {
     this.w = 52;
     this.h = 36;
     this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'flamethrower';
+    const def = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    this.ammo = opts.ammo === undefined ? Math.ceil((def.ammoMax || 0) * 0.5) : Math.max(0, Math.min(def.ammoMax || 0, Math.round(opts.ammo)));
     this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
     this.pickupCooldown = opts.pickupCooldown || 0;
     this.done = false;
@@ -338,13 +340,13 @@ class ClassOrb {
     this.bobTimer += 0.055;
     const pl = game.player;
     if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
-    if (pl.heldItem === this.weaponId) return;
     const oldItem = pl.heldItem;
-    if (!pl.equipWeapon(this.weaponId, game)) return;
+    const oldAmmo = pl.itemAmmo || 0;
+    if (!pl.equipWeapon(this.weaponId, game, { ammo: this.ammo })) return;
     this.done = true;
     SFX.weaponPickup();
     if (oldItem && WEAPON_ITEMS[oldItem]) {
-      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { ammo: oldAmmo, pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
     }
     const wt = WEAPON_ITEMS[this.weaponId];
     const cx = pl.x + pl.w / 2;
@@ -408,26 +410,31 @@ class ClassOrb {
     ctx.fillStyle = wt.color;
     ctx.strokeStyle = wt.accentColor || '#fff';
     ctx.lineWidth = 2;
-    if (this.weaponId === 'bubbleGun') {
+    const kind = wt.kind || 'pistol';
+    if (kind === 'bubbleGun') {
       ctx.fillRect(-14, -4, 22, 8);
       ctx.strokeRect(-14, -4, 22, 8);
       ctx.beginPath(); ctx.arc(13, 0, 6, 0, Math.PI * 2); ctx.stroke();
-    } else if (this.weaponId === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillRect(-2, -15, 4, 8);
-    } else if (this.weaponId === 'crystalStaff') {
+    } else if (kind === 'staff') {
       ctx.fillRect(-2, -14, 4, 28);
       ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(8, -10); ctx.lineTo(0, -4); ctx.lineTo(-8, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (this.weaponId === 'crossbow') {
+    } else if (kind === 'crossbow') {
       ctx.fillRect(-15, -2, 30, 4);
       ctx.beginPath(); ctx.arc(0, 0, 14, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
-    } else if (this.weaponId === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillRect(-18, -4, 30, 8);
       ctx.fillRect(8, 0, 12, 4);
       ctx.strokeRect(-18, -4, 38, 8);
-    } else if (this.weaponId === 'rpg') {
+    } else if (kind === 'rpg') {
       ctx.fillRect(-18, -5, 34, 10);
       ctx.beginPath(); ctx.moveTo(18, -8); ctx.lineTo(26, 0); ctx.lineTo(18, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (kind === 'hammer') {
+      ctx.fillRect(-16, -2, 24, 4);
+      ctx.fillRect(7, -12, 14, 24);
+      ctx.strokeRect(7, -12, 14, 24);
     } else {
       ctx.fillRect(-14, -4, 28, 8);
       ctx.fillRect(8, 0, 8, 5);

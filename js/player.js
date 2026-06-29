@@ -14,7 +14,7 @@ class Player {
     this.displayShield = 0;
     this.ninjaType = 'basic';
     this.heldItem = 'flamethrower';
-    this.itemAmmo = WEAPON_ITEMS.flamethrower.ammoMax;
+    this.itemAmmo = Math.ceil(WEAPON_ITEMS.flamethrower.ammoMax * 0.5);
     this.itemAmmoMax = WEAPON_ITEMS.flamethrower.ammoMax;
     this.lastHeldItem = this.heldItem;
     this.itemUseFlash = 0;
@@ -600,7 +600,7 @@ class Player {
     this.parryTimer = 0;
   }
 
-  equipWeapon(weaponId, game) {
+  equipWeapon(weaponId, game, opts = {}) {
     const def = WEAPON_ITEMS[weaponId];
     if (!def) return false;
     if (this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false;
@@ -608,7 +608,9 @@ class Player {
     this.heldItem = weaponId;
     this.lastHeldItem = weaponId;
     this.itemAmmoMax = def.ammoMax || 0;
-    this.itemAmmo = Math.max(def.ammoCost || 1, Math.ceil((def.ammoMax || 0) * 0.55));
+    const defaultAmmo = Math.ceil((def.ammoMax || 0) * 0.5);
+    const pickedAmmo = opts.ammo === undefined ? defaultAmmo : opts.ammo;
+    this.itemAmmo = Math.max(0, Math.min(this.itemAmmoMax, Math.round(pickedAmmo)));
     this.ninjaType = 'basic';
     this.ultimateCharge = 0;
     this.ultimateReady = !!def.crashPower;
@@ -663,24 +665,60 @@ class Player {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const dir = this.facing || 1;
-    if (def === WEAPON_ITEMS.shotgun) {
+    const kind = def.kind || 'pistol';
+    const family = def.family || def.crashPower || 'basic';
+    const color = def.color || '#e8e8e8';
+    const accent = def.accentColor || color;
+    const applyProjectileTheme = (p) => {
+      p.fromSpecial = true;
+      if (family === 'fire') {
+        p.isFireball = true;
+      } else if (family === 'bubble') {
+        p.soaking = true;
+      } else if (family === 'shadow') {
+        p.shadowParalyse = true;
+      } else if (family === 'crystal') {
+        p.freezeDust = true;
+      } else if (family === 'wind') {
+        p.windPierce = true;
+        p.piercing = true;
+      } else if (family === 'storm') {
+        p.soaking = true;
+        p.shadowParalyse = true;
+      }
+      return p;
+    };
+    if (kind === 'shotgun') {
       for (let i = -2; i <= 2; i++) {
-        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, '#ffd08a', this.type.attackDamage + this.bonusElemental + 2, 'player');
-        p.w = 10; p.h = 5; p.life = 46; p.piercing = false; p.fromSpecial = true;
-        game.projectiles.push(p);
+        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
+        p.w = 10; p.h = 5; p.life = 46; p.piercing = false;
+        game.projectiles.push(applyProjectileTheme(p));
       }
       triggerScreenShake(2, 4);
-    } else if (def === WEAPON_ITEMS.rpg) {
-      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, '#d8d060', this.type.attackDamage + this.bonusElemental + 8, 'player');
-      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = 105; p.fromSpecial = true;
-      game.projectiles.push(p);
+    } else if (kind === 'rpg') {
+      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, color, this.type.attackDamage + this.bonusElemental + 8, 'player');
+      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = family === 'earth' ? 90 : 105;
+      game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(3, 5);
+    } else if (kind === 'crossbow') {
+      const p = new Projectile(cx + dir * 17, cy - 4, dir * 11.5, -0.1, color, this.type.attackDamage + this.bonusElemental + 3, 'player');
+      p.w = 16; p.h = 4; p.life = 72; p.piercing = true;
+      game.projectiles.push(applyProjectileTheme(p));
+    } else if (kind === 'staff') {
+      const p = new Projectile(cx + dir * 16, cy - 8, dir * 7.6, -0.35, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
+      p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
+      game.projectiles.push(applyProjectileTheme(p));
+    } else if (kind === 'hammer') {
+      const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
+      p.w = 18; p.h = 14; p.life = 58; p.explosive = true; p.explosionRadius = 70;
+      game.projectiles.push(applyProjectileTheme(p));
+      triggerScreenShake(2, 5);
     } else {
-      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, '#e8e8e8', this.type.attackDamage + this.bonusElemental + 1, 'player');
-      p.w = 9; p.h = 5; p.life = 80; p.fromSpecial = true;
-      game.projectiles.push(p);
+      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, color, this.type.attackDamage + this.bonusElemental + 1, 'player');
+      p.w = 9; p.h = 5; p.life = 80;
+      game.projectiles.push(applyProjectileTheme(p));
     }
-    game.effects.push(new Effect(cx + dir * 20, cy, def.accentColor || def.color, 7, 3, 8));
+    game.effects.push(new Effect(cx + dir * 20, cy, accent, 7, 3, 8));
   }
 
   activateItemCrash(game) {
@@ -3693,6 +3731,7 @@ class Player {
     const metal = def.color || '#ccc';
     const accent = def.accentColor || '#fff';
     const dark = def.hatColor || '#171717';
+    const kind = def.kind || 'pistol';
     const wood = '#6b3f22';
     const drawBarrel = (x, y, w, h, color = metal) => {
       ctx.fillStyle = color;
@@ -3703,7 +3742,7 @@ class Player {
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillRect(x + 2, y + 1, Math.max(2, w - 4), 2);
     };
-    if (id === 'flamethrower') {
+    if (kind === 'flamethrower') {
       ctx.fillStyle = dark;
       ctx.fillRect(-17, -7, 14, 14);
       ctx.strokeStyle = accent;
@@ -3724,7 +3763,7 @@ class Player {
         ctx.closePath();
         ctx.fill();
       }
-    } else if (id === 'bubbleGun') {
+    } else if (kind === 'bubbleGun') {
       drawBarrel(-14, -6, 27, 12, '#205b86');
       ctx.fillStyle = dark;
       ctx.fillRect(-11, 5, 9, 9);
@@ -3735,7 +3774,7 @@ class Player {
       ctx.strokeStyle = accent;
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(24, 0, 8, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.fillStyle = dark;
       ctx.fillRect(-14, -3, 15, 6);
       ctx.fillStyle = metal;
@@ -3745,7 +3784,7 @@ class Player {
       ctx.fillRect(6, -16, 8, 8);
       ctx.strokeStyle = accent;
       ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'crystalStaff') {
+    } else if (kind === 'staff') {
       drawBarrel(-18, -2, 35, 4, '#2b5961');
       ctx.shadowBlur = hand ? 10 : 5;
       ctx.fillStyle = accent;
@@ -3756,7 +3795,7 @@ class Player {
       ctx.globalAlpha = 0.65;
       ctx.beginPath(); ctx.moveTo(25, -9); ctx.lineTo(31, -2); ctx.lineTo(26, 5); ctx.closePath(); ctx.fill();
       ctx.globalAlpha = 1;
-    } else if (id === 'crossbow') {
+    } else if (kind === 'crossbow') {
       drawBarrel(-14, -2, 30, 4, wood);
       ctx.fillStyle = metal;
       ctx.fillRect(2, -8, 6, 16);
@@ -3766,14 +3805,14 @@ class Player {
       ctx.beginPath(); ctx.moveTo(7, -15); ctx.lineTo(7, 15); ctx.stroke();
       ctx.fillStyle = '#ddd';
       ctx.fillRect(15, -1, 18, 2);
-    } else if (id === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillStyle = wood;
       ctx.fillRect(-18, -5, 14, 10);
       drawBarrel(-5, -5, 38, 5, metal);
       drawBarrel(-5, 1, 38, 5, metal);
       ctx.fillStyle = dark;
       ctx.fillRect(-10, 5, 9, 9);
-    } else if (id === 'rpg') {
+    } else if (kind === 'rpg') {
       drawBarrel(-18, -7, 36, 14, metal);
       ctx.fillStyle = accent;
       ctx.beginPath(); ctx.moveTo(19, -11); ctx.lineTo(34, 0); ctx.lineTo(19, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -3781,6 +3820,17 @@ class Player {
       ctx.fillRect(-5, 6, 10, 11);
       ctx.fillStyle = '#333';
       ctx.fillRect(-23, -5, 6, 10);
+    } else if (kind === 'hammer') {
+      ctx.fillStyle = dark;
+      ctx.fillRect(-18, -3, 26, 6);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-18, -3, 26, 6);
+      ctx.fillStyle = metal;
+      ctx.fillRect(8, -12, 15, 24);
+      ctx.strokeRect(8, -12, 15, 24);
+      ctx.fillStyle = accent;
+      ctx.fillRect(10, -9, 11, 4);
     } else {
       drawBarrel(-11, -4, 25, 8, metal);
       ctx.fillStyle = accent;

@@ -2719,6 +2719,61 @@ class Game {
     return (stage && stage.lanes && (stage.lanes[lane] || stage.lanes.mid || stage.lanes.easy)) || MAP_START_ROOM_ID;
   }
 
+  _routeNodeLanes(step) {
+    step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, step || 0));
+    return (step === 0 || step === ROUTE_STAGE_LAYOUTS.length - 1) ? ['mid'] : ROUTE_LANES.slice();
+  }
+
+  _initRouteFreeTravelSelection() {
+    if (!this.mapScreen) return;
+    const route = this.routeState || this._freshMapState().route;
+    const step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, route.step || 0));
+    const lane = this._routeNodeLanes(step).includes(route.lane) ? route.lane : 'mid';
+    this.mapScreen.routeFreeStep = this.mapScreen.routeFreeStep === undefined ? step : this.mapScreen.routeFreeStep;
+    this.mapScreen.routeFreeLane = this.mapScreen.routeFreeLane || lane;
+  }
+
+  _selectRouteFreeTravelNode(dx, dy) {
+    if (!this.mapScreen) return;
+    this._initRouteFreeTravelSelection();
+    const ms = this.mapScreen;
+    const steps = ROUTE_STAGE_LAYOUTS.length;
+    let step = Math.max(0, Math.min(steps - 1, ms.routeFreeStep || 0));
+    let lane = ms.routeFreeLane || 'mid';
+    if (dx !== 0) step = Math.max(0, Math.min(steps - 1, step + dx));
+    const lanes = this._routeNodeLanes(step);
+    if (!lanes.includes(lane)) lane = 'mid';
+    if (dy !== 0 && lanes.length > 1) {
+      const visual = ['hard', 'mid', 'easy'];
+      let idx = Math.max(0, visual.indexOf(lane));
+      idx = Math.max(0, Math.min(visual.length - 1, idx + dy));
+      lane = visual[idx];
+    }
+    ms.routeFreeStep = step;
+    ms.routeFreeLane = lanes.includes(lane) ? lane : 'mid';
+  }
+
+  _confirmRouteFreeTravel() {
+    if (!this.mapScreen || !this.mapScreen.freeTravel) return false;
+    this._initRouteFreeTravelSelection();
+    const step = Math.max(0, Math.min(ROUTE_STAGE_LAYOUTS.length - 1, this.mapScreen.routeFreeStep || 0));
+    const lane = this._routeNodeLanes(step).includes(this.mapScreen.routeFreeLane) ? this.mapScreen.routeFreeLane : 'mid';
+    const previousLane = lane;
+    const route = this.routeState || this._freshMapState().route;
+    route.step = step;
+    route.lane = lane;
+    route.previousLane = previousLane;
+    route.next = this._routeConfigFor(step, lane, previousLane, route.history || []);
+    this.routeState = route;
+    this.mapState.route = route;
+    this.mapState.unlocked[route.next.roomId] = true;
+    this._saveMapState();
+    this.mapScreen = null;
+    this._enterMapRoom(route.next.roomId);
+    this.showWaveMessage(this._objectiveStartMessage());
+    return true;
+  }
+
   _routeBossFor(step, lane, previousLane, history) {
     if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
     if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
@@ -3846,7 +3901,9 @@ class Game {
       if (id === current) continue;
       const def = WEAPON_ITEMS[id];
       if (!def) continue;
-      const weight = def.crashPower ? 1 : (id === 'rpg' ? 2 : 4);
+      const familyWeight = (def.family === 'fire' || def.family === 'bubble') ? 4 : (def.family === 'earth' || def.family === 'storm' ? 2 : 3);
+      const kindPenalty = (def.kind === 'rpg' || def.kind === 'hammer') ? -1 : 0;
+      const weight = Math.max(1, familyWeight + kindPenalty);
       for (let i = 0; i < weight; i++) weighted.push(id);
     }
     return weighted.length ? weighted[Math.floor(Math.random() * weighted.length)] : 'pistol';
@@ -4654,7 +4711,17 @@ class Game {
         ms.delay--;
         consumePress('KeyZ'); consumePress('Enter'); consumePress('Space'); consumePress('MouseAttack');
       }
-      if (ms.routeAutoAdvance) {
+      if (consumePress('Digit0') || consumePress('Numpad0')) {
+        this.cheated = true;
+        recordCheatUsed();
+        ms.freeTravel = !ms.freeTravel;
+        if (ms.freeTravel) {
+          ms.delay = 0;
+          this._initRouteFreeTravelSelection();
+        }
+        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 20, ms.freeTravel ? 'ROUTE FREE TRAVEL' : 'ROUTE LOCKED', ms.freeTravel ? '#7df' : '#aaa'));
+      }
+      if (ms.routeAutoAdvance && !ms.freeTravel) {
         if (ms.delay <= 0 || consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack')) {
           this.mapScreen = null;
           this._enterMapRoom(ms.nextRoomId || this._routeLayoutRoomId((this.routeState && this.routeState.step) || 0, (this.routeState && this.routeState.lane) || 'mid'));
@@ -4668,7 +4735,10 @@ class Game {
       const navDown = consumePress('ArrowDown') || consumePress('KeyS');
       const navDx = navLeft ? -1 : navRight ? 1 : 0;
       const navDy = navUp ? -1 : navDown ? 1 : 0;
-      if (navDx || navDy) this._selectNextMapRoom(navDx, navDy);
+      if (navDx || navDy) {
+        if (ms.freeTravel) this._selectRouteFreeTravelNode(navDx, navDy);
+        else this._selectNextMapRoom(navDx, navDy);
+      }
       if (consumePress('KeyQ') || consumePress('Minus') || consumePress('NumpadSubtract')) {
         ms.zoom = Math.max(0.3, Math.round(((ms.zoom || 1) - 0.15) * 100) / 100);
         this.mapZoom = ms.zoom;
@@ -4677,12 +4747,9 @@ class Game {
         ms.zoom = Math.min(1.9, Math.round(((ms.zoom || 1) + 0.15) * 100) / 100);
         this.mapZoom = ms.zoom;
       }
-      if (consumePress('Digit0') || consumePress('Numpad0')) {
-        ms.freeTravel = !ms.freeTravel;
-        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 20, ms.freeTravel ? 'MAP FREE TRAVEL' : 'MAP LOCKED PATHS', ms.freeTravel ? '#7df' : '#aaa'));
-      }
       if (ms.delay <= 0 && (consumePress('KeyZ') || consumePress('Enter') || consumePress('Space') || consumePress('MouseAttack'))) {
-        this._confirmMapRoom();
+        if (ms.freeTravel) this._confirmRouteFreeTravel();
+        else this._confirmMapRoom();
       }
       return;
     }
@@ -8248,8 +8315,8 @@ class Game {
     ctx.font = '11px monospace';
     ctx.fillStyle = '#aaa';
     const hint = ms && ms.routeAutoAdvance
-      ? (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) : 'Z confirm next mission')
-      : 'Route advances by mission performance';
+      ? (ms.freeTravel ? 'FREE TRAVEL: arrows select stage   Z enter   0 lock route' : (ms.delay > 0 ? 'Route locked: advancing in ' + Math.ceil(ms.delay / 60) + '   0 free travel' : 'Z confirm next mission   0 free travel'))
+      : (ms && ms.freeTravel ? 'FREE TRAVEL: arrows select stage   Z enter   0 lock route' : 'Route advances by mission performance   0 free travel');
     ctx.fillText(hint, CANVAS_W / 2 - ctx.measureText(hint).width / 2, 62);
 
     const mapX = 70, mapY = 96, mapW = 610, mapH = 360;
@@ -8271,6 +8338,11 @@ class Game {
     const nodeKey = (step, lane) => step + ':' + lane;
     const activeStep = route.step || 0;
     const activeLane = route.lane || 'mid';
+    if (ms && ms.freeTravel) this._initRouteFreeTravelSelection();
+    const selectedStep = ms && ms.freeTravel ? Math.max(0, Math.min(steps - 1, ms.routeFreeStep || 0)) : activeStep;
+    const selectedLane = ms && ms.freeTravel
+      ? (this._routeNodeLanes(selectedStep).includes(ms.routeFreeLane) ? ms.routeFreeLane : 'mid')
+      : activeLane;
     const visited = new Set(['0:mid']);
     let prevLane = 'mid';
     for (const h of history) {
@@ -8313,15 +8385,16 @@ class Game {
       for (const lane of nodeLaneList(step)) {
         const x = nodeX(step), y = nodeY(step, lane);
         const isCurrent = step === activeStep && (step === 0 || step === steps - 1 || lane === activeLane);
+        const selected = ms && ms.freeTravel && step === selectedStep && (step === 0 || step === steps - 1 || lane === selectedLane);
         const seen = visited.has(nodeKey(step, lane));
         const marker = step === 0 || step === steps - 1 ? { symbol: '', color: '#ffe033' } : this._routeMarkerFor(lane);
-        const nodeColor = (seen || isCurrent) ? marker.color : '#686a72';
+        const nodeColor = (seen || isCurrent || selected || (ms && ms.freeTravel)) ? marker.color : '#686a72';
         ctx.save();
-        ctx.fillStyle = seen ? 'rgba(255,255,255,0.12)' : 'rgba(110,112,122,0.10)';
-        ctx.strokeStyle = isCurrent ? '#fff' : nodeColor;
-        ctx.lineWidth = isCurrent ? 4 : 2;
-        ctx.shadowColor = isCurrent ? '#fff' : nodeColor;
-        ctx.shadowBlur = seen || isCurrent ? 10 : 0;
+        ctx.fillStyle = selected ? 'rgba(125,220,255,0.22)' : (seen ? 'rgba(255,255,255,0.12)' : 'rgba(110,112,122,0.10)');
+        ctx.strokeStyle = selected ? '#7df' : (isCurrent ? '#fff' : nodeColor);
+        ctx.lineWidth = selected ? 5 : (isCurrent ? 4 : 2);
+        ctx.shadowColor = selected ? '#7df' : (isCurrent ? '#fff' : nodeColor);
+        ctx.shadowBlur = selected || seen || isCurrent ? 10 : 0;
         ctx.beginPath();
         ctx.arc(x, y, isCurrent ? 18 : 14, 0, Math.PI * 2);
         ctx.fill();
@@ -8344,11 +8417,13 @@ class Game {
     ctx.strokeStyle = '#334';
     ctx.lineWidth = 2;
     ctx.strokeRect(panelX, panelY, panelW, panelH);
-    const cfg = this._routeConfigFor(activeStep, activeLane, route.previousLane || 'mid', history);
+    const cfgStep = ms && ms.freeTravel ? selectedStep : activeStep;
+    const cfgLane = ms && ms.freeTravel ? selectedLane : activeLane;
+    const cfg = this._routeConfigFor(cfgStep, cfgLane, route.previousLane || cfgLane || 'mid', history);
     const bossName = BOSS_NAMES[cfg.bossType] || cfg.bossType.toUpperCase();
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px monospace';
-    ctx.fillText('Current Mission', panelX + 14, panelY + 28);
+    ctx.fillText(ms && ms.freeTravel ? 'Free Travel' : 'Current Mission', panelX + 14, panelY + 28);
     ctx.fillStyle = '#bbb';
     ctx.font = '11px monospace';
     ctx.fillText('Step ' + (activeStep + 1) + '/' + steps, panelX + 14, panelY + 54);
@@ -8826,17 +8901,18 @@ class Game {
     ctx.textAlign = 'left';
     ctx.fillStyle = def ? '#fff' : '#999';
     ctx.fillText(def ? def.shortName : 'NO ITEM', x + 36, y + 11);
-    ctx.font = '900 12px monospace';
+    ctx.font = '900 24px monospace';
+    ctx.textAlign = 'right';
     ctx.fillStyle = def ? (def.accentColor || def.color) : '#777';
-    const ammoText = def ? (Math.max(0, Math.floor(pl.itemAmmo || 0)) + '/' + (def.ammoMax || 0)) : '--';
-    ctx.fillText(ammoText, x + 36, y + 24);
+    const shotsText = def ? String(Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1)))) : '--';
+    ctx.fillText(shotsText, x + w - 8, y + 25);
     if (def && def.crashPower) {
       const pulse = 0.65 + 0.25 * Math.sin(this.tick * 0.18);
       ctx.globalAlpha = pulse;
       ctx.fillStyle = def.accentColor || def.color;
-      ctx.font = '900 10px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText('CRASH', x + w - 8, y + 18);
+      ctx.font = '900 8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('CRASH', x + 36, y + 23);
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -8849,6 +8925,7 @@ class Game {
     const dark = def.hatColor || '#222';
     const stroke = 'rgba(0,0,0,0.85)';
     const wood = '#6b3f22';
+    const kind = def.kind || 'pistol';
     ctx.save();
     ctx.scale(s, s);
     ctx.shadowColor = accent;
@@ -8856,30 +8933,34 @@ class Game {
     ctx.fillStyle = color;
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 2;
-    if (id === 'flamethrower') {
+    if (kind === 'flamethrower') {
       ctx.fillStyle = dark; ctx.fillRect(-18, -7, 12, 14); ctx.strokeRect(-18, -7, 12, 14);
       ctx.fillStyle = color; ctx.fillRect(-6, -5, 30, 10); ctx.strokeRect(-6, -5, 30, 10);
       ctx.fillStyle = accent; ctx.fillRect(19, -3, 8, 6);
-    } else if (id === 'bubbleGun') {
+    } else if (kind === 'bubbleGun') {
       ctx.fillStyle = '#205b86'; ctx.fillRect(-16, -6, 25, 12); ctx.strokeRect(-16, -6, 25, 12);
       ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(20, 0, 8, 0, Math.PI * 2); ctx.stroke();
-    } else if (id === 'smokeBomb') {
+    } else if (kind === 'orb') {
       ctx.fillStyle = color; ctx.beginPath(); ctx.arc(3, 0, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = accent; ctx.fillRect(-1, -15, 8, 8);
-    } else if (id === 'crystalStaff') {
+    } else if (kind === 'staff') {
       ctx.fillStyle = '#2b5961'; ctx.fillRect(-18, -2, 32, 4); ctx.strokeRect(-18, -2, 32, 4);
       ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(20, -13); ctx.lineTo(31, -2); ctx.lineTo(25, 10); ctx.lineTo(14, 3); ctx.lineTo(13, -7); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (id === 'crossbow') {
+    } else if (kind === 'crossbow') {
       ctx.fillStyle = wood; ctx.fillRect(-16, -2, 29, 4); ctx.strokeRect(-16, -2, 29, 4);
       ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(5, -15); ctx.quadraticCurveTo(24, -10, 28, 0); ctx.quadraticCurveTo(24, 10, 5, 15); ctx.stroke();
       ctx.strokeStyle = '#eee'; ctx.beginPath(); ctx.moveTo(5, -15); ctx.lineTo(5, 15); ctx.stroke();
-    } else if (id === 'shotgun') {
+    } else if (kind === 'shotgun') {
       ctx.fillStyle = wood; ctx.fillRect(-18, -5, 12, 10);
       ctx.fillStyle = color; ctx.fillRect(-6, -5, 34, 5); ctx.fillRect(-6, 1, 34, 5);
       ctx.strokeRect(-6, -5, 34, 11);
-    } else if (id === 'rpg') {
+    } else if (kind === 'rpg') {
       ctx.fillStyle = color; ctx.fillRect(-18, -7, 34, 14); ctx.strokeRect(-18, -7, 34, 14);
       ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(18, -11); ctx.lineTo(31, 0); ctx.lineTo(18, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (kind === 'hammer') {
+      ctx.fillStyle = dark; ctx.fillRect(-18, -2, 25, 4); ctx.strokeRect(-18, -2, 25, 4);
+      ctx.fillStyle = color; ctx.fillRect(7, -12, 15, 24); ctx.strokeRect(7, -12, 15, 24);
+      ctx.fillStyle = accent; ctx.fillRect(9, -9, 11, 4);
     } else {
       ctx.fillStyle = color; ctx.fillRect(-13, -5, 25, 10); ctx.strokeRect(-13, -5, 25, 10);
       ctx.fillStyle = accent; ctx.fillRect(8, -2, 10, 4);
