@@ -315,7 +315,24 @@ class Projectile {
     this.piercing = false;
     this.hitSet = new Set();
   }
-  _dropOrDie() { this.done = true; }
+  _dropOrDie(game) {
+    if (this.explosive && !this._exploded && game) this._explode(game);
+    this.done = true;
+  }
+
+  _explode(game) {
+    this._exploded = true;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const radius = this.explosionRadius || 90;
+    damageInRadius(game, cx, cy, radius, this.damage, cx);
+    game.effects.push(new SlamRing(cx, cy, '#ff8a28', radius, 16));
+    game.effects.push(new Effect(cx, cy, '#fff2b0', 24, 8, 18));
+    game.effects.push(new Effect(cx, cy, '#ff5a22', 32, 7, 22));
+    game.effects.push(new ScreenFlash('#fff1c2', 0.24, 10));
+    if (typeof SFX !== 'undefined' && SFX.nuke) SFX.nuke(0.45);
+    triggerScreenShake(7, 12);
+  }
   update(game) {
     // Orbiting mode: circle the player, bypass terrain
     if (this.orbiting) {
@@ -403,6 +420,11 @@ class Projectile {
     }
     this.life--;
     if (this.life <= 0) {
+      if (this.explosive && !this._exploded) {
+        this._explode(game);
+        this.done = true;
+        return;
+      }
       if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
       // Player shurikens drop instead of disappearing
       if (this.isShuriken && this.owner === 'player' && !this.isKunai) {
@@ -441,7 +463,7 @@ class Projectile {
             }
             return;
           }
-          this._dropOrDie();
+          this._dropOrDie(game);
           if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
           if (this.done) game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
           return;
@@ -479,7 +501,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
               ));
-              this._dropOrDie();
+              this._dropOrDie(game);
               return;
             }
             // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
@@ -490,7 +512,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
               ));
-              this._dropOrDie();
+              this._dropOrDie(game);
               return;
             }
 
@@ -568,7 +590,7 @@ class Projectile {
           if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
             game.player.addUltimateCharge(2);
           }
-          if (!this.piercing) { this._dropOrDie(); return; }
+          if (!this.piercing) { this._dropOrDie(game); return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
       }
@@ -584,7 +606,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
             ));
-            this._dropOrDie();
+            this._dropOrDie(game);
             return;
           }
           // Protector boss: block projectiles within shield arc (no pip loss)
@@ -595,7 +617,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
             ));
-            this._dropOrDie();
+            this._dropOrDie(game);
             return;
           }
           // Deflector boss: deflect projectiles back when ready
@@ -656,7 +678,7 @@ class Projectile {
         if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
           game.player.addUltimateCharge(3);
         }
-        if (!this.piercing) { this._dropOrDie(); return; }
+        if (!this.piercing) { this._dropOrDie(game); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {

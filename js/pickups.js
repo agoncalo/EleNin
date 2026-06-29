@@ -252,13 +252,81 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
   }
 }
 
+class ElementalShieldPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'elementalshield', { life: 900, bobSpeed: 0.05, w: 24, h: 24 });
+  }
+
+  static spawnInterval() {
+    return 1500;
+  }
+
+  static spawnPhase() {
+    return 840;
+  }
+
+  static maxOnScreen() {
+    return 1;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    const max = pl.elementalArmorMax || 100;
+    if (!rectOverlap(pl, this) || (pl.elementalArmor || 0) >= max) return;
+
+    this.done = true;
+    SFX.pickup();
+    pl.elementalArmor = max;
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new SlamRing(cx, cy, '#dff', 76, 9));
+    game.effects.push(new Effect(cx, cy, '#dff', 20, 5, 18));
+    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL ARMOR', '#dff'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    const t = this.bobTimer;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(state.x + 12, state.y + 12);
+    ctx.rotate(t * 0.8);
+    ctx.shadowColor = '#dff';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(210,255,255,0.25)';
+    ctx.strokeStyle = '#dff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const r = i % 2 ? 9 : 13;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.rotate(-t * 0.8);
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('E', 0, 1);
+    ctx.restore();
+  }
+}
+
 class ClassOrb {
-  constructor(x, y, ninjaType, opts = {}) {
+  constructor(x, y, weaponId, opts = {}) {
     this.x = x;
     this.y = y;
-    this.w = 44;
-    this.h = 44;
-    this.ninjaType = NINJA_TYPES[ninjaType] ? ninjaType : 'fire';
+    this.w = 52;
+    this.h = 36;
+    this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'flamethrower';
     this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
     this.pickupCooldown = opts.pickupCooldown || 0;
     this.done = false;
@@ -270,26 +338,28 @@ class ClassOrb {
     this.bobTimer += 0.055;
     const pl = game.player;
     if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
-    if (pl.ninjaType === this.ninjaType) return;
-    const oldType = pl.ninjaType;
-    if (!pl.switchNinja(this.ninjaType)) return;
+    if (pl.heldItem === this.weaponId) return;
+    const oldItem = pl.heldItem;
+    if (!pl.equipWeapon(this.weaponId, game)) return;
     this.done = true;
-    SFX.pickup();
-    game.classOrbs.push(new ClassOrb(this.x, this.y, oldType, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
-    const nt = NINJA_TYPES[this.ninjaType];
+    SFX.weaponPickup();
+    if (oldItem && WEAPON_ITEMS[oldItem]) {
+      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+    }
+    const wt = WEAPON_ITEMS[this.weaponId];
     const cx = pl.x + pl.w / 2;
     const cy = pl.y + pl.h / 2;
-    game.effects.push(new ScreenFlash(nt.accentColor || nt.color, 0.18, 12));
-    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, nt.accentColor || nt.color, 120, 12));
-    game.effects.push(new Effect(cx, cy, nt.accentColor || nt.color, 26, 6, 22));
-    game.effects.push(new TextEffect(cx, cy - 42, nt.name.toUpperCase() + ' ORB', nt.accentColor || nt.color));
+    game.effects.push(new ScreenFlash(wt.accentColor || wt.color, 0.18, 12));
+    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, wt.accentColor || wt.color, 120, 12));
+    game.effects.push(new Effect(cx, cy, wt.accentColor || wt.color, 26, 6, 22));
+    game.effects.push(new TextEffect(cx, cy - 42, wt.name.toUpperCase(), wt.accentColor || wt.color));
   }
 
   render(ctx, cam) {
     if (this.done) return;
-    const nt = NINJA_TYPES[this.ninjaType] || NINJA_TYPES.fire;
-    const color = nt.color || '#f93';
-    const accent = nt.accentColor || color;
+    const wt = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    const color = wt.color || '#f93';
+    const accent = wt.accentColor || color;
     const sx = this.x + this.w / 2 - cam.x;
     const sy = this.y + this.h / 2 + Math.sin(this.bobTimer) * 7 - cam.y;
     const pulse = 1 + Math.sin(this.bobTimer * 1.7) * 0.08;
@@ -299,33 +369,23 @@ class ClassOrb {
     ctx.globalAlpha = this.pickupCooldown > 0 ? 0.72 : 1;
     ctx.shadowColor = accent;
     ctx.shadowBlur = 24 + Math.sin(this.bobTimer * 2) * 6;
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.arc(0, 0, 30, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
+    ctx.fillRect(-28, -18, 56, 36);
     ctx.strokeStyle = accent;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(0, 0, 24, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-28, -18, 56, 36);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(-22, -12, 44, 24);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
     ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(0, 0, 17, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.lineTo(11, 0);
-    ctx.lineTo(0, 12);
-    ctx.lineTo(-11, 0);
-    ctx.closePath();
-    ctx.fill();
+    this._drawWeaponIcon(ctx, wt, 0, 0, 1);
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff';
-    ctx.font = '900 13px monospace';
+    ctx.font = '900 12px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(this.ninjaType.substring(0, 1).toUpperCase(), 0, 1);
+    ctx.fillText(wt.icon || '?', 0, 1);
     ctx.restore();
 
     ctx.save();
@@ -334,9 +394,95 @@ class ClassOrb {
     ctx.shadowColor = '#000';
     ctx.shadowBlur = 6;
     ctx.fillStyle = '#fff';
-    ctx.fillText(nt.name.toUpperCase(), sx, sy - 38);
+    ctx.fillText(wt.name.toUpperCase(), sx, sy - 34);
     ctx.fillStyle = accent;
-    ctx.fillText('SWAP ORB', sx, sy + 46);
+    ctx.fillText('ITEM', sx, sy + 38);
+    ctx.restore();
+  }
+
+  _drawWeaponIcon(ctx, wt, x, y, scale) {
+    const s = scale || 1;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.fillStyle = wt.color;
+    ctx.strokeStyle = wt.accentColor || '#fff';
+    ctx.lineWidth = 2;
+    if (this.weaponId === 'bubbleGun') {
+      ctx.fillRect(-14, -4, 22, 8);
+      ctx.strokeRect(-14, -4, 22, 8);
+      ctx.beginPath(); ctx.arc(13, 0, 6, 0, Math.PI * 2); ctx.stroke();
+    } else if (this.weaponId === 'smokeBomb') {
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillRect(-2, -15, 4, 8);
+    } else if (this.weaponId === 'crystalStaff') {
+      ctx.fillRect(-2, -14, 4, 28);
+      ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(8, -10); ctx.lineTo(0, -4); ctx.lineTo(-8, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (this.weaponId === 'crossbow') {
+      ctx.fillRect(-15, -2, 30, 4);
+      ctx.beginPath(); ctx.arc(0, 0, 14, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    } else if (this.weaponId === 'shotgun') {
+      ctx.fillRect(-18, -4, 30, 8);
+      ctx.fillRect(8, 0, 12, 4);
+      ctx.strokeRect(-18, -4, 38, 8);
+    } else if (this.weaponId === 'rpg') {
+      ctx.fillRect(-18, -5, 34, 10);
+      ctx.beginPath(); ctx.moveTo(18, -8); ctx.lineTo(26, 0); ctx.lineTo(18, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillRect(-14, -4, 28, 8);
+      ctx.fillRect(8, 0, 8, 5);
+      ctx.strokeRect(-14, -4, 28, 8);
+    }
+    ctx.restore();
+  }
+}
+
+class AmmoPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'ammo', { life: 720, bobSpeed: 0.055, w: 24, h: 20 });
+  }
+
+  static spawnInterval() {
+    return 420;
+  }
+
+  static spawnPhase() {
+    return 180;
+  }
+
+  static maxOnScreen() {
+    return 3;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    if (!pl || !rectOverlap(pl, this)) return;
+    const gained = pl.addAmmo(null, game);
+    if (gained <= 0) return;
+    this.done = true;
+    SFX.reload();
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new Effect(cx, cy, '#ffd86b', 14, 4, 14));
+    game.effects.push(new TextEffect(cx, cy - 24, '+' + gained + ' AMMO', '#ffd86b'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(state.x + 12, state.y + 10);
+    ctx.shadowColor = '#ffd86b';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#3a2a12';
+    ctx.fillRect(-12, -9, 24, 18);
+    ctx.strokeStyle = '#ffd86b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-12, -9, 24, 18);
+    ctx.fillStyle = '#ffd86b';
+    for (let i = 0; i < 3; i++) ctx.fillRect(-8 + i * 6, -5, 4, 10);
     ctx.restore();
   }
 }

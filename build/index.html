@@ -14,8 +14,8 @@ canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; object
 <body>
 <canvas id="game"></canvas>
 <script>
-// BUILD TIMESTAMP: 2026-06-29 01:56 UTC
-console.log("EleNin build: 2026-06-29 01:56 UTC");
+// BUILD TIMESTAMP: 2026-06-29 12:01 UTC
+console.log("EleNin build: 2026-06-29 12:01 UTC");
 // === js/constants.js ===
 // ── Constants ────────────────────────────────────────────────
 const CANVAS_W = 960;
@@ -115,6 +115,7 @@ const ELEMENT_MATRIX = {
 // Map ninja type -> attack element. Shadow has no element (always steel/normal).
 // Storm is multi-element: melee=steel, soak/chain=lightning+water
 const NINJA_ATTACK_ELEMENTS = {
+  basic: 'steel',
   fire: 'fire',
   earth: 'earth',
   bubble: 'water',
@@ -126,6 +127,7 @@ const NINJA_ATTACK_ELEMENTS = {
 
 // Starting max Mana per ninja type (can be increased with orbs)
 const MANA_CAPS = {
+  basic: 0,
   fire: 2,
   earth: 3,
   bubble: 1,
@@ -139,6 +141,15 @@ const MANA_CAPS = {
 const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% base chance (boosted when level has an element)
 
 const NINJA_TYPES = {
+  basic: {
+    name: 'Black Ninja',
+    color: '#111',
+    accentColor: '#d8d8d8',
+    key: '',
+    attackDamage: 2,
+    jumpPower: -10,
+    speed: 4.25
+  },
   fire: {
     name: 'Fire Ninja',
     color: '#e33',
@@ -440,6 +451,119 @@ const BOSS_NAMES = {
   walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
   bouncer:'BOUNCER', shielded:'GUARDIAN', deflector:'RONIN',
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
+};
+
+const WEAPON_ORDER = ['flamethrower', 'bubbleGun', 'smokeBomb', 'crystalStaff', 'crossbow', 'pistol', 'shotgun', 'rpg'];
+const WEAPON_ITEMS = {
+  flamethrower: {
+    name: 'Flamethrower',
+    shortName: 'FLAME',
+    power: 'fire',
+    crashPower: 'fire',
+    color: '#f45',
+    accentColor: '#ffb347',
+    bodyColor: '#7c1f1f',
+    hatColor: '#241010',
+    ammoMax: 80,
+    ammoPickup: 24,
+    ammoCost: 6,
+    icon: 'F'
+  },
+  bubbleGun: {
+    name: 'Bubble Gun',
+    shortName: 'BUBBLE',
+    power: 'bubble',
+    crashPower: 'bubble',
+    color: '#4af',
+    accentColor: '#aef',
+    bodyColor: '#17467a',
+    hatColor: '#0b1d2c',
+    ammoMax: 45,
+    ammoPickup: 15,
+    ammoCost: 4,
+    icon: 'B'
+  },
+  smokeBomb: {
+    name: 'Smoke Bomb',
+    shortName: 'SMOKE',
+    power: 'shadow',
+    crashPower: 'shadow',
+    color: '#6b3aa8',
+    accentColor: '#d7b4ff',
+    bodyColor: '#38204f',
+    hatColor: '#15101f',
+    ammoMax: 18,
+    ammoPickup: 6,
+    ammoCost: 2,
+    icon: 'S'
+  },
+  crystalStaff: {
+    name: 'Crystal Staff',
+    shortName: 'CRYSTAL',
+    power: 'crystal',
+    crashPower: 'crystal',
+    color: '#31c6cf',
+    accentColor: '#dfffff',
+    bodyColor: '#17666c',
+    hatColor: '#0b262a',
+    ammoMax: 36,
+    ammoPickup: 12,
+    ammoCost: 3,
+    icon: 'C'
+  },
+  crossbow: {
+    name: 'Crossbow',
+    shortName: 'XBOW',
+    power: 'wind',
+    crashPower: 'wind',
+    color: '#6bc070',
+    accentColor: '#d7ffd6',
+    bodyColor: '#2f6a38',
+    hatColor: '#102817',
+    ammoMax: 42,
+    ammoPickup: 14,
+    ammoCost: 3,
+    icon: 'X'
+  },
+  pistol: {
+    name: 'Pistol',
+    shortName: 'PISTOL',
+    power: 'basic',
+    color: '#c8c8c8',
+    accentColor: '#fff',
+    bodyColor: '#303030',
+    hatColor: '#111',
+    ammoMax: 72,
+    ammoPickup: 24,
+    ammoCost: 2,
+    icon: 'P'
+  },
+  shotgun: {
+    name: 'Shotgun',
+    shortName: 'SHOTGUN',
+    power: 'basic',
+    color: '#c89052',
+    accentColor: '#ffe0a8',
+    bodyColor: '#69451f',
+    hatColor: '#23180d',
+    ammoMax: 30,
+    ammoPickup: 10,
+    ammoCost: 5,
+    icon: 'G'
+  },
+  rpg: {
+    name: 'RPG',
+    shortName: 'RPG',
+    power: 'basic',
+    color: '#9aa062',
+    accentColor: '#fff28a',
+    bodyColor: '#4f5730',
+    hatColor: '#1d2110',
+    ammoMax: 12,
+    ammoPickup: 4,
+    ammoCost: 4,
+    icon: 'R'
+  }
 };
 
 const ROUTE_LANES = ['easy', 'mid', 'hard'];
@@ -2483,6 +2607,8 @@ const SFX = {
     alarmSecondary: ['assets/sfx/alarm_secondary.wav'],
     alarmMiniboss: ['assets/sfx/alarm_miniboss.wav'],
     alarmBoss: ['assets/sfx/alarm_boss.wav'],
+    weaponPickup: ['assets/sfx/weapon_pickup.wav'],
+    reload: ['assets/sfx/reload.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -2772,6 +2898,20 @@ const SFX = {
     this.filteredNoise(0.22, 0.13, 'lowpass', 260, 0.8, 0.001);
   },
   pickup() { this.play(520, 'triangle', 0.08, 0.1); setTimeout(() => this.play(780, 'triangle', 0.1, 0.1), 80); },
+  weaponPickup() {
+    this.sample('weaponPickup', () => {
+      this.metal(720, 0.07, 0.08);
+      setTimeout(() => this.tone(980, 'triangle', 0.09, 0.055, 260, 0.002), 45);
+      setTimeout(() => this.tone(1320, 'sine', 0.08, 0.04, 120, 0.002), 95);
+    }, 0.78);
+  },
+  reload() {
+    this.sample('reload', () => {
+      this.metal(360, 0.06, 0.055);
+      setTimeout(() => this.metal(520, 0.055, 0.055), 58);
+      setTimeout(() => this.tone(210, 'square', 0.06, 0.035, -60, 0.001), 112);
+    }, 0.82);
+  },
   reflect() {
     this.metal(1900, 0.11, 0.09);
     this.filteredNoise(0.055, 0.045, 'highpass', 3200, 1.1, 0.001);
@@ -4707,7 +4847,7 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
-    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL', bubbleshield: 'SHIELD' };
+    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'AMMO', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL', bubbleshield: 'SHIELD' };
     const _bonusColor = { heal: '#f44', maxhp: '#4f4', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f', bubbleshield: '#4af' };
 
     // Attraction to player if nearby
@@ -7111,7 +7251,24 @@ class Projectile {
     this.piercing = false;
     this.hitSet = new Set();
   }
-  _dropOrDie() { this.done = true; }
+  _dropOrDie(game) {
+    if (this.explosive && !this._exploded && game) this._explode(game);
+    this.done = true;
+  }
+
+  _explode(game) {
+    this._exploded = true;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const radius = this.explosionRadius || 90;
+    damageInRadius(game, cx, cy, radius, this.damage, cx);
+    game.effects.push(new SlamRing(cx, cy, '#ff8a28', radius, 16));
+    game.effects.push(new Effect(cx, cy, '#fff2b0', 24, 8, 18));
+    game.effects.push(new Effect(cx, cy, '#ff5a22', 32, 7, 22));
+    game.effects.push(new ScreenFlash('#fff1c2', 0.24, 10));
+    if (typeof SFX !== 'undefined' && SFX.nuke) SFX.nuke(0.45);
+    triggerScreenShake(7, 12);
+  }
   update(game) {
     // Orbiting mode: circle the player, bypass terrain
     if (this.orbiting) {
@@ -7199,6 +7356,11 @@ class Projectile {
     }
     this.life--;
     if (this.life <= 0) {
+      if (this.explosive && !this._exploded) {
+        this._explode(game);
+        this.done = true;
+        return;
+      }
       if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
       // Player shurikens drop instead of disappearing
       if (this.isShuriken && this.owner === 'player' && !this.isKunai) {
@@ -7237,7 +7399,7 @@ class Projectile {
             }
             return;
           }
-          this._dropOrDie();
+          this._dropOrDie(game);
           if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
           if (this.done) game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
           return;
@@ -7275,7 +7437,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#5ff', 8, 3, 10
               ));
-              this._dropOrDie();
+              this._dropOrDie(game);
               return;
             }
             // Protector: block projectiles within shield arc (stops even piercing, no pip loss)
@@ -7286,7 +7448,7 @@ class Projectile {
               game.effects.push(new Effect(
                 e.x + e.w / 2 + Math.cos(shAng) * e.w * 0.6, e.y + e.h / 2 + Math.sin(shAng) * e.w * 0.6, '#4f8', 8, 3, 10
               ));
-              this._dropOrDie();
+              this._dropOrDie(game);
               return;
             }
 
@@ -7364,7 +7526,7 @@ class Projectile {
           if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
             game.player.addUltimateCharge(2);
           }
-          if (!this.piercing) { this._dropOrDie(); return; }
+          if (!this.piercing) { this._dropOrDie(game); return; }
           game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
         }
       }
@@ -7380,7 +7542,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#5ff', 8, 3, 10
             ));
-            this._dropOrDie();
+            this._dropOrDie(game);
             return;
           }
           // Protector boss: block projectiles within shield arc (no pip loss)
@@ -7391,7 +7553,7 @@ class Projectile {
             game.effects.push(new Effect(
               game.boss.x + game.boss.w / 2 + Math.cos(shAng) * game.boss.w * 0.7, game.boss.y + game.boss.h / 2 + Math.sin(shAng) * game.boss.w * 0.7, '#4f8', 8, 3, 10
             ));
-            this._dropOrDie();
+            this._dropOrDie(game);
             return;
           }
           // Deflector boss: deflect projectiles back when ready
@@ -7452,7 +7614,7 @@ class Projectile {
         if (fromPlayer && !game.player.ultimateReady && !game.player.ultimateActive) {
           game.player.addUltimateCharge(3);
         }
-        if (!this.piercing) { this._dropOrDie(); return; }
+        if (!this.piercing) { this._dropOrDie(game); return; }
         game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 8));
       }
     } else {
@@ -8215,13 +8377,81 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
   }
 }
 
+class ElementalShieldPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'elementalshield', { life: 900, bobSpeed: 0.05, w: 24, h: 24 });
+  }
+
+  static spawnInterval() {
+    return 1500;
+  }
+
+  static spawnPhase() {
+    return 840;
+  }
+
+  static maxOnScreen() {
+    return 1;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    const max = pl.elementalArmorMax || 100;
+    if (!rectOverlap(pl, this) || (pl.elementalArmor || 0) >= max) return;
+
+    this.done = true;
+    SFX.pickup();
+    pl.elementalArmor = max;
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new SlamRing(cx, cy, '#dff', 76, 9));
+    game.effects.push(new Effect(cx, cy, '#dff', 20, 5, 18));
+    game.effects.push(new TextEffect(cx, cy - 26, 'ELEMENTAL ARMOR', '#dff'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    const t = this.bobTimer;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(state.x + 12, state.y + 12);
+    ctx.rotate(t * 0.8);
+    ctx.shadowColor = '#dff';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(210,255,255,0.25)';
+    ctx.strokeStyle = '#dff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const r = i % 2 ? 9 : 13;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.rotate(-t * 0.8);
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('E', 0, 1);
+    ctx.restore();
+  }
+}
+
 class ClassOrb {
-  constructor(x, y, ninjaType, opts = {}) {
+  constructor(x, y, weaponId, opts = {}) {
     this.x = x;
     this.y = y;
-    this.w = 44;
-    this.h = 44;
-    this.ninjaType = NINJA_TYPES[ninjaType] ? ninjaType : 'fire';
+    this.w = 52;
+    this.h = 36;
+    this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'flamethrower';
     this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
     this.pickupCooldown = opts.pickupCooldown || 0;
     this.done = false;
@@ -8233,26 +8463,28 @@ class ClassOrb {
     this.bobTimer += 0.055;
     const pl = game.player;
     if (!pl || this.pickupCooldown > 0 || !rectOverlap(pl, this)) return;
-    if (pl.ninjaType === this.ninjaType) return;
-    const oldType = pl.ninjaType;
-    if (!pl.switchNinja(this.ninjaType)) return;
+    if (pl.heldItem === this.weaponId) return;
+    const oldItem = pl.heldItem;
+    if (!pl.equipWeapon(this.weaponId, game)) return;
     this.done = true;
-    SFX.pickup();
-    game.classOrbs.push(new ClassOrb(this.x, this.y, oldType, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
-    const nt = NINJA_TYPES[this.ninjaType];
+    SFX.weaponPickup();
+    if (oldItem && WEAPON_ITEMS[oldItem]) {
+      game.classOrbs.push(new ClassOrb(this.x, this.y, oldItem, { pickupCooldown: 45, bobTimer: this.bobTimer + Math.PI }));
+    }
+    const wt = WEAPON_ITEMS[this.weaponId];
     const cx = pl.x + pl.w / 2;
     const cy = pl.y + pl.h / 2;
-    game.effects.push(new ScreenFlash(nt.accentColor || nt.color, 0.18, 12));
-    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, nt.accentColor || nt.color, 120, 12));
-    game.effects.push(new Effect(cx, cy, nt.accentColor || nt.color, 26, 6, 22));
-    game.effects.push(new TextEffect(cx, cy - 42, nt.name.toUpperCase() + ' ORB', nt.accentColor || nt.color));
+    game.effects.push(new ScreenFlash(wt.accentColor || wt.color, 0.18, 12));
+    game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, wt.accentColor || wt.color, 120, 12));
+    game.effects.push(new Effect(cx, cy, wt.accentColor || wt.color, 26, 6, 22));
+    game.effects.push(new TextEffect(cx, cy - 42, wt.name.toUpperCase(), wt.accentColor || wt.color));
   }
 
   render(ctx, cam) {
     if (this.done) return;
-    const nt = NINJA_TYPES[this.ninjaType] || NINJA_TYPES.fire;
-    const color = nt.color || '#f93';
-    const accent = nt.accentColor || color;
+    const wt = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    const color = wt.color || '#f93';
+    const accent = wt.accentColor || color;
     const sx = this.x + this.w / 2 - cam.x;
     const sy = this.y + this.h / 2 + Math.sin(this.bobTimer) * 7 - cam.y;
     const pulse = 1 + Math.sin(this.bobTimer * 1.7) * 0.08;
@@ -8262,33 +8494,23 @@ class ClassOrb {
     ctx.globalAlpha = this.pickupCooldown > 0 ? 0.72 : 1;
     ctx.shadowColor = accent;
     ctx.shadowBlur = 24 + Math.sin(this.bobTimer * 2) * 6;
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.arc(0, 0, 30, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
+    ctx.fillRect(-28, -18, 56, 36);
     ctx.strokeStyle = accent;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(0, 0, 24, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-28, -18, 56, 36);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(-22, -12, 44, 24);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
     ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(0, 0, 17, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.lineTo(11, 0);
-    ctx.lineTo(0, 12);
-    ctx.lineTo(-11, 0);
-    ctx.closePath();
-    ctx.fill();
+    this._drawWeaponIcon(ctx, wt, 0, 0, 1);
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff';
-    ctx.font = '900 13px monospace';
+    ctx.font = '900 12px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(this.ninjaType.substring(0, 1).toUpperCase(), 0, 1);
+    ctx.fillText(wt.icon || '?', 0, 1);
     ctx.restore();
 
     ctx.save();
@@ -8297,9 +8519,95 @@ class ClassOrb {
     ctx.shadowColor = '#000';
     ctx.shadowBlur = 6;
     ctx.fillStyle = '#fff';
-    ctx.fillText(nt.name.toUpperCase(), sx, sy - 38);
+    ctx.fillText(wt.name.toUpperCase(), sx, sy - 34);
     ctx.fillStyle = accent;
-    ctx.fillText('SWAP ORB', sx, sy + 46);
+    ctx.fillText('ITEM', sx, sy + 38);
+    ctx.restore();
+  }
+
+  _drawWeaponIcon(ctx, wt, x, y, scale) {
+    const s = scale || 1;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.fillStyle = wt.color;
+    ctx.strokeStyle = wt.accentColor || '#fff';
+    ctx.lineWidth = 2;
+    if (this.weaponId === 'bubbleGun') {
+      ctx.fillRect(-14, -4, 22, 8);
+      ctx.strokeRect(-14, -4, 22, 8);
+      ctx.beginPath(); ctx.arc(13, 0, 6, 0, Math.PI * 2); ctx.stroke();
+    } else if (this.weaponId === 'smokeBomb') {
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillRect(-2, -15, 4, 8);
+    } else if (this.weaponId === 'crystalStaff') {
+      ctx.fillRect(-2, -14, 4, 28);
+      ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(8, -10); ctx.lineTo(0, -4); ctx.lineTo(-8, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (this.weaponId === 'crossbow') {
+      ctx.fillRect(-15, -2, 30, 4);
+      ctx.beginPath(); ctx.arc(0, 0, 14, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    } else if (this.weaponId === 'shotgun') {
+      ctx.fillRect(-18, -4, 30, 8);
+      ctx.fillRect(8, 0, 12, 4);
+      ctx.strokeRect(-18, -4, 38, 8);
+    } else if (this.weaponId === 'rpg') {
+      ctx.fillRect(-18, -5, 34, 10);
+      ctx.beginPath(); ctx.moveTo(18, -8); ctx.lineTo(26, 0); ctx.lineTo(18, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillRect(-14, -4, 28, 8);
+      ctx.fillRect(8, 0, 8, 5);
+      ctx.strokeRect(-14, -4, 28, 8);
+    }
+    ctx.restore();
+  }
+}
+
+class AmmoPickupOrb extends TimedPickupOrb {
+  constructor(x, y) {
+    super(x, y, 'ammo', { life: 720, bobSpeed: 0.055, w: 24, h: 20 });
+  }
+
+  static spawnInterval() {
+    return 420;
+  }
+
+  static spawnPhase() {
+    return 180;
+  }
+
+  static maxOnScreen() {
+    return 3;
+  }
+
+  update(game) {
+    if (!this.tickPickup()) return;
+    const pl = game.player;
+    if (!pl || !rectOverlap(pl, this)) return;
+    const gained = pl.addAmmo(null, game);
+    if (gained <= 0) return;
+    this.done = true;
+    SFX.reload();
+    const cx = pl.x + pl.w / 2;
+    const cy = pl.y + pl.h / 2;
+    game.effects.push(new Effect(cx, cy, '#ffd86b', 14, 4, 14));
+    game.effects.push(new TextEffect(cx, cy - 24, '+' + gained + ' AMMO', '#ffd86b'));
+  }
+
+  render(ctx, cam) {
+    const state = this.drawState(cam);
+    if (!state) return;
+    ctx.save();
+    ctx.globalAlpha = state.alpha;
+    ctx.translate(state.x + 12, state.y + 10);
+    ctx.shadowColor = '#ffd86b';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#3a2a12';
+    ctx.fillRect(-12, -9, 24, 18);
+    ctx.strokeStyle = '#ffd86b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-12, -9, 24, 18);
+    ctx.fillStyle = '#ffd86b';
+    for (let i = 0; i < 3; i++) ctx.fillRect(-8 + i * 6, -5, 4, 10);
     ctx.restore();
   }
 }
@@ -8391,7 +8699,12 @@ class Player {
     this.maxShield = 0;
     this.displayHp = 20;
     this.displayShield = 0;
-    this.ninjaType = 'fire';
+    this.ninjaType = 'basic';
+    this.heldItem = 'flamethrower';
+    this.itemAmmo = WEAPON_ITEMS.flamethrower.ammoMax;
+    this.itemAmmoMax = WEAPON_ITEMS.flamethrower.ammoMax;
+    this.lastHeldItem = this.heldItem;
+    this.itemUseFlash = 0;
     this.invincibleTimer = 90;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
@@ -8571,6 +8884,9 @@ class Player {
     // Bubble shield orb — temporary damage block
     this.bubbleShieldTimer = 0;
     this.bubbleShieldMax = 300; // 5 seconds
+    this.elementalArmor = 0;
+    this.elementalArmorMax = 100;
+    this.elementalArmorBlockCost = 34;
 
     // Pending damage (highest prevails per frame)
     this._pendingDamage = null; // { amount, element, killerInfo }
@@ -8947,16 +9263,138 @@ class Player {
   }
 
   addUltimateCharge(amount) {
-    if (!this.ultimateReady && !this.ultimateActive) {
-      this.ultimateCharge = Math.min(this.ultimateCharge + amount, this.ultimateMax);
-      if (this.ultimateCharge >= this.ultimateMax) {
-        this.ultimateCharge = this.ultimateMax;
-        this.ultimateReady = true;
-      }
+    this.addAmmo(Math.max(1, Math.round((amount || 1) / 5)));
+    const def = this.currentWeaponDef();
+    this.ultimateCharge = 0;
+    this.ultimateReady = !!(def && def.crashPower);
+  }
+
+  currentWeaponDef() {
+    return (this.heldItem && WEAPON_ITEMS[this.heldItem]) ? WEAPON_ITEMS[this.heldItem] : null;
+  }
+
+  _clearItemMotionState() {
+    this.fireDashing = false;
+    this.fireDashTimer = 0;
+    this._fireballPending = false;
+    this.windDashing = false;
+    this.windDashTimer = 0;
+    this.earthAirHover = 0;
+    this.iceHover = 0;
+    this.stopMidair = false;
+    this.stopMidairTimer = 0;
+    this.parrying = false;
+    this.parryTimer = 0;
+  }
+
+  equipWeapon(weaponId, game) {
+    const def = WEAPON_ITEMS[weaponId];
+    if (!def) return false;
+    if (this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false;
+    this._clearItemMotionState();
+    this.heldItem = weaponId;
+    this.lastHeldItem = weaponId;
+    this.itemAmmoMax = def.ammoMax || 0;
+    this.itemAmmo = Math.max(def.ammoCost || 1, Math.ceil((def.ammoMax || 0) * 0.55));
+    this.ninjaType = 'basic';
+    this.ultimateCharge = 0;
+    this.ultimateReady = !!def.crashPower;
+    if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 34, def.name.toUpperCase(), def.accentColor || def.color));
+    return true;
+  }
+
+  addAmmo(amount, game) {
+    const def = this.currentWeaponDef();
+    if (!def) return 0;
+    const max = def.ammoMax || this.itemAmmoMax || 0;
+    const gain = amount || def.ammoPickup || Math.max(4, Math.ceil(max * 0.25));
+    const before = this.itemAmmo || 0;
+    this.itemAmmoMax = max;
+    this.itemAmmo = Math.min(max, before + gain);
+    return this.itemAmmo - before;
+  }
+
+  _spendItemAmmo(game) {
+    const def = this.currentWeaponDef();
+    if (!def) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'NO ITEM', '#aaa'));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return null;
     }
+    const cost = def.ammoCost || 1;
+    if ((this.itemAmmo || 0) < cost) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'NO AMMO', '#ffd86b'));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return null;
+    }
+    this.itemAmmo -= cost;
+    return def;
+  }
+
+  useHeldItem(game) {
+    const def = this._spendItemAmmo(game);
+    if (!def) return;
+    this.itemUseFlash = 12;
+    if (def.power && def.power !== 'basic') {
+      const oldType = this.ninjaType;
+      this.ninjaType = def.power;
+      this.useSpecial(game);
+      if (def.power !== 'fire') this.ninjaType = oldType === 'fire' ? 'basic' : oldType;
+      return;
+    }
+    this.fireBasicWeapon(game, def);
+  }
+
+  fireBasicWeapon(game, def) {
+    SFX.special();
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const dir = this.facing || 1;
+    if (def === WEAPON_ITEMS.shotgun) {
+      for (let i = -2; i <= 2; i++) {
+        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, '#ffd08a', this.type.attackDamage + this.bonusElemental + 2, 'player');
+        p.w = 10; p.h = 5; p.life = 46; p.piercing = false; p.fromSpecial = true;
+        game.projectiles.push(p);
+      }
+      triggerScreenShake(2, 4);
+    } else if (def === WEAPON_ITEMS.rpg) {
+      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, '#d8d060', this.type.attackDamage + this.bonusElemental + 8, 'player');
+      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = 105; p.fromSpecial = true;
+      game.projectiles.push(p);
+      triggerScreenShake(3, 5);
+    } else {
+      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, '#e8e8e8', this.type.attackDamage + this.bonusElemental + 1, 'player');
+      p.w = 9; p.h = 5; p.life = 80; p.fromSpecial = true;
+      game.projectiles.push(p);
+    }
+    game.effects.push(new Effect(cx + dir * 20, cy, def.accentColor || def.color, 7, 3, 8));
+  }
+
+  activateItemCrash(game) {
+    const def = this.currentWeaponDef();
+    if (!def || !def.crashPower) {
+      if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 12, 'NO CRASH', '#aaa'));
+      if (typeof SFX !== 'undefined' && SFX.miss) SFX.miss();
+      return false;
+    }
+    if (this.ultCutscene || this.ultimateActive) return false;
+    const consumed = this.heldItem;
+    this.heldItem = null;
+    this.itemAmmo = 0;
+    this.itemAmmoMax = 0;
+    this.ninjaType = def.crashPower;
+    this.ultimateReady = true;
+    this.ultimateCharge = this.ultimateMax;
+    this.activateUltimate(game);
+    if (game) game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 52, def.shortName + ' CRASH', def.accentColor || def.color));
+    this.lastHeldItem = consumed;
+    return true;
   }
 
   switchNinja(type) {
+    const weapon = WEAPON_ORDER.find(id => WEAPON_ITEMS[id] && WEAPON_ITEMS[id].power === type);
+    if (weapon) return this.equipWeapon(weapon);
+    if (type !== 'basic') return false;
     if (this.ninjaType === type) return false;
     if (this.ultCutscene || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle) return false; // Can't switch during ultimate cutscene, golem, bubble, wind bow, or crystal castle
     this.ninjaType = type;
@@ -8964,6 +9402,7 @@ class Player {
     this.comboTimer = 0;
     this.fireArmor = false;
     this.fireArmorTimer = 0;
+    this._clearItemMotionState();
     this.bubbleBuffTimer = 0;
     this.backstabReady = false;
     this.shadowStealth = 0;
@@ -8977,8 +9416,6 @@ class Player {
     this.crystalShatter = 0;
     this.crystalShards = null;
     this.windPower = 0;
-    this.windDashing = false;
-    this.windDashTimer = 0;
     this.stormChaining = false;
     this.stormChainHit = new Set();
     this.stormAfterimages = [];
@@ -9147,6 +9584,7 @@ class Player {
 
     // x2 Orb break animation timer
     if (this.x2OrbBreaking > 0) this.x2OrbBreaking--;
+    if (this.itemUseFlash > 0) this.itemUseFlash--;
 
     // ── Ultimate cutscene float phase ──
     if (this.ultCutscene) {
@@ -9642,6 +10080,7 @@ class Player {
           this.shadowDarkness = 0;
           this.shadowEyesTimer = 0;
           this.stormRaindrops = [];
+          this.ninjaType = 'basic';
           // Crystal castle cleanup
           if (this.crystalCastle) {
             if (game.crystalCastle && !game.crystalCastle.done) {
@@ -9654,10 +10093,10 @@ class Player {
       }
     }
 
-    // Ultimate activation input
-    if (this.ultimateReady && !this.ultimateActive) {
+    // Item Crash: sacrifice the held item for its old ultimate-scale effect.
+    if (!this.ultimateActive) {
       if (consumePress('KeyC') || consumePress('KeyN') || gpJust[3]) {
-        this.activateUltimate(game);
+        this.activateItemCrash(game);
       }
     }
 
@@ -9667,7 +10106,11 @@ class Player {
       if (this.invincibleTimer > 0) this.invincibleTimer--;
       return;
     }
-    const t = this.type;
+    const t = Object.assign({}, this.type, {
+      name: 'Black Ninja',
+      color: '#111',
+      accentColor: '#d8d8d8'
+    });
 
     // Bubble buff decay
     if (this.bubbleBuffTimer > 0) this.bubbleBuffTimer--;
@@ -10593,11 +11036,9 @@ class Player {
       this.codeComboCount = 0;
     }
 
-    // Special ability
+    // Held item
     if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
-      if (this._spendActionCharge('special', game)) {
-        this.useSpecial(game);
-      }
+      this.useHeldItem(game);
     }
 
     // Fire ninja: combo decay & fire armor
@@ -11437,6 +11878,7 @@ class Player {
       game.projectiles.push(proj);
       this._fireballPending = false;
     }
+    if (!this.ultimateActive) this.ninjaType = 'basic';
   }
 
   useSpecial(game) {
@@ -11609,6 +12051,18 @@ class Player {
 
   applyElementalStatus(element, game) {
     if (!element) return;
+    const statusElements = { fire: true, water: true, crystal: true, wind: true, lightning: true, ghost: true, spiky: true };
+    if (!statusElements[element]) return;
+    const armorMax = this.elementalArmorMax || 100;
+    const armorCost = this.elementalArmorBlockCost || Math.ceil(armorMax / 3);
+    if ((this.elementalArmor || 0) >= armorCost) {
+      this.elementalArmor = Math.max(0, (this.elementalArmor || 0) - armorCost);
+      const color = ELEMENT_COLORS[element] ? ELEMENT_COLORS[element].accent : '#dff';
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'STATUS BLOCKED', color));
+      game.effects.push(new SlamRing(this.x + this.w / 2, this.y + this.h / 2, color, 64, 8));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, color, 12, 4, 14));
+      return;
+    }
     // Elemental Charms: immune to matching affliction
     const charmImmunity = {
       fire: 'charmFire', water: 'charmWater', crystal: 'charmCrystal',
@@ -11908,13 +12362,135 @@ class Player {
     }
   }
 
+  _drawHeldWeaponSprite(ctx, def, mode = 'hand') {
+    if (!def) return;
+    const id = this.heldItem || this.lastHeldItem || 'pistol';
+    const hand = mode === 'hand';
+    ctx.save();
+    if (mode === 'back') {
+      ctx.rotate(-Math.PI / 2);
+      ctx.translate(-10, 0);
+      ctx.scale(0.92, 0.92);
+    }
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = def.accentColor || def.color;
+    ctx.shadowBlur = hand ? 6 : 2;
+    const stroke = 'rgba(8,8,10,0.92)';
+    const metal = def.color || '#ccc';
+    const accent = def.accentColor || '#fff';
+    const dark = def.hatColor || '#171717';
+    const wood = '#6b3f22';
+    const drawBarrel = (x, y, w, h, color = metal) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(x + 2, y + 1, Math.max(2, w - 4), 2);
+    };
+    if (id === 'flamethrower') {
+      ctx.fillStyle = dark;
+      ctx.fillRect(-17, -7, 14, 14);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-17, -7, 14, 14);
+      drawBarrel(-4, -4, 32, 8, metal);
+      ctx.fillStyle = accent;
+      ctx.fillRect(23, -6, 8, 12);
+      ctx.fillStyle = wood;
+      ctx.fillRect(-8, 5, 9, 10);
+      if (hand && this.itemUseFlash > 0) {
+        ctx.fillStyle = '#ffe66b';
+        ctx.beginPath();
+        ctx.moveTo(32, 0);
+        ctx.lineTo(48, -10);
+        ctx.lineTo(42, 0);
+        ctx.lineTo(49, 10);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (id === 'bubbleGun') {
+      drawBarrel(-14, -6, 27, 12, '#205b86');
+      ctx.fillStyle = dark;
+      ctx.fillRect(-11, 5, 9, 9);
+      ctx.fillStyle = 'rgba(160,235,255,0.35)';
+      ctx.beginPath();
+      ctx.arc(2, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(24, 0, 8, 0, Math.PI * 2); ctx.stroke();
+    } else if (id === 'smokeBomb') {
+      ctx.fillStyle = dark;
+      ctx.fillRect(-14, -3, 15, 6);
+      ctx.fillStyle = metal;
+      ctx.beginPath(); ctx.arc(10, 0, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.fillRect(6, -16, 8, 8);
+      ctx.strokeStyle = accent;
+      ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI * 2); ctx.stroke();
+    } else if (id === 'crystalStaff') {
+      drawBarrel(-18, -2, 35, 4, '#2b5961');
+      ctx.shadowBlur = hand ? 10 : 5;
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.moveTo(25, -14); ctx.lineTo(36, -2); ctx.lineTo(30, 10); ctx.lineTo(18, 4); ctx.lineTo(16, -7); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = metal;
+      ctx.globalAlpha = 0.65;
+      ctx.beginPath(); ctx.moveTo(25, -9); ctx.lineTo(31, -2); ctx.lineTo(26, 5); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (id === 'crossbow') {
+      drawBarrel(-14, -2, 30, 4, wood);
+      ctx.fillStyle = metal;
+      ctx.fillRect(2, -8, 6, 16);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(7, -15); ctx.quadraticCurveTo(25, -12, 31, 0); ctx.quadraticCurveTo(25, 12, 7, 15); ctx.stroke();
+      ctx.strokeStyle = '#eee';
+      ctx.beginPath(); ctx.moveTo(7, -15); ctx.lineTo(7, 15); ctx.stroke();
+      ctx.fillStyle = '#ddd';
+      ctx.fillRect(15, -1, 18, 2);
+    } else if (id === 'shotgun') {
+      ctx.fillStyle = wood;
+      ctx.fillRect(-18, -5, 14, 10);
+      drawBarrel(-5, -5, 38, 5, metal);
+      drawBarrel(-5, 1, 38, 5, metal);
+      ctx.fillStyle = dark;
+      ctx.fillRect(-10, 5, 9, 9);
+    } else if (id === 'rpg') {
+      drawBarrel(-18, -7, 36, 14, metal);
+      ctx.fillStyle = accent;
+      ctx.beginPath(); ctx.moveTo(19, -11); ctx.lineTo(34, 0); ctx.lineTo(19, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = dark;
+      ctx.fillRect(-5, 6, 10, 11);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(-23, -5, 6, 10);
+    } else {
+      drawBarrel(-11, -4, 25, 8, metal);
+      ctx.fillStyle = accent;
+      ctx.fillRect(10, -2, 9, 4);
+      ctx.fillStyle = dark;
+      ctx.fillRect(-5, 4, 8, 10);
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
   render(ctx, cam) {
     // Hide player during death delay
     if (this.deathTimer > 0) return;
     // Hide player inside golem mecha
     if (this.earthGolem) return;
 
-    const t = this.type;
+    const weaponTint = this.currentWeaponDef ? this.currentWeaponDef() : null;
+    const t = Object.assign({}, this.type, {
+      color: (weaponTint && (weaponTint.bodyColor || weaponTint.color)) || this.type.color,
+      accentColor: (weaponTint && (weaponTint.accentColor || weaponTint.color)) || this.type.accentColor,
+      hatColor: (weaponTint && (weaponTint.hatColor || weaponTint.bodyColor || '#111')) || '#111'
+    });
     let sx = this.x - cam.x;
     const sy = this.y - cam.y;
 
@@ -12453,6 +13029,31 @@ class Player {
       ctx.restore();
     }
 
+    if ((this.elementalArmor || 0) > 0) {
+      const tick = game ? game.tick : 0;
+      const cx = sx + this.w / 2;
+      const cy = sy + this.h / 2;
+      const armorRatio = Math.max(0, Math.min(1, (this.elementalArmor || 0) / Math.max(1, this.elementalArmorMax || 100)));
+      ctx.save();
+      ctx.globalAlpha = (0.25 + armorRatio * 0.3) + 0.08 * Math.sin(tick * 0.16);
+      ctx.shadowColor = '#dff';
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = '#dff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = tick * 0.025 + i * Math.PI / 3;
+        const r = 23 + (i % 2) * 3;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * (r * 0.82);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Status effect overlays
     if (this.statusBurn > 0) {
       ctx.save();
@@ -12558,40 +13159,38 @@ class Player {
     ctx.fillStyle = t.accentColor;
     ctx.fillRect(sx, sy + 5, this.w, 3);
 
-    // Pointy farmer hat (kasa)
-    ctx.fillStyle = t.accentColor;
+    // Hood and mask: weapon-tinted ninja silhouette.
+    ctx.fillStyle = t.color;
+    ctx.fillRect(sx + 2, sy - 2, this.w - 4, 12);
+    ctx.strokeStyle = t.accentColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 1.5, sy - 2.5, this.w - 3, 13);
+    ctx.fillStyle = t.color;
+    ctx.fillRect(sx + 1, sy + 10, this.w - 2, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(sx + (this.facing > 0 ? 15 : 5), sy + 1, 5, 1);
+    ctx.fillStyle = '#f2f2f2';
+    const maskEyeX = this.facing > 0 ? sx + 14 : sx + 5;
+    ctx.fillRect(maskEyeX, sy + 7, 6, 3);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(this.facing > 0 ? maskEyeX + 3 : maskEyeX, sy + 8, 2, 1);
+
+    // Kasa hat and brim render after the hood so they sit on top.
+    ctx.fillStyle = t.color;
     ctx.beginPath();
-    ctx.moveTo(sx - 6, sy + 2);
-    ctx.lineTo(sx + this.w / 2, sy - 14);
-    ctx.lineTo(sx + this.w + 6, sy + 2);
+    ctx.moveTo(sx - 9, sy + 3);
+    ctx.lineTo(sx + this.w / 2, sy - 15);
+    ctx.lineTo(sx + this.w + 9, sy + 3);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeStyle = t.accentColor;
     ctx.lineWidth = 2.5;
     ctx.stroke();
-    // Brim
-    ctx.fillStyle = t.color;
-    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillStyle = t.accentColor;
+    ctx.fillRect(sx - 9, sy + 1, this.w + 18, 4);
+    ctx.strokeStyle = 'rgba(220,220,220,0.22)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(sx - 6 + 0.5, sy + 0.5, this.w + 11, 2)
-    ctx.fillRect(sx - 6, sy, this.w + 12, 3);
-
-    // Small flower on hat for bubble, crystal, wind
-    if (this.ninjaType === 'bubble' || this.ninjaType === 'crystal' || this.ninjaType === 'wind') {
-      const fx = sx + this.w / 2 + 5;
-      const fy = sy - 6;
-      ctx.fillStyle = t.accentColor;
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-        ctx.beginPath();
-        ctx.arc(fx + Math.cos(a) * 2.5, fy + Math.sin(a) * 2.5, 1.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#fe8';
-      ctx.beginPath();
-      ctx.arc(fx, fy, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.strokeRect(sx - 9.5, sy + 0.5, this.w + 19, 4);
 
     // Belt / sash
     ctx.fillStyle = t.accentColor;
@@ -12600,14 +13199,17 @@ class Player {
     ctx.fillRect(sx, sy + this.h - 9, this.w, 1);
 
     // Sheathed weapon on back (when not attacking)
-    if (!this.attacking) {
+    if (!this.attacking && this.itemUseFlash <= 0) {
       ctx.save();
       const backX = this.facing > 0 ? sx + 3 : sx + this.w - 3;
       const beltY = sy + this.h - 10;
       ctx.translate(backX, beltY);
       ctx.rotate(this.facing > 0 ? -0.45 : 0.45);
 
-      if (this.ninjaType === 'shadow') {
+      const backHeldDef = this.currentWeaponDef ? this.currentWeaponDef() : null;
+      if (backHeldDef) {
+        this._drawHeldWeaponSprite(ctx, backHeldDef, 'back');
+      } else if (this.ninjaType === 'shadow') {
         // Mini scythe on back
         // Handle
         ctx.fillStyle = '#2a2a2a';
@@ -12831,6 +13433,18 @@ class Player {
 
     ctx.globalAlpha = 1;
 
+    const heldWeaponDef = this.currentWeaponDef ? this.currentWeaponDef() : null;
+    if (heldWeaponDef && this.itemUseFlash > 0 && !this.attacking) {
+      ctx.save();
+      const hx = sx + this.w / 2 + this.facing * 11;
+      const hy = sy + this.h * 0.58;
+      ctx.translate(hx, hy);
+      if (this.facing < 0) ctx.scale(-1, 1);
+      ctx.rotate(-0.08 + Math.sin(this.itemUseFlash * 0.8) * 0.04);
+      this._drawHeldWeaponSprite(ctx, heldWeaponDef, 'hand');
+      ctx.restore();
+    }
+
     // Attack — katana moon slash (or shadow scythe in stealth)
     if (this.attacking && this.attackBox) {
       const slashDiv = this.counterAttacking ? 22 : 12;
@@ -12900,7 +13514,9 @@ class Player {
       const curA = startA + sweep * slashProgress;
       ctx.rotate(curA);
 
-      if (renderScythe) {
+      if (heldWeaponDef) {
+        this._drawHeldWeaponSprite(ctx, heldWeaponDef, 'hand');
+      } else if (renderScythe) {
         // Scythe weapon — large, visible
         const sc = isShadowUlt ? 1.5 : (isScythe ? 1.2 : 1.0);
         // Long handle (thick, visible)
@@ -21032,6 +21648,8 @@ class Game {
     this.shurikenPickups = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.ammoPickups = [];
+    this.elementalShieldPickups = [];
     this.classOrbs = [];
     this.bossItems = [];
     this.fireTrails = [];
@@ -24173,11 +24791,14 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.elementalShieldPickups = [];
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
     this.orbs = [];
     this.shurikenPickups = [];
+    this.ammoPickups = [];
+    this.elementalShieldPickups = [];
     this.classOrbs = [];
     this.fireTrails = [];
     const oldLevelType = this.levelType;
@@ -24233,11 +24854,14 @@ class Game {
     this.orbs = [];
     this.shurikenPickups = [];
     this.heartPickups = [];
+    this.ammoPickups = [];
+    this.elementalShieldPickups = [];
     this.classOrbs = [];
     this.fireTrails = [];
     this.player.hp = this.player.maxHp;
     this.player.displayHp = this.player.hp;
-    if (this.player.ninjaType !== 'fire') this.player.switchNinja('fire');
+    this.player.ninjaType = 'basic';
+    this.player.equipWeapon('flamethrower', this);
     this.player.deathTimer = 0;
     this.player.x = this.levelType === 'tower' ? 380 : 100;
     this.player.y = this.levelType === 'tower' ? 400 : 300;
@@ -24250,6 +24874,7 @@ class Game {
     this.player.statusStun = 0;
     this.player.statusCurse = 0;
     this.player.statusBleed = 0;
+    this.player.elementalArmor = 0;
     this._enterMapRoom(MAP_START_ROOM_ID);
     this.showWaveMessage(this._objectiveStartMessage());
   }
@@ -24558,7 +25183,7 @@ class Game {
       reach:     { icon: '\u2194', color: '#fa0', label: 'REACH',    per: 1,  cost: 16 },
       armor:     { icon: '\u25a0', color: '#88f', label: 'ARMOR',    per: 1,  cost: 18 },
       shuriken:  { icon: '\u2726', color: '#ccc', label: 'SHURIKENS', per: 1, cost: 14 },
-      ultcharge: { icon: '\u2605', color: '#ff0', label: 'ULT',      per: 50, cost: 6 },
+      ultcharge: { icon: '\u25A3', color: '#ffd86b', label: 'AMMO',     per: 50, cost: 6 },
       element:   { icon: '\u25c8', color: '#f0f', label: 'SPECIAL',  per: 1,  cost: 50 },
     };
 
@@ -24714,6 +25339,8 @@ class Game {
     this.grenades = [];
     this.bubbleShieldPickups = [];
     this.heartPickups = [];
+    this.ammoPickups = [];
+    this.elementalShieldPickups = [];
     this.classOrbs = [];
     this.enemies = [];
     this.allies = [];
@@ -24780,22 +25407,55 @@ class Game {
     this.heartPickups = this._updatePickupArray(this.heartPickups, HeartPickupOrb);
   }
 
+  _updateAmmoPickups() {
+    this.ammoPickups = this._updatePickupArray(this.ammoPickups, AmmoPickupOrb);
+  }
+
+  _updateElementalShieldPickups() {
+    this.elementalShieldPickups = this._updatePickupArray(this.elementalShieldPickups, ElementalShieldPickupOrb);
+  }
+
+  _updateStageWeaponPickups() {
+    if (!this.classOrbs) this.classOrbs = [];
+    const maxOnScreen = 2;
+    if (this.tick % 1080 === 420 && this.classOrbs.length < maxOnScreen && Math.random() < 0.58) {
+      const p = this._spawnScreenPickup(AmmoPickupOrb);
+      this._dropClassOrb(this._randomStageWeapon(), p.x + 12, p.y + 10, 60);
+    }
+  }
+
+  _randomStageWeapon() {
+    const current = this.player ? this.player.heldItem : null;
+    const weighted = [];
+    for (const id of WEAPON_ORDER) {
+      if (id === current) continue;
+      const def = WEAPON_ITEMS[id];
+      if (!def) continue;
+      const weight = def.crashPower ? 1 : (id === 'rpg' ? 2 : 4);
+      for (let i = 0; i < weight; i++) weighted.push(id);
+    }
+    return weighted.length ? weighted[Math.floor(Math.random() * weighted.length)] : 'pistol';
+  }
+
   _updateFieldPickups() {
     this._updateShurikenPickups();
     this._updateBubbleShieldPickups();
     this._updateHeartPickups();
+    this._updateAmmoPickups();
+    this._updateElementalShieldPickups();
+    this._updateStageWeaponPickups();
   }
 
   _dropRandomClassOrb(x, y) {
     if (!this.classOrbs) this.classOrbs = [];
-    const current = this.player ? this.player.ninjaType : 'fire';
-    const pool = NINJA_ORDER.filter(type => type !== current);
-    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'fire';
+    const current = this.player ? this.player.heldItem : 'flamethrower';
+    const pool = WEAPON_ORDER.filter(type => type !== current);
+    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'flamethrower';
     this._dropClassOrb(type, x, y, 80);
   }
 
   _dropClassOrb(type, x, y, pickupCooldown = 0) {
-    if (!NINJA_TYPES[type]) return;
+    if (!WEAPON_ITEMS[type]) return;
     if (!this.classOrbs) this.classOrbs = [];
     const orb = new ClassOrb(
       Math.max(24, Math.min(this.levelW - 68, x - 22)),
@@ -24804,9 +25464,9 @@ class Game {
       { pickupCooldown }
     );
     this.classOrbs.push(orb);
-    const nt = NINJA_TYPES[type];
-    this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, nt.accentColor || nt.color, 150, 14));
-    this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, nt.name.toUpperCase() + ' ORB DROPPED', nt.accentColor || nt.color));
+    const wt = WEAPON_ITEMS[type];
+    this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, wt.accentColor || wt.color, 150, 14));
+    this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, wt.name.toUpperCase() + ' DROPPED', wt.accentColor || wt.color));
   }
 
   _mapAreaBounds() {
@@ -25059,6 +25719,8 @@ class Game {
     compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
     compactLiveArray(this.bossItems, keepNotDone);
     compactLiveArray(this.classOrbs, keepNotDone);
+    compactLiveArray(this.ammoPickups, keepNotDone);
+    compactLiveArray(this.elementalShieldPickups, keepNotDone);
   }
 
   _updateCameraFollow() {
@@ -27067,11 +27729,13 @@ class Game {
     for (const b of this.bubbles) b.render(ctx, cam);
     for (const o of this.orbs) o.render(ctx, cam);
     for (const bi of this.bossItems) bi.render(ctx, cam);
+    for (const a of this.ammoPickups) a.render(ctx, cam);
     for (const co of this.classOrbs) co.render(ctx, cam);
 
     for (const sp of this.shurikenPickups) sp.render(ctx, cam, this);
     for (const bp of this.bubbleShieldPickups) bp.render(ctx, cam);
     for (const hp of this.heartPickups) hp.render(ctx, cam);
+    for (const ep of this.elementalShieldPickups) ep.render(ctx, cam);
     for (const bo of this.bossOrbPickups) {
       if (bo.done) continue;
       const flash = bo.life < 120 && Math.floor(bo.life / 8) % 2;
@@ -28135,12 +28799,17 @@ class Game {
     ctx.fillStyle = attrColors.vigor;
     ctx.fillRect(swordX, swordY + 4, 5, 7);
     ctx.restore();
-    drawChargePips('MAG', pl.specialCharges, pl.specialRechargeTimer, chargeLeft + attackGroupW + chargeGap + chargeLabelW + 8, pipY, attrColors.mind);
+    this._renderHeldWeaponHud(ctx, pl, chargeLeft + attackGroupW + chargeGap, pipY - 7, chargeGroupW + 40, 28);
     const hpRatio = Math.max(0, Math.min(1, pl.hp / Math.max(1, pl.maxHp)));
     const displayHpRatio = Math.max(0, Math.min(1, pl.displayHp / Math.max(1, pl.maxHp)));
+    const elementalArmorMax = pl.elementalArmorMax || 100;
+    const elementalArmorRatio = Math.max(0, Math.min(1, (pl.elementalArmor || 0) / Math.max(1, elementalArmorMax)));
+    const armorY = barY - 9;
+    const armorH = 5;
 
-    const ultPct = pl.ultimateCharge / pl.ultimateMax;
-    const ultReady = pl.ultimateReady && !pl.ultimateActive;
+    const weaponDef = pl.currentWeaponDef ? pl.currentWeaponDef() : null;
+    const ultPct = weaponDef && weaponDef.crashPower ? 1 : 0;
+    const ultReady = !!(weaponDef && weaponDef.crashPower) && !pl.ultimateActive;
     const ultActive = pl.ultimateActive;
     const blinkOn = Math.floor(this.tick / 15) % 2 === 0;
 
@@ -28155,6 +28824,33 @@ class Game {
     }
     ctx.fillStyle = nbc.dark;
     ctx.fillRect(barLeft, barY, barTotalW, barH);
+    ctx.restore();
+
+    // Elemental armor meter, rechargeable via Elemental Armor pickups.
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,22,26,0.72)';
+    ctx.fillRect(barLeft, armorY, barTotalW, armorH);
+    if (elementalArmorRatio > 0) {
+      const pulse = 0.65 + 0.2 * Math.sin(this.tick * 0.18);
+      ctx.shadowColor = '#dff';
+      ctx.shadowBlur = elementalArmorRatio < 0.34 ? 8 + Math.sin(this.tick * 0.35) * 4 : 7;
+      ctx.fillStyle = `rgba(190,255,255,${pulse})`;
+      ctx.fillRect(barLeft, armorY, barTotalW * elementalArmorRatio, armorH);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillRect(barLeft, armorY, barTotalW * elementalArmorRatio, 1);
+    }
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = elementalArmorRatio > 0 ? 'rgba(210,255,255,0.62)' : 'rgba(210,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barLeft, armorY, barTotalW, armorH);
+    ctx.strokeStyle = 'rgba(210,255,255,0.24)';
+    for (let i = 1; i < 3; i++) {
+      const x = barLeft + barTotalW * i / 3;
+      ctx.beginPath();
+      ctx.moveTo(x, armorY);
+      ctx.lineTo(x, armorY + armorH);
+      ctx.stroke();
+    }
     ctx.restore();
 
     // Delayed damage
@@ -29695,6 +30391,86 @@ class Game {
     ctx.font = '10px monospace';
     ctx.fillText(`Route step: ${((this.routeState && this.routeState.step) || 0) + 1}/${ROUTE_STAGE_LAYOUTS.length}`, panelX + 14, panelY + panelH - 36);
     ctx.fillText(`Completed: ${doneCount}`, panelX + 14, panelY + panelH - 18);
+  }
+
+  _renderHeldWeaponHud(ctx, pl, x, y, w, h) {
+    const def = pl.currentWeaponDef ? pl.currentWeaponDef() : null;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = def ? (def.accentColor || def.color) : 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
+    if (def) {
+      ctx.save();
+      ctx.translate(x + 17, y + h / 2);
+      this._drawWeaponHudIcon(ctx, pl.heldItem, def, 0.75);
+      ctx.restore();
+    }
+    ctx.font = '900 10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = def ? '#fff' : '#999';
+    ctx.fillText(def ? def.shortName : 'NO ITEM', x + 36, y + 11);
+    ctx.font = '900 12px monospace';
+    ctx.fillStyle = def ? (def.accentColor || def.color) : '#777';
+    const ammoText = def ? (Math.max(0, Math.floor(pl.itemAmmo || 0)) + '/' + (def.ammoMax || 0)) : '--';
+    ctx.fillText(ammoText, x + 36, y + 24);
+    if (def && def.crashPower) {
+      const pulse = 0.65 + 0.25 * Math.sin(this.tick * 0.18);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = def.accentColor || def.color;
+      ctx.font = '900 10px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText('CRASH', x + w - 8, y + 18);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  _drawWeaponHudIcon(ctx, id, def, scale) {
+    const s = scale || 1;
+    const color = def.color || '#ccc';
+    const accent = def.accentColor || '#fff';
+    const dark = def.hatColor || '#222';
+    const stroke = 'rgba(0,0,0,0.85)';
+    const wood = '#6b3f22';
+    ctx.save();
+    ctx.scale(s, s);
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 7;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    if (id === 'flamethrower') {
+      ctx.fillStyle = dark; ctx.fillRect(-18, -7, 12, 14); ctx.strokeRect(-18, -7, 12, 14);
+      ctx.fillStyle = color; ctx.fillRect(-6, -5, 30, 10); ctx.strokeRect(-6, -5, 30, 10);
+      ctx.fillStyle = accent; ctx.fillRect(19, -3, 8, 6);
+    } else if (id === 'bubbleGun') {
+      ctx.fillStyle = '#205b86'; ctx.fillRect(-16, -6, 25, 12); ctx.strokeRect(-16, -6, 25, 12);
+      ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(20, 0, 8, 0, Math.PI * 2); ctx.stroke();
+    } else if (id === 'smokeBomb') {
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(3, 0, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = accent; ctx.fillRect(-1, -15, 8, 8);
+    } else if (id === 'crystalStaff') {
+      ctx.fillStyle = '#2b5961'; ctx.fillRect(-18, -2, 32, 4); ctx.strokeRect(-18, -2, 32, 4);
+      ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(20, -13); ctx.lineTo(31, -2); ctx.lineTo(25, 10); ctx.lineTo(14, 3); ctx.lineTo(13, -7); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (id === 'crossbow') {
+      ctx.fillStyle = wood; ctx.fillRect(-16, -2, 29, 4); ctx.strokeRect(-16, -2, 29, 4);
+      ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(5, -15); ctx.quadraticCurveTo(24, -10, 28, 0); ctx.quadraticCurveTo(24, 10, 5, 15); ctx.stroke();
+      ctx.strokeStyle = '#eee'; ctx.beginPath(); ctx.moveTo(5, -15); ctx.lineTo(5, 15); ctx.stroke();
+    } else if (id === 'shotgun') {
+      ctx.fillStyle = wood; ctx.fillRect(-18, -5, 12, 10);
+      ctx.fillStyle = color; ctx.fillRect(-6, -5, 34, 5); ctx.fillRect(-6, 1, 34, 5);
+      ctx.strokeRect(-6, -5, 34, 11);
+    } else if (id === 'rpg') {
+      ctx.fillStyle = color; ctx.fillRect(-18, -7, 34, 14); ctx.strokeRect(-18, -7, 34, 14);
+      ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(18, -11); ctx.lineTo(31, 0); ctx.lineTo(18, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillStyle = color; ctx.fillRect(-13, -5, 25, 10); ctx.strokeRect(-13, -5, 25, 10);
+      ctx.fillStyle = accent; ctx.fillRect(8, -2, 10, 4);
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   renderItemBar(pl) {

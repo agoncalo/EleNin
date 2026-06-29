@@ -37,6 +37,8 @@ const SFX = {
     alarmSecondary: ['assets/sfx/alarm_secondary.wav'],
     alarmMiniboss: ['assets/sfx/alarm_miniboss.wav'],
     alarmBoss: ['assets/sfx/alarm_boss.wav'],
+    weaponPickup: ['assets/sfx/weapon_pickup.wav'],
+    reload: ['assets/sfx/reload.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -326,6 +328,20 @@ const SFX = {
     this.filteredNoise(0.22, 0.13, 'lowpass', 260, 0.8, 0.001);
   },
   pickup() { this.play(520, 'triangle', 0.08, 0.1); setTimeout(() => this.play(780, 'triangle', 0.1, 0.1), 80); },
+  weaponPickup() {
+    this.sample('weaponPickup', () => {
+      this.metal(720, 0.07, 0.08);
+      setTimeout(() => this.tone(980, 'triangle', 0.09, 0.055, 260, 0.002), 45);
+      setTimeout(() => this.tone(1320, 'sine', 0.08, 0.04, 120, 0.002), 95);
+    }, 0.78);
+  },
+  reload() {
+    this.sample('reload', () => {
+      this.metal(360, 0.06, 0.055);
+      setTimeout(() => this.metal(520, 0.055, 0.055), 58);
+      setTimeout(() => this.tone(210, 'square', 0.06, 0.035, -60, 0.001), 112);
+    }, 0.82);
+  },
   reflect() {
     this.metal(1900, 0.11, 0.09);
     this.filteredNoise(0.055, 0.045, 'highpass', 3200, 1.1, 0.001);

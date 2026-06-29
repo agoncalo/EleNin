@@ -96,6 +96,7 @@ const ELEMENT_MATRIX = {
 // Map ninja type -> attack element. Shadow has no element (always steel/normal).
 // Storm is multi-element: melee=steel, soak/chain=lightning+water
 const NINJA_ATTACK_ELEMENTS = {
+  basic: 'steel',
   fire: 'fire',
   earth: 'earth',
   bubble: 'water',
@@ -107,6 +108,7 @@ const NINJA_ATTACK_ELEMENTS = {
 
 // Starting max Mana per ninja type (can be increased with orbs)
 const MANA_CAPS = {
+  basic: 0,
   fire: 2,
   earth: 3,
   bubble: 1,
@@ -120,6 +122,15 @@ const MANA_CAPS = {
 const ELEMENTAL_SPAWN_CHANCE = 0.12; // 12% base chance (boosted when level has an element)
 
 const NINJA_TYPES = {
+  basic: {
+    name: 'Black Ninja',
+    color: '#111',
+    accentColor: '#d8d8d8',
+    key: '',
+    attackDamage: 2,
+    jumpPower: -10,
+    speed: 4.25
+  },
   fire: {
     name: 'Fire Ninja',
     color: '#e33',
@@ -421,6 +432,119 @@ const BOSS_NAMES = {
   walker:'BRUTE', shooter:'GUNNER', jumper:'LEAPER',
   bouncer:'BOUNCER', shielded:'GUARDIAN', deflector:'RONIN',
   protector:'AEGIS', attacker:'NEMESIS', flyer:'SWOOPER', flyshooter:'OVERLORD'
+};
+
+const WEAPON_ORDER = ['flamethrower', 'bubbleGun', 'smokeBomb', 'crystalStaff', 'crossbow', 'pistol', 'shotgun', 'rpg'];
+const WEAPON_ITEMS = {
+  flamethrower: {
+    name: 'Flamethrower',
+    shortName: 'FLAME',
+    power: 'fire',
+    crashPower: 'fire',
+    color: '#f45',
+    accentColor: '#ffb347',
+    bodyColor: '#7c1f1f',
+    hatColor: '#241010',
+    ammoMax: 80,
+    ammoPickup: 24,
+    ammoCost: 6,
+    icon: 'F'
+  },
+  bubbleGun: {
+    name: 'Bubble Gun',
+    shortName: 'BUBBLE',
+    power: 'bubble',
+    crashPower: 'bubble',
+    color: '#4af',
+    accentColor: '#aef',
+    bodyColor: '#17467a',
+    hatColor: '#0b1d2c',
+    ammoMax: 45,
+    ammoPickup: 15,
+    ammoCost: 4,
+    icon: 'B'
+  },
+  smokeBomb: {
+    name: 'Smoke Bomb',
+    shortName: 'SMOKE',
+    power: 'shadow',
+    crashPower: 'shadow',
+    color: '#6b3aa8',
+    accentColor: '#d7b4ff',
+    bodyColor: '#38204f',
+    hatColor: '#15101f',
+    ammoMax: 18,
+    ammoPickup: 6,
+    ammoCost: 2,
+    icon: 'S'
+  },
+  crystalStaff: {
+    name: 'Crystal Staff',
+    shortName: 'CRYSTAL',
+    power: 'crystal',
+    crashPower: 'crystal',
+    color: '#31c6cf',
+    accentColor: '#dfffff',
+    bodyColor: '#17666c',
+    hatColor: '#0b262a',
+    ammoMax: 36,
+    ammoPickup: 12,
+    ammoCost: 3,
+    icon: 'C'
+  },
+  crossbow: {
+    name: 'Crossbow',
+    shortName: 'XBOW',
+    power: 'wind',
+    crashPower: 'wind',
+    color: '#6bc070',
+    accentColor: '#d7ffd6',
+    bodyColor: '#2f6a38',
+    hatColor: '#102817',
+    ammoMax: 42,
+    ammoPickup: 14,
+    ammoCost: 3,
+    icon: 'X'
+  },
+  pistol: {
+    name: 'Pistol',
+    shortName: 'PISTOL',
+    power: 'basic',
+    color: '#c8c8c8',
+    accentColor: '#fff',
+    bodyColor: '#303030',
+    hatColor: '#111',
+    ammoMax: 72,
+    ammoPickup: 24,
+    ammoCost: 2,
+    icon: 'P'
+  },
+  shotgun: {
+    name: 'Shotgun',
+    shortName: 'SHOTGUN',
+    power: 'basic',
+    color: '#c89052',
+    accentColor: '#ffe0a8',
+    bodyColor: '#69451f',
+    hatColor: '#23180d',
+    ammoMax: 30,
+    ammoPickup: 10,
+    ammoCost: 5,
+    icon: 'G'
+  },
+  rpg: {
+    name: 'RPG',
+    shortName: 'RPG',
+    power: 'basic',
+    color: '#9aa062',
+    accentColor: '#fff28a',
+    bodyColor: '#4f5730',
+    hatColor: '#1d2110',
+    ammoMax: 12,
+    ammoPickup: 4,
+    ammoCost: 4,
+    icon: 'R'
+  }
 };
 
 const ROUTE_LANES = ['easy', 'mid', 'hard'];

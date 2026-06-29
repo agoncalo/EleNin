@@ -834,7 +834,7 @@ class Orb {
     this.life--;
     this.tick++;
     if (this.life <= 0) { this.done = true; return; }
-    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'ULT CHARGE', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL', bubbleshield: 'SHIELD' };
+    const _bonusLabel = { heal: 'HP', maxhp: 'MAX HP', ultcharge: 'AMMO', damage: 'ATTACK', elDmg: 'ELEMENTAL', speed: 'SPEED', reach: 'REACH', armor: 'ARMOR', element: 'SPECIAL', bubbleshield: 'SHIELD' };
     const _bonusColor = { heal: '#f44', maxhp: '#4f4', ultcharge: '#ff0', damage: '#f80', elDmg: '#c4f', speed: '#0f0', reach: '#fa0', armor: '#88f', element: '#f0f', bubbleshield: '#4af' };
 
     // Attraction to player if nearby
