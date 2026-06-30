@@ -106,6 +106,8 @@ function pollGamepad() {
   ensureAudio();
   gpState.axes[0] = gp.axes[0] || 0;
   gpState.axes[1] = gp.axes[1] || 0;
+  gpState.axes[2] = gp.axes[2] || 0;
+  gpState.axes[3] = gp.axes[3] || 0;
   for (let i = 0; i < gp.buttons.length && i < 17; i++) {
     const pressed = gp.buttons[i].pressed;
     gpJust[i] = pressed && !gpPrev[i];

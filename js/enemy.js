@@ -166,6 +166,15 @@ class Enemy {
       this.disableTimer--;
       this.stance = 0;
       this.staggerBar = this.maxStance;
+      if (this.pendingSkullDeath && this.disableTimer <= 0) {
+        const deathGame = this.pendingSkullDeathGame;
+        this.pendingSkullDeath = false;
+        this.pendingSkullDeathGame = null;
+        this.hp = 0;
+        this.dead = true;
+        this.onDeath(deathGame);
+        return;
+      }
     } else {
       this.stanceRecoverDelay++;
       if (this.stanceRecoverDelay > 120 && this.stance < this.maxStance) {
@@ -229,6 +238,8 @@ class Enemy {
       const fromX = game && game.player ? game.player.x + game.player.w / 2 : this.x + this.w / 2;
       this._chipShield(game, fromX, 1, { effectSize: this.bossType ? 11 : 10 });
       this.disableTimer = 0;
+      this.pendingSkullDeath = false;
+      this.pendingSkullDeathGame = null;
       this.stance = this.maxStance || 0;
       this.staggerBar = 0;
       this.stunTimer = Math.max(this.stunTimer || 0, this.bossType ? 80 : 50);
@@ -245,6 +256,8 @@ class Enemy {
       game.effects.push(new BloodSpill(cx, cy, game.player ? game.player.x + game.player.w / 2 : cx - 1, this.big || this.bossType ? 1.8 : 1.25));
     }
     this.disableTimer = 0;
+    this.pendingSkullDeath = false;
+    this.pendingSkullDeathGame = null;
     this.stance = this.maxStance || 0;
     this.staggerBar = 0;
     this.hp = 0;
@@ -329,7 +342,7 @@ class Enemy {
       this.facing = dir;
       this.vy = opts.platformJumpVy || opts.jumpVy || -10.5;
       this.vx = dir * speed * (opts.platformDashMult || opts.dashMult || 3.0) * windResist;
-      this.defensiveDashCooldown = opts.platformCooldown || opts.cooldown || randInt(60, 100);
+      this.defensiveDashCooldown = Math.round((opts.platformCooldown || opts.cooldown || randInt(60, 100)) * ENEMY_JUMP_SPACING_MULT);
       if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 8, 3, 12));
       return;
     }
@@ -338,9 +351,27 @@ class Enemy {
       this.facing = dir;
       this.vy = opts.jumpVy || -8.5;
       this.vx = dir * speed * (opts.dashMult || 3.0) * windResist;
-      this.defensiveDashCooldown = opts.cooldown || randInt(55, 95);
+      this.defensiveDashCooldown = Math.round((opts.cooldown || randInt(55, 95)) * ENEMY_JUMP_SPACING_MULT);
       if (game.effects) game.effects.push(new Effect(cx, cy, opts.color || '#d8d0b8', 7, 3, 10));
     }
+  }
+
+  _makeSkullTarget(game, sourceType) {
+    if (sourceType === 'chain' || this.dead) return false;
+    this.hp = 1;
+    this.disableTimer = Math.max(this.disableTimer || 0, 300);
+    this.pendingSkullDeath = true;
+    this.pendingSkullDeathGame = game || null;
+    this.stunTimer = Math.max(this.stunTimer || 0, 300);
+    this.stance = 0;
+    this.staggerBar = this.maxStance || this.staggerBar || 0;
+    this.vx = 0;
+    this.vy = 0;
+    if (game && game.effects) {
+      game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 24, 'FINISH', '#f4f0ff'));
+      game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#c04fff', 14, 5, 20));
+    }
+    return true;
   }
 
   _tryLeaperWallJump(game, px, speed, windResist) {
@@ -371,7 +402,7 @@ class Enemy {
     const pushDir = targetBias === wallDir ? wallDir : wallDir * 0.85;
     this.vx = pushDir * speed * (this.big ? 3.1 : 3.45) * windResist;
     this.vy = this.big ? -12.4 : -11.2;
-    this.wallJumpCooldown = this.big ? 20 : 16;
+    this.wallJumpCooldown = Math.round((this.big ? 20 : 16) * ENEMY_JUMP_SPACING_MULT);
     this.jumpTimer = 0;
     if (game.effects) {
       game.effects.push(new Effect(
@@ -398,7 +429,10 @@ class Enemy {
     if (this.type === 'attacker' || this.type === 'satellite') return;
     if (this.platformIntentCooldown > 0) this.platformIntentCooldown--;
     if (this.platformIntentCooldown > 0) return;
-    this.platformIntentCooldown = randInt(12, 28);
+    this.platformIntentCooldown = randInt(
+      Math.round(12 * ENEMY_JUMP_SPACING_MULT),
+      Math.round(28 * ENEMY_JUMP_SPACING_MULT)
+    );
 
     const grounded = this.vy >= -0.2 && this.vy < 1 && !!this.onPlatform;
     if (!grounded) return;
@@ -726,7 +760,12 @@ class Enemy {
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
-        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+        if (this.hp <= 0) {
+          if (!this._makeSkullTarget(game, 'status')) {
+            this.dead = true;
+            this.onDeath(game);
+          }
+        }
       }
       return;
     }
@@ -798,8 +837,9 @@ class Enemy {
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) {
-          this.dead = true;
-          if (this.burnTimer > 0 || (game.player && game.player.ninjaType === 'fire')) {
+          const skullPending = this._makeSkullTarget(game, 'status');
+          if (!skullPending) this.dead = true;
+          if (!skullPending && (this.burnTimer > 0 || (game.player && game.player.ninjaType === 'fire'))) {
             for (let i = 0; i < 5; i++) {
               const angle = Math.random() * Math.PI * 2;
               const dist = 10 + Math.random() * 18;
@@ -808,7 +848,7 @@ class Enemy {
               game.effects.push(new Effect(fx, fy, '#f93', 16, 4, 18));
             }
           }
-          this.onDeath(game);
+          if (!skullPending) this.onDeath(game);
         }
       }
       }
@@ -817,7 +857,7 @@ class Enemy {
     // Soak decay
     if (this.soakTimer > 0) this.soakTimer--;
 
-    const speed = this.big ? 2.4 : 1.9;
+    const speed = (this.big ? 2.4 : 1.9) * MOVEMENT_SPEED_SCALE;
     const target = game._chooseEnemyTarget ? game._chooseEnemyTarget(this) : game.player;
     const targetBox = target && target.getHurtbox ? target.getHurtbox() : target;
     const targetIsPlayer = target === game.player;
@@ -949,7 +989,7 @@ class Enemy {
           if (this.x >= this.patrolRight) this.facing = -1;
         }
         this.jumpTimer++;
-        if (this.jumpTimer >= (this.big ? 55 : 75) && this.vy < 1) {
+        if (this.jumpTimer >= Math.round((this.big ? 55 : 75) * ENEMY_JUMP_SPACING_MULT) && this.vy < 1) {
           this.vy = this.big ? -11 : -9;
           this.jumpTimer = 0;
         }
@@ -1114,7 +1154,7 @@ class Enemy {
             if (nearDist > 40) this.vx = this.facing * speed * 0.4 * windResist;
             else this.vx *= 0.85;
             this.jumpTimer++;
-            if (this.jumpTimer >= (this.big ? 90 : 120) && this.vy < 1 && nearDist < 250) {
+            if (this.jumpTimer >= Math.round((this.big ? 90 : 120) * ENEMY_JUMP_SPACING_MULT) && this.vy < 1 && nearDist < 250) {
               this.vy = this.big ? -10 : -8;
               this.vx = this.facing * speed * 2.5 * windResist;
               this.jumpTimer = 0;
@@ -1140,7 +1180,7 @@ class Enemy {
           this.vx *= 0.85;
         }
         // Jump toward player
-        if (this.jumpTimer >= (this.big ? 90 : 120) && this.vy < 1 && distToPlayer < 250) {
+        if (this.jumpTimer >= Math.round((this.big ? 90 : 120) * ENEMY_JUMP_SPACING_MULT) && this.vy < 1 && distToPlayer < 250) {
           this.vy = this.big ? -10 : -8;
           this.vx = this.facing * speed * 2.5 * windResist;
           this.jumpTimer = 0;
@@ -1956,8 +1996,10 @@ class Enemy {
       }
     }
     if (this.hp <= 0) {
-      this.dead = true;
-      this.onDeath(game);
+      if (!this._makeSkullTarget(game, sourceType)) {
+        this.dead = true;
+        this.onDeath(game);
+      }
     }
     return true;
   }
@@ -3836,7 +3878,12 @@ class Boss extends Enemy {
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
-        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+        if (this.hp <= 0) {
+          if (!this._makeSkullTarget(game, 'status')) {
+            this.dead = true;
+            this.onDeath(game);
+          }
+        }
       }
       return;
     }
@@ -3872,7 +3919,7 @@ class Boss extends Enemy {
       return;
     }
     this.phase = this.hp <= this.maxHp / 2 ? 2 : 1;
-    const speed = (this.phase === 2 ? 3.2 : 2.2) + this.wave * 0.25;
+    const speed = ((this.phase === 2 ? 3.2 : 2.2) + this.wave * 0.25) * MOVEMENT_SPEED_SCALE;
 
     if (this.flying) {
       this.hoverPhase += 0.03;
@@ -3903,7 +3950,12 @@ class Boss extends Enemy {
         this.hp -= bdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
-        if (this.hp <= 0) { this.dead = true; this.onDeath(game); }
+        if (this.hp <= 0) {
+          if (!this._makeSkullTarget(game, 'status')) {
+            this.dead = true;
+            this.onDeath(game);
+          }
+        }
       }
       }
     }
@@ -4173,7 +4225,7 @@ class Boss extends Enemy {
         this.deflectReady = this.grounded;
         // Jump toward player
         this.jumpTimer++;
-        const jumpRate = this.phase === 2 ? 70 : 100;
+        const jumpRate = Math.round((this.phase === 2 ? 70 : 100) * ENEMY_JUMP_SPACING_MULT);
         if (this.jumpTimer >= jumpRate && this.grounded && distToPlayer < 300) {
           this.vy = -11;
           this.vx = this.facing * speed * 3;
@@ -4659,8 +4711,10 @@ class Boss extends Enemy {
       this.flyerDashTimer = 0;
     }
     if (this.hp <= 0) {
-      this.dead = true;
-      this.onDeath(game);
+      if (!this._makeSkullTarget(game, sourceType)) {
+        this.dead = true;
+        this.onDeath(game);
+      }
     }
     return true;
   }

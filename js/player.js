@@ -316,6 +316,38 @@ class Player {
     triggerHitstop(3);
   }
 
+  _getAimVector(game, opts = {}) {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const rx = gpState.axes[2] || 0;
+    const ry = gpState.axes[3] || 0;
+    const rLen = Math.hypot(rx, ry);
+    if (opts.gamepad && rLen > 0.35) return { x: rx / rLen, y: ry / rLen };
+    if (opts.mouse && canvasMouseX >= 0 && canvasMouseY >= 0 && game && game.camera) {
+      const dx = game.camera.x + canvasMouseX - cx;
+      const dy = game.camera.y + canvasMouseY - cy;
+      const d = Math.hypot(dx, dy);
+      if (d > 6) return { x: dx / d, y: dy / d };
+    }
+    return { x: this.facing || 1, y: 0 };
+  }
+
+  _applyAimFacing(game, opts = {}) {
+    const aim = this._getAimVector(game, opts);
+    if (Math.abs(aim.x) > 0.12) this.facing = aim.x >= 0 ? 1 : -1;
+    return aim;
+  }
+
+  _aimLocal(game, forward, side = 0, opts = {}) {
+    const aim = this._getAimVector(game, opts);
+    const px = -aim.y;
+    const py = aim.x;
+    return {
+      x: aim.x * forward + px * side,
+      y: aim.y * forward + py * side
+    };
+  }
+
   // Ultimate activation — starts the Rondo-of-Blood-style cutscene float
   activateUltimate(game) {
     this.ultimateActive = true;
@@ -712,7 +744,7 @@ class Player {
     return def;
   }
 
-  useHeldItem(game) {
+  useHeldItem(game, aimOpts = {}) {
     const def = this._spendItemAmmo(game);
     if (!def) return;
     this.itemUseFlash = 12;
@@ -730,14 +762,16 @@ class Player {
       if (def.power !== 'fire') this.ninjaType = oldType === 'fire' ? 'basic' : oldType;
       return;
     }
-    this.fireBasicWeapon(game, def);
+    this.fireBasicWeapon(game, def, aimOpts);
   }
 
-  fireBasicWeapon(game, def) {
+  fireBasicWeapon(game, def, aimOpts = {}) {
     SFX.special();
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
+    const aim = this._applyAimFacing(game, aimOpts);
     const dir = this.facing || 1;
+    const aimOffset = (forward, side = 0) => this._aimLocal(game, forward, side, aimOpts);
     const kind = def.kind || 'pistol';
     const family = def.family || def.crashPower || 'basic';
     const color = def.color || '#e8e8e8';
@@ -789,41 +823,59 @@ class Player {
         game.trimerangs.push(t);
       };
       if (kind === 'pistol') {
-        spawnTri(dir * 16, -3, dir * 10, -2.8, { life: 120, radius: 13, burstPhase: 18, weave: 0.055, damageBonus: 1 });
+        const off = aimOffset(16, -3);
+        const vel = aimOffset(10, -2.8);
+        spawnTri(off.x, off.y, vel.x, vel.y, { life: 120, radius: 13, burstPhase: 18, weave: 0.055, damageBonus: 1 });
       } else if (kind === 'crossbow') {
-        spawnTri(dir * 14, -8, dir * 8.5, -4.2, { life: 150, radius: 14, burstPhase: 24, turnDir: 1, weave: 0.04, damageBonus: 2 });
-        spawnTri(dir * 14, 6, dir * 8.5, 3.3, { life: 150, radius: 14, burstPhase: 24, turnDir: -1, weave: -0.04, damageBonus: 2 });
+        const off1 = aimOffset(14, -8);
+        const vel1 = aimOffset(8.5, -4.2);
+        const off2 = aimOffset(14, 6);
+        const vel2 = aimOffset(8.5, 3.3);
+        spawnTri(off1.x, off1.y, vel1.x, vel1.y, { life: 150, radius: 14, burstPhase: 24, turnDir: 1, weave: 0.04, damageBonus: 2 });
+        spawnTri(off2.x, off2.y, vel2.x, vel2.y, { life: 150, radius: 14, burstPhase: 24, turnDir: -1, weave: -0.04, damageBonus: 2 });
       } else {
         for (let i = -1; i <= 1; i++) {
-          spawnTri(dir * 10, i * 8, dir * (7.8 - Math.abs(i) * 0.4), i * 3.2, { life: 180, radius: 15 + Math.abs(i), burstPhase: 34 + Math.abs(i) * 8, weave: 0.05 * (i || 1), damageBonus: 3 });
+          const off = aimOffset(10, i * 8);
+          const vel = aimOffset(7.8 - Math.abs(i) * 0.4, i * 3.2);
+          spawnTri(off.x, off.y, vel.x, vel.y, { life: 180, radius: 15 + Math.abs(i), burstPhase: 34 + Math.abs(i) * 8, weave: 0.05 * (i || 1), damageBonus: 3 });
         }
       }
-      game.effects.push(new Effect(cx + dir * 20, cy, accent, 14, 4, 12));
+      game.effects.push(new Effect(cx + aim.x * 20, cy + aim.y * 20, accent, 14, 4, 12));
       triggerScreenShake(1, 3);
       return;
     }
     if (kind === 'shotgun') {
       for (let i = -2; i <= 2; i++) {
-        const p = new Projectile(cx + dir * 14, cy - 2, dir * (8.5 - Math.abs(i) * 0.4), i * 1.15, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
+        const off = aimOffset(14, -2);
+        const vel = aimOffset(8.5 - Math.abs(i) * 0.4, i * 1.15);
+        const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
         p.w = 10; p.h = 5; p.life = 46; p.piercing = false;
         game.projectiles.push(applyProjectileTheme(p));
       }
       triggerScreenShake(2, 4);
     } else if (kind === 'rpg') {
-      const p = new Projectile(cx + dir * 18, cy - 4, dir * 5.2, -0.2, color, this.type.attackDamage + this.bonusElemental + 8, 'player');
+      const off = aimOffset(18, -4);
+      const vel = aimOffset(5.2, -0.2);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 8, 'player');
       p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = family === 'earth' ? 90 : 105;
       game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(3, 5);
     } else if (kind === 'crossbow') {
-      const p = new Projectile(cx + dir * 17, cy - 4, dir * 11.5, -0.1, color, this.type.attackDamage + this.bonusElemental + 3, 'player');
+      const off = aimOffset(17, -4);
+      const vel = aimOffset(11.5, -0.1);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 3, 'player');
       p.w = 16; p.h = 4; p.life = 72; p.piercing = true;
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'staff') {
-      const p = new Projectile(cx + dir * 16, cy - 8, dir * 7.6, -0.35, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
+      const off = aimOffset(16, -8);
+      const vel = aimOffset(7.6, -0.35);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
       p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'grenade') {
-      const g = new Grenade(cx + dir * 14, cy - 10, dir * 5.3, -5.2, color, this.type.attackDamage + this.bonusElemental + 5, 'player', {
+      const off = aimOffset(14, -10);
+      const vel = aimOffset(5.3, -5.2);
+      const g = new Grenade(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 5, 'player', {
         element: family === 'storm' ? 'lightning' : undefined,
         gravScale: 0.9, fuseTimer: 54, bouncesLeft: 1, explodeRadius: 76
       });
@@ -833,16 +885,20 @@ class Player {
       game.grenades.push(g);
       triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
-      const p = new Projectile(cx + dir * 12, cy + 4, dir * 4.8, 2.4, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
+      const off = aimOffset(12, 4);
+      const vel = aimOffset(4.8, 2.4);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
       p.w = 18; p.h = 14; p.life = 58; p.explosive = true; p.explosionRadius = 70;
       game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(2, 5);
     } else {
-      const p = new Projectile(cx + dir * 16, cy - 3, dir * 10, 0, color, this.type.attackDamage + this.bonusElemental + 1, 'player');
+      const off = aimOffset(16, -3);
+      const vel = aimOffset(10, 0);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 1, 'player');
       p.w = 9; p.h = 5; p.life = 80;
       game.projectiles.push(applyProjectileTheme(p));
     }
-    game.effects.push(new Effect(cx + dir * 20, cy, accent, 7, 3, 8));
+    game.effects.push(new Effect(cx + aim.x * 20, cy + aim.y * 20, accent, 7, 3, 8));
   }
 
   activateItemCrash(game) {
@@ -1213,8 +1269,8 @@ class Player {
         if (keys['ArrowUp'] || keys['KeyW'] || touchState.up || gpState.axes[1] < -0.3) moveY = -1;
         if (keys['ArrowDown'] || keys['KeyS'] || touchState.down || gpState.axes[1] > 0.3) moveY = 1;
         if (moveX !== 0) g.facing = moveX;
-        g.x += moveX * 2.5;
-        g.y += moveY * 2.5 + Math.sin(game.tick * 0.05) * 0.5;
+        g.x += moveX * 2.5 * MOVEMENT_SPEED_SCALE;
+        g.y += moveY * 2.5 * MOVEMENT_SPEED_SCALE + Math.sin(game.tick * 0.05) * 0.5;
         g.x = Math.max(0, Math.min(game.levelW - g.w, g.x));
         g.y = Math.max(-50, Math.min(480 - g.h, g.y));
         this.x = g.x + g.w / 2 - this.w / 2;
@@ -1282,26 +1338,39 @@ class Player {
 
         // Punch: attack button — alternating hand lunges forward
         if (g.punchCooldown > 0) g.punchCooldown--;
-        if (g.punchCooldown <= 0 && (consumePress('KeyZ') || consumePress('KeyJ') || justPressed['MouseAttack'] || gpJust[GP_ATTACK])) {
-          const hand = g.punchSide > 0 ? rh : lh;
-          hand.punchTimer = 20;
-          g.punchCooldown = 24;
-          g.punchSide *= -1; // alternate
-          SFX.attack();
+        if (g.punchCooldown <= 0) {
+          const golemKeyboardPunch = consumePress('KeyZ') || consumePress('KeyJ');
+          const golemMousePunch = !golemKeyboardPunch && justPressed['MouseSpecial'];
+          const golemGamepadPunch = !golemKeyboardPunch && !golemMousePunch && gpJust[GP_ATTACK];
+          if (golemKeyboardPunch || golemMousePunch || golemGamepadPunch) {
+            this._applyAimFacing(game, { mouse: golemMousePunch, gamepad: golemGamepadPunch });
+            const hand = g.punchSide > 0 ? rh : lh;
+            hand.punchTimer = 20;
+            g.punchCooldown = 24;
+            g.punchSide *= -1; // alternate
+            SFX.attack();
+          }
         }
 
         // Missiles: special button — 2 rockets in facing direction
         if (g.missileCooldown > 0) g.missileCooldown--;
-        if (g.missileCooldown <= 0 && (consumePress('KeyX') || consumePress('KeyK') || justPressed['MouseSpecial'] || gpJust[GP_SPECIAL])) {
-          g.missileCooldown = 28;
-          const px = cx + g.facing * (g.w / 2 + 4);
-          const dmg = this.type.attackDamage + this.bonusElemental + 5;
-          const p1 = new Projectile(px, cy - 10, g.facing * 9, -1.5, '#f84', dmg, 'player');
-          const p2 = new Projectile(px, cy + 10, g.facing * 9,  1.5, '#f84', dmg, 'player');
-          p1.isMissile = true; p2.isMissile = true;
-          p1.noPlat = true; p2.noPlat = true;
-          game.projectiles.push(p1, p2);
-          SFX.shuriken();
+        if (g.missileCooldown <= 0) {
+          const golemKeyboardMissile = consumePress('KeyX') || consumePress('KeyK');
+          const golemMouseMissile = !golemKeyboardMissile && justPressed['MouseAttack'];
+          const golemGamepadMissile = !golemKeyboardMissile && !golemMouseMissile && gpJust[GP_SPECIAL];
+          if (golemKeyboardMissile || golemMouseMissile || golemGamepadMissile) {
+            const aim = this._applyAimFacing(game, { mouse: golemMouseMissile, gamepad: golemGamepadMissile });
+            g.missileCooldown = 28;
+            const px = cx + aim.x * (g.w / 2 + 4);
+            const dmg = this.type.attackDamage + this.bonusElemental + 5;
+            const perpX = -aim.y, perpY = aim.x;
+            const p1 = new Projectile(px + perpX * -10, cy + aim.y * (g.w / 2 + 4) + perpY * -10, aim.x * 9 + perpX * -1.5, aim.y * 9 + perpY * -1.5, '#f84', dmg, 'player');
+            const p2 = new Projectile(px + perpX * 10, cy + aim.y * (g.w / 2 + 4) + perpY * 10, aim.x * 9 + perpX * 1.5, aim.y * 9 + perpY * 1.5, '#f84', dmg, 'player');
+            p1.isMissile = true; p2.isMissile = true;
+            p1.noPlat = true; p2.noPlat = true;
+            game.projectiles.push(p1, p2);
+            SFX.shuriken();
+          }
         }
 
         // Yellow ball burst: shuriken button — radial shmup-boss pattern
@@ -1715,7 +1784,7 @@ class Player {
       } else {
         const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
         const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
-        this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult;
+        this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult * MOVEMENT_SPEED_SCALE;
       }
       if (moveX !== 0) this.facing = moveX;
     }
@@ -2474,7 +2543,13 @@ class Player {
       }
     }
 
-    if ((consumePress('KeyZ') || consumePress('KeyJ') || consumePress('MouseAttack') || touchJust.attack || gpJust[GP_ATTACK]) && !this.attacking && this.attackCooldown <= 0) {
+    const keyboardAttackPress = consumePress('KeyZ') || consumePress('KeyJ');
+    const mouseAttackPress = !keyboardAttackPress && consumePress('MouseSpecial');
+    const touchAttackPress = !keyboardAttackPress && !mouseAttackPress && touchJust.attack;
+    const gamepadAttackPress = !keyboardAttackPress && !mouseAttackPress && !touchAttackPress && gpJust[GP_ATTACK];
+    if ((keyboardAttackPress || mouseAttackPress || touchAttackPress || gamepadAttackPress) && !this.attacking && this.attackCooldown <= 0) {
+      const attackAim = { mouse: mouseAttackPress, gamepad: gamepadAttackPress };
+      this._applyAimFacing(game, attackAim);
       if (this.statusParalyse > 0) {
         this.statusStun = 30;
         this.statusParalyse = Math.max(0, this.statusParalyse - 30);
@@ -2486,28 +2561,34 @@ class Player {
         SFX.shock();
       } else {
         this.shadowAttackHit = false;
-        this.attack(game);
+        this.attack(game, attackAim);
         if (this.items.theCode) this.codeComboCount = 1;
       }
     }
 
     // The Code: hold attack for a 3-hit combo
     if (this.items.theCode && !this.attacking && this.attackCooldown <= 0 && this.statusParalyse <= 0 && this.statusStun <= 0) {
-      const holdingAttack = keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK];
+      const holdingAttack = keys['KeyZ'] || keys['KeyJ'] || keys['MouseSpecial'] || touchState.attack || gpState.buttons[GP_ATTACK];
       if (holdingAttack && this.codeComboCount > 0 && this.codeComboCount < 3) {
         this.shadowAttackHit = false;
-        this.attack(game);
+        this.attack(game, { mouse: keys['MouseSpecial'] && !keys['KeyZ'] && !keys['KeyJ'], gamepad: gpState.buttons[GP_ATTACK] && !keys['KeyZ'] && !keys['KeyJ'] && !keys['MouseSpecial'] });
         this.codeComboCount++;
       }
     }
     // Reset combo when attack released or combo finished
-    if (this.codeComboCount >= 3 || !(keys['KeyZ'] || keys['KeyJ'] || keys['MouseAttack'] || touchState.attack || gpState.buttons[GP_ATTACK])) {
+    if (this.codeComboCount >= 3 || !(keys['KeyZ'] || keys['KeyJ'] || keys['MouseSpecial'] || touchState.attack || gpState.buttons[GP_ATTACK])) {
       this.codeComboCount = 0;
     }
 
     // Held item
-    if ((consumePress('KeyX') || consumePress('KeyK') || consumePress('MouseSpecial') || touchJust.special || gpJust[GP_SPECIAL]) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
-      this.useHeldItem(game);
+    const keyboardWeaponPress = consumePress('KeyX') || consumePress('KeyK');
+    const mouseWeaponPress = !keyboardWeaponPress && consumePress('MouseAttack');
+    const touchWeaponPress = !keyboardWeaponPress && !mouseWeaponPress && touchJust.special;
+    const gamepadWeaponPress = !keyboardWeaponPress && !mouseWeaponPress && !touchWeaponPress && gpJust[GP_SPECIAL];
+    if ((keyboardWeaponPress || mouseWeaponPress || touchWeaponPress || gamepadWeaponPress) && this.statusCurse <= 0 && this.specialCooldown <= 0) {
+      const weaponAim = { mouse: mouseWeaponPress, gamepad: gamepadWeaponPress };
+      this._applyAimFacing(game, weaponAim);
+      this.useHeldItem(game, weaponAim);
     }
 
     // Fire ninja: combo decay & fire armor
@@ -2832,29 +2913,29 @@ class Player {
         let nearDist = Infinity;
         const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
         let skullTarget = false;
+        const nonSkullRadius = 360;
         for (const e of game.enemies) {
-          if (e.dead || this.staggerChainHit.has(e) || e.disableTimer <= 0) continue;
+          if (e.dead || this.staggerChainHit.has(e) || e.disableTimer > 0) continue;
           const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
           const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearDist) { nearDist = d; nearest = e; skullTarget = true; }
+          if (d < nonSkullRadius && d < nearDist) { nearDist = d; nearest = e; skullTarget = false; }
         }
-        if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss) && game.boss.disableTimer > 0) {
-          nearest = game.boss;
-          skullTarget = true;
+        if (game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss) && game.boss.disableTimer <= 0) {
+          const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < nonSkullRadius && d < nearDist) { nearDist = d; nearest = game.boss; skullTarget = false; }
         }
         if (!nearest) {
           nearDist = Infinity;
-          const nonSkullRadius = 360;
           for (const e of game.enemies) {
-            if (e.dead || this.staggerChainHit.has(e)) continue;
+            if (e.dead || this.staggerChainHit.has(e) || e.disableTimer <= 0) continue;
             const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
             const d = Math.sqrt(dx * dx + dy * dy);
-            if (d < nonSkullRadius && d < nearDist) { nearDist = d; nearest = e; skullTarget = false; }
+            if (d < nearDist) { nearDist = d; nearest = e; skullTarget = true; }
           }
-          if (game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss)) {
-            const dx = (game.boss.x + game.boss.w / 2) - cx, dy = (game.boss.y + game.boss.h / 2) - cy;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d < nonSkullRadius && d < nearDist) { nearest = game.boss; skullTarget = false; }
+          if (!nearest && game.boss && !game.boss.dead && !this.staggerChainHit.has(game.boss) && game.boss.disableTimer > 0) {
+            nearest = game.boss;
+            skullTarget = true;
           }
         }
         if (nearest) {
@@ -3164,7 +3245,8 @@ class Player {
     }
   }
 
-  attack(game) {
+  attack(game, aimOpts = {}) {
+    this._applyAimFacing(game, aimOpts);
     this.attacking = true;
     this.attackTimer = 10;
     this.swingHitSet = new Set();
@@ -3184,12 +3266,13 @@ class Player {
     }
 
     if (this.ninjaType === 'bubble') {
+      const aim = this._getAimVector(game, aimOpts);
       const bubDist = 80 + this.bonusReach * 4;
       for (let i = 0; i < 5; i++) {
         const offY = (i === 0 ? -6 : 8) + (Math.random() - 0.5) * 4;
         game.bubbles.push(new SmallBubble(
-          this.x + this.w / 2 + this.facing * bubDist + Math.random() * 6,
-          this.y + this.h / 2 + offY,
+          this.x + this.w / 2 + aim.x * bubDist + -aim.y * offY + Math.random() * 6,
+          this.y + this.h / 2 + aim.y * bubDist + aim.x * offY,
           this.facing,
           this._applyAttackFocusDamage(this.type.attackDamage)
         ));
@@ -3198,9 +3281,11 @@ class Player {
 
     // Crystal attack: shoot freeze dust
     if (this.ninjaType === 'crystal') {
-      const fx = this.x + this.w / 2 + this.facing * 20;
-      const fy = this.y + this.h / 2;
-      const proj = new Projectile(fx, fy, this.facing * 6, (Math.random() - 0.5) * 1.5, '#aff', this._applyAttackFocusDamage(this.type.attackDamage + this.bonusElemental), 'player');
+      const aim = this._getAimVector(game, aimOpts);
+      const side = (Math.random() - 0.5) * 1.5;
+      const fx = this.x + this.w / 2 + aim.x * 20;
+      const fy = this.y + this.h / 2 + aim.y * 20;
+      const proj = new Projectile(fx, fy, aim.x * 6 + -aim.y * side, aim.y * 6 + aim.x * side, '#aff', this._applyAttackFocusDamage(this.type.attackDamage + this.bonusElemental), 'player');
       proj.w = 10; proj.h = 8;
       proj.freezeDust = true;
       proj.life = 60;

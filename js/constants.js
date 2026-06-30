@@ -5,6 +5,8 @@ const TILE = 32;
 const GRAVITY = 0.55;
 const MAX_FALL = 12;
 const FIXED_DT = 1000 / 60; // 60 fps timestep
+const MOVEMENT_SPEED_SCALE = 0.75;
+const ENEMY_JUMP_SPACING_MULT = 1.75;
 
 const NINJA_ORDER = ['fire', 'earth', 'bubble', 'shadow', 'crystal', 'wind', 'storm'];
 
