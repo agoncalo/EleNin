@@ -141,7 +141,7 @@ class Enemy {
     const normalHits = {
       walker: 8, shooter: 8, jumper: 9, bouncer: 10, charger: 12,
       shielded: 11, deflector: 14, protector: 16, rocketeer: 11, attacker: 7,
-      satellite: 18, flyer: 8, flyshooter: 9
+      satellite: 10, flyer: 8, flyshooter: 9
     };
     const scale = 1 + Math.max(0, (this.wave || 1) - 1) * 0.12;
     const mapScale = healthScale && healthScale !== this.wave ? Math.min(1.35, Math.max(1, Math.sqrt(healthScale))) : 1;
@@ -153,6 +153,21 @@ class Enemy {
     this.stance = this.maxStance;
     this.displayStance = this.stance;
     this.stanceRecoverDelay = 0;
+  }
+
+  getHurtbox() {
+    if (this.type === 'satellite') {
+      const padX = this.w * 0.28;
+      const padTop = this.h * 0.08;
+      const padBottom = this.h * 0.24;
+      return {
+        x: this.x - padX,
+        y: this.y - padTop,
+        w: this.w + padX * 2,
+        h: this.h + padTop + padBottom
+      };
+    }
+    return this;
   }
 
   _updateStance() {
@@ -1771,6 +1786,14 @@ class Enemy {
       }
       return false;
     }
+    if (this.missionMinibossRole === 'squadLeader' && this.missionSquadLeaderLocked && game && game._missionSquadAlive && game._missionSquadAlive(this)) {
+      this.flashTimer = 4;
+      if (game.effects) {
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 16, 'SQUAD FIRST', '#ffb347'));
+        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ffb347', 8, 2, 8));
+      }
+      return false;
+    }
     if (this.element === 'wind' && this.windPhaseTimer > 0) {
       this.flashTimer = 3;
       if (game) {
@@ -1966,7 +1989,7 @@ class Enemy {
       ));
     }
     // Weight system: heavier enemies resist knockback more
-    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, rocketeer: 1.1, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, flyer: 0.5, flyshooter: 0.5 };
+    const weightBase = { walker: 1, shooter: 0.9, jumper: 0.8, bouncer: 1.2, rocketeer: 1.1, charger: 1.8, shielded: 1.6, deflector: 1.3, protector: 2.5, attacker: 0.7, satellite: 1.2, flyer: 0.5, flyshooter: 0.5 };
     const isBoss = this instanceof Boss;
     let weight = (weightBase[this.type] || 1) * (this.big ? 2 : 1) * (isBoss ? 3.5 : 1);
     const dir = (fromX !== undefined) ? Math.sign(this.x + this.w / 2 - fromX) : this.facing * -1;
@@ -1984,7 +2007,7 @@ class Enemy {
         this.flyerDashTimer = 0;
       }
     } else {
-      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, rocketeer: 4, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, flyer: 20, flyshooter: 20 };
+      const kbBase = { walker: 5, shooter: 6, jumper: 4, bouncer: 3, rocketeer: 4, charger: 2, shielded: 2, deflector: 3, protector: 1, attacker: 8, satellite: 8, flyer: 20, flyshooter: 20 };
       let kb = (kbBase[this.type] || 4) * (this.big ? 0.5 : 1);
       this.vx = dir * kb;
       this.knockbackTimer = Math.max(this.knockbackTimer, 6);
@@ -3596,7 +3619,8 @@ class Enemy {
       ctx.fillStyle = '#f44';
       ctx.fillRect(barX, barY, barW * hpRatio, 4);
     }
-    if (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0)) {
+    const forceStanceBar = this.type === 'satellite' || forceHpBar;
+    if (this.maxStance && (forceStanceBar || this.stance < this.maxStance || this.disableTimer > 0)) {
       const barW = this.w + 6;
       const barX = sx + this.w / 2 - barW / 2;
       const barY = sy - (this.hp < this.maxHp ? 16 : 10);
@@ -3618,7 +3642,7 @@ class Enemy {
       const totalW = this.shieldMax * pipGap;
       const pipBump = this.shieldBump > 0 ? Math.sin(this.shieldBump * 1.5) * 2 : 0;
       const pipStartX = sx + this.w / 2 - totalW / 2 + pipBump;
-      const pipY = sy - (this.maxStance && (this.stance < this.maxStance || this.disableTimer > 0) ? (this.hp < this.maxHp ? 23 : 17) : 16);
+      const pipY = sy - (this.maxStance && (forceStanceBar || this.stance < this.maxStance || this.disableTimer > 0) ? (this.hp < this.maxHp ? 23 : 17) : 16);
       for (let i = 0; i < this.shieldMax; i++) {
         ctx.fillStyle = i < this.shieldHp ? pipColor : '#234';
         ctx.fillRect(pipStartX + i * pipGap, pipY, pipW, 3);

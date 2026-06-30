@@ -660,7 +660,8 @@ class FlamePool {
     if (this.hitTimer > 0) this.hitTimer--;
     if (this.hitTimer <= 0) {
       for (const e of game.enemies) {
-        if (!e.dead && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && rectOverlap(this, eHitbox)) {
           e.takeDamage(this.damage, game, this.x + this.w / 2);
           e.burnTimer = Math.max(e.burnTimer || 0, 60);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h, '#f80', 4, 2, 8));
@@ -1436,7 +1437,8 @@ class SpinningScythe {
     const game = this.game;
     if (game) {
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitCooldowns.has(e) && rectOverlap(hb, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitCooldowns.has(e) && rectOverlap(hb, eHitbox)) {
           e.takeDamage(this.damage, game, this.x);
           this.hitCooldowns.set(e, 20);
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a4e', 8, 3, 10));

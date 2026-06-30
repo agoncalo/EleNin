@@ -164,6 +164,9 @@ class Player {
     this.staggerChainCombo = 0;
     this.staggerChainComboTimer = 0;
     this.staggerChainComboPop = 0;
+    this.chainSpeedBoostTimer = 0;
+    this.chainSpeedBoostMax = 150;
+    this.chainSpeedBoostMult = 2;
 
     // Next-hit-double system
     this.nextHitDouble = false;
@@ -301,10 +304,29 @@ class Player {
     this.attackFocus = Math.min(1, this.attackFocus + (amount || 0.10));
   }
 
+  _triggerChainSpeedBoost() {
+    this.chainSpeedBoostTimer = this.chainSpeedBoostMax || 150;
+  }
+
+  _chainSpeedMultiplier() {
+    return this.chainSpeedBoostTimer > 0 ? (this.chainSpeedBoostMult || 2) : 1;
+  }
+
   _attackCooldownForFocus() {
     const focus = Math.max(0, Math.min(1, this.attackFocus === undefined ? 1 : this.attackFocus));
     if (focus <= 0.25) return 90;
     return Math.round(6 + (1 - focus) * 10);
+  }
+
+  _startFireDash(game, opts = {}) {
+    this.fireDashing = true;
+    this.fireDashTimer = opts.timer || 12;
+    this.fireDashMax = this.fireDashTimer;
+    this.fireDashFromWeapon = !!opts.weapon;
+    this.vy = Math.min(this.vy || 0, -1);
+    this.invincibleTimer = Math.max(this.invincibleTimer || 0, opts.invincible || 15);
+    this._fireballPending = !this.fireDashFromWeapon;
+    if (game) game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, opts.color || '#f80', 14, 5, 15));
   }
 
   // Mecha hand punch hit detection
@@ -316,7 +338,8 @@ class Player {
     const dmg = (this.type.attackDamage + this.bonusElemental) * 3;
     const gcx = g.x + g.w / 2;
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(hitBox, e)) {
+      const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+      if (!e.dead && rectOverlap(hitBox, eHitbox)) {
         e.takeDamage(dmg, game, gcx);
         const kbDir = Math.sign(e.x + e.w / 2 - gcx) || g.facing;
         e.vx = kbDir * 16; e.vy = -10;
@@ -642,6 +665,21 @@ class Player {
     return (this.heldItem && WEAPON_ITEMS[this.heldItem]) ? WEAPON_ITEMS[this.heldItem] : null;
   }
 
+  _heldMeleeBonus() {
+    const def = this.currentWeaponDef();
+    return def ? def.meleeBonus : null;
+  }
+
+  _applyHeldMeleeBonus(target, game, bonus) {
+    if (!target || !bonus) return;
+    if (bonus === 'shadow') {
+      target.paralyseTimer = Math.max(target.paralyseTimer || 0, target === game.boss ? 22 : 36);
+      target.purpleParalyseTimer = Math.max(target.purpleParalyseTimer || 0, target === game.boss ? 35 : 55);
+      this.shadowStealth = Math.max(this.shadowStealth || 0, 45);
+      game.effects.push(new Effect(target.x + target.w / 2, target.y + target.h / 2, '#a040ff', 10, 3, 12));
+    }
+  }
+
   currentPaletteDef() {
     return this.currentWeaponDef() || ((this.ultimateActive || this.ultCutscene) ? this.itemCrashPalette : null);
   }
@@ -658,6 +696,40 @@ class Player {
     this.stopMidairTimer = 0;
     this.parrying = false;
     this.parryTimer = 0;
+  }
+
+  _finishUltimate(game) {
+    this.ultimateActive = false;
+    this.ultCutscene = false;
+    this.ultimateCharge = 0;
+    this.ultimateReady = false;
+    this.ultimateMax = Math.round(this.ultimateMax * 1.2);
+    this.earthGolem = null;
+    this.bubbleRide = null;
+    this.bubbleUlt = null;
+    this.windBow = null;
+    this.fireMeteors = [];
+    this.fireArmor = false;
+    this.fireArmorTimer = 0;
+    this.shadowUltBuff = false;
+    this.shadowDarkness = 0;
+    this.shadowEyesTimer = 0;
+    this.stormRaindrops = [];
+    this.windDashing = false;
+    this.windDashTimer = 0;
+    this.stopMidair = false;
+    this.stopMidairTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.invincibleTimer = Math.min(this.invincibleTimer || 0, 45);
+    this.ninjaType = 'basic';
+    if (this.crystalCastle) {
+      if (game && game.crystalCastle && !game.crystalCastle.done) {
+        game.crystalCastle.explode(game);
+      }
+      if (game) game.crystalCastle = null;
+      this.crystalCastle = false;
+    }
   }
 
   _isChainInvulnerable() {
@@ -789,8 +861,76 @@ class Player {
     const aimOffset = (forward, side = 0) => this._aimLocal(game, forward, side, aimOpts);
     const kind = def.kind || 'pistol';
     const family = def.family || def.crashPower || 'basic';
+    const role = def.role || null;
     const color = def.color || '#e8e8e8';
     const accent = def.accentColor || color;
+    const damageBase = this.type.attackDamage + this.bonusElemental;
+    const boltHit = (x, y, vx, vy, width, damage) => {
+      const len = 760;
+      const mag = Math.hypot(vx, vy) || 1;
+      const dx = vx / mag, dy = vy / mag;
+      const hitTarget = (target, isBoss) => {
+        const tx = target.x + target.w / 2;
+        const ty = target.y + target.h / 2;
+        const along = (tx - x) * dx + (ty - y) * dy;
+        if (along < 0 || along > len) return false;
+        const px = x + dx * along;
+        const py = y + dy * along;
+        const dist = Math.hypot(tx - px, ty - py);
+        if (dist > Math.max(target.w, target.h) * 0.5 + width) return false;
+        target.takeDamage(damage, game, x, 'lightning', 'weapon', this);
+        target.paralyseTimer = Math.max(target.paralyseTimer || 0, isBoss ? 24 : 46);
+        target.soakTimer = Math.max(target.soakTimer || 0, isBoss ? 100 : 150);
+        game.effects.push(new Effect(tx, ty, '#fff36b', 12, 4, 14));
+        if (!this.ultimateReady && !this.ultimateActive) this.addUltimateCharge(isBoss ? 3 : 2);
+        return true;
+      };
+      let hits = 0;
+      for (const e of game.enemies) if (!e.dead && hitTarget(e, false)) hits++;
+      if (game.boss && !game.boss.dead && hitTarget(game.boss, true)) hits++;
+      game.hitLines.push(new HitLine(x, y, dx, dy, '#fff36b', 0, 'player', {
+        element: 'lightning', maxTimer: 1, flashDur: 10, activeDur: 8, width: width * 2, sourceType: 'weapon', visualOnly: true
+      }));
+      game.effects.push(new Effect(x, y, '#fff36b', 9, 3, 10));
+      if (hits) triggerHitstop(3);
+      triggerScreenShake(hits ? 3 : 1, hits ? 5 : 2);
+    };
+    const spawnBubbleShot = (x, y, vx, vy, dmg, small) => {
+      const b = small ? new SmallBubble(x, y, vx >= 0 ? 1 : -1, dmg) : new Bubble(x, y, dmg);
+      b.x = x; b.y = y; b.baseY = y;
+      b.vx = vx; b.vy = vy;
+      b.homing = true;
+      b.soaking = true;
+      b.life = small ? 120 : 210;
+      game.bubbles.push(b);
+      return b;
+    };
+    const summonGroundY = (x, fallbackY) => {
+      let gy = fallbackY;
+      for (const p of game.platforms || []) {
+        if (x < p.x - 8 || x > p.x + p.w + 8) continue;
+        if (p.y < cy - 24) continue;
+        if (p.y < gy) gy = p.y;
+      }
+      return gy;
+    };
+    const summonConstruct = (type) => {
+      if (!game.stoneBlocks) game.stoneBlocks = [];
+      const targetX = Math.max(40, Math.min((game.levelW || CANVAS_W) - 40, cx + aim.x * 150));
+      const groundY = summonGroundY(targetX, cy + 130);
+      if (type === 'earth') {
+        const b = new EarthBoulder(targetX, groundY, groundY - TILE * 2.1, this.wave || 1);
+        b.launchDmg = Math.max(b.launchDmg, damageBase + 7);
+        b.hoverTimer = 150;
+        game.stoneBlocks.push(b);
+      } else {
+        const ib = new IceBlock(targetX, groundY, this.facing || 1, this.wave || 1, damageBase + 4, false);
+        ib.timer = 300;
+        game.stoneBlocks.push(ib);
+      }
+      game.effects.push(new Effect(targetX, groundY - TILE, accent, 16, 5, 16));
+      triggerScreenShake(2, 4);
+    };
     const applyProjectileTheme = (p) => {
       p.fromSpecial = true;
       p.weaponFamily = family;
@@ -810,7 +950,9 @@ class Player {
       } else if (family === 'shadow') {
         p.shadowParalyse = true;
       } else if (family === 'crystal') {
-        p.freezeDust = true;
+        p.crystalShard = true;
+        p.homing = true;
+        p.homingStrength = Math.max(p.homingStrength || 0, 0.42);
       } else if (family === 'storm') {
         p.soaking = true;
         p.shadowParalyse = true;
@@ -820,12 +962,47 @@ class Player {
       }
       return p;
     };
+    if (family === 'bubble') {
+      if (kind === 'shotgun') {
+        for (let i = -2; i <= 2; i++) {
+          const off = aimOffset(14, i * 4);
+          const vel = aimOffset(5.8 - Math.abs(i) * 0.2, i * 1.2);
+          spawnBubbleShot(cx + off.x, cy + off.y, vel.x, vel.y, damageBase + 1, true);
+        }
+      } else {
+        const off = aimOffset(18, -4);
+        const vel = aimOffset(kind === 'pistol' ? 5.8 : 4.8, kind === 'bubbleGun' ? -1.6 : 0);
+        spawnBubbleShot(cx + off.x, cy + off.y, vel.x, vel.y, damageBase + (kind === 'bubbleGun' ? 3 : 2), false);
+        if (kind !== 'pistol') {
+          for (let i = -1; i <= 1; i += 2) {
+            const miniOff = aimOffset(12, i * 8);
+            const miniVel = aimOffset(4.8, i * 1.4);
+            spawnBubbleShot(cx + miniOff.x, cy + miniOff.y, miniVel.x, miniVel.y, Math.max(1, damageBase), true);
+          }
+        }
+      }
+      game.effects.push(new Effect(cx + aim.x * 20, cy + aim.y * 20, accent, 10, 3, 10));
+      return;
+    }
+    if (family === 'storm') {
+      if (kind === 'shotgun') {
+        for (let i = -2; i <= 2; i++) {
+          const vel = aimOffset(1, i * 0.14);
+          boltHit(cx + aim.x * 18, cy + aim.y * 18, vel.x, vel.y, 9, damageBase + 2);
+        }
+      } else {
+        const off = aimOffset(18, -3);
+        const vel = aimOffset(1, kind === 'grenade' ? -0.08 : 0);
+        boltHit(cx + off.x, cy + off.y, vel.x, vel.y, kind === 'grenade' ? 18 : 10, damageBase + (kind === 'grenade' ? 6 : 3));
+      }
+      return;
+    }
     if (family === 'wind') {
       if (!game.trimerangs) game.trimerangs = [];
       const spawnTri = (ox, oy, vx, vy, opts = {}) => {
         const t = new Trimerang(cx + ox, cy + oy, vx, vy, 'player');
         t.homingEnemy = true;
-        t.life = opts.life || 150;
+        t.life = Math.min(opts.life || 150, 180);
         t.radius = opts.radius || 15;
         t.spin = opts.spin || (0.34 + Math.random() * 0.08);
         t.burstPhase = opts.burstPhase || 0;
@@ -859,33 +1036,61 @@ class Player {
       triggerScreenShake(1, 3);
       return;
     }
+    if (role === 'mortar') {
+      const off = aimOffset(18, -7);
+      const vel = aimOffset(family === 'earth' ? 5.4 : 5.2, family === 'earth' ? -6.2 : -6.8);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, damageBase + (family === 'fire' ? 6 : 7), 'player');
+      p.w = family === 'earth' ? 20 : 18;
+      p.h = family === 'earth' ? 16 : 12;
+      p.life = 135;
+      p.explosive = true;
+      p.explosionRadius = family === 'earth' ? 92 : 88;
+      p.arcGravity = true;
+      p.gravScale = family === 'earth' ? 1.52 : 1.28;
+      if (family === 'earth') p.earthRock = true;
+      game.projectiles.push(applyProjectileTheme(p));
+      game.effects.push(new Effect(cx + aim.x * 20, cy + aim.y * 20, accent, 12, 4, 12));
+      triggerScreenShake(3, 5);
+      return;
+    }
     if (kind === 'shotgun') {
       for (let i = -2; i <= 2; i++) {
         const off = aimOffset(14, -2);
         const vel = aimOffset(8.5 - Math.abs(i) * 0.4, i * 1.15);
         const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 2, 'player');
-        p.w = 10; p.h = 5; p.life = 46; p.piercing = false;
+        p.w = family === 'crystal' ? 12 : 10; p.h = family === 'crystal' ? 9 : 5; p.life = 46; p.piercing = false;
         game.projectiles.push(applyProjectileTheme(p));
       }
       triggerScreenShake(2, 4);
     } else if (kind === 'rpg') {
       const off = aimOffset(18, -4);
-      const vel = aimOffset(5.2, -0.2);
-      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 8, 'player');
-      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = family === 'earth' ? 90 : 105;
+      const vel = aimOffset(family === 'earth' ? 5.8 : 5.2, family === 'earth' ? -4.8 : -0.2);
+      const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + (family === 'fire' ? 7 : 8), 'player');
+      p.w = 18; p.h = 10; p.life = 120; p.explosive = true; p.explosionRadius = family === 'earth' ? 90 : (family === 'fire' ? 106 : 105);
+      if (family === 'earth') { p.arcGravity = true; p.gravScale = 1.45; p.earthRock = true; }
       game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(3, 5);
-    } else if (kind === 'crossbow') {
+    } else if (kind === 'crossbow' || kind === 'bayonet') {
       const off = aimOffset(17, -4);
       const vel = aimOffset(11.5, -0.1);
       const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 3, 'player');
       p.w = 16; p.h = 4; p.life = 72; p.piercing = true;
+      if (kind === 'bayonet') {
+        p.damage = Math.max(1, p.damage - 1);
+        p.shadowParalyse = true;
+        p.life = 58;
+      }
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'staff') {
+      if (family === 'earth' || family === 'crystal') {
+        summonConstruct(family === 'earth' ? 'earth' : 'crystal');
+        return;
+      }
       const off = aimOffset(16, -8);
-      const vel = aimOffset(7.6, -0.35);
+      const vel = aimOffset(family === 'earth' ? 5.4 : 7.6, family === 'earth' ? -4.2 : -0.35);
       const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, accent, this.type.attackDamage + this.bonusElemental + 4, 'player');
-      p.w = 13; p.h = 13; p.life = 86; p.homing = family === 'storm' || family === 'crystal';
+      p.w = family === 'crystal' ? 16 : 13; p.h = family === 'crystal' ? 14 : 13; p.life = 86; p.homing = family === 'crystal';
+      if (family === 'earth') { p.arcGravity = true; p.gravScale = 1.35; p.explosive = true; p.explosionRadius = 72; p.earthRock = true; }
       game.projectiles.push(applyProjectileTheme(p));
     } else if (kind === 'grenade') {
       const off = aimOffset(14, -10);
@@ -901,9 +1106,10 @@ class Player {
       triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
       const off = aimOffset(12, 4);
-      const vel = aimOffset(4.8, 2.4);
+      const vel = aimOffset(5.2, -5.2);
       const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 6, 'player');
       p.w = 18; p.h = 14; p.life = 58; p.explosive = true; p.explosionRadius = 70;
+      if (family === 'earth') { p.life = 110; p.arcGravity = true; p.gravScale = 1.55; p.earthRock = true; }
       game.projectiles.push(applyProjectileTheme(p));
       triggerScreenShake(2, 5);
     } else {
@@ -911,6 +1117,15 @@ class Player {
       const vel = aimOffset(10, 0);
       const p = new Projectile(cx + off.x, cy + off.y, vel.x, vel.y, color, this.type.attackDamage + this.bonusElemental + 1, 'player');
       p.w = 9; p.h = 5; p.life = 80;
+      if (family === 'shadow') {
+        p.damage = Math.max(1, damageBase + 1);
+        p.shadowParalyse = true;
+        this.shadowStealth = Math.max(this.shadowStealth || 0, 75);
+        this.invincibleTimer = Math.max(this.invincibleTimer || 0, 10);
+        this.vx -= aim.x * 4.2;
+        this.vy -= aim.y * 1.6;
+        game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 14, 'EVADE', accent));
+      }
       game.projectiles.push(applyProjectileTheme(p));
     }
     game.effects.push(new Effect(cx + aim.x * 20, cy + aim.y * 20, accent, 7, 3, 8));
@@ -1337,7 +1552,8 @@ class Player {
         if (g.contactCd <= 0) {
           const golemBox = { x: g.x, y: g.y, w: g.w, h: g.h };
           for (const e of game.enemies) {
-            if (!e.dead && rectOverlap(golemBox, e)) {
+            const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+            if (!e.dead && rectOverlap(golemBox, eHitbox)) {
               e.takeDamage(this.type.attackDamage + this.bonusElemental + 3, game, cx);
               const kbDir = Math.sign(e.x + e.w / 2 - cx) || 1;
               e.vx = kbDir * 14; e.vy = -8;
@@ -1529,7 +1745,7 @@ class Player {
         }
         // Expire
         if (wb.phase === 'done' || wb.timer <= 0) {
-          this.windBow = null;
+          this._finishUltimate(game);
         }
       }
 
@@ -1639,31 +1855,7 @@ class Player {
         } else if (this.ninjaType === 'wind' && this.windBow && this.windBow.phase !== 'done') {
           // keep running until arrows are done
         } else {
-          this.ultimateActive = false;
-          this.ultimateCharge = 0;
-          this.ultimateReady = false;
-          this.ultimateMax = Math.round(this.ultimateMax * 1.2);
-          // Clean up type-specific state
-          this.earthGolem = null;
-          this.bubbleRide = null;
-          this.bubbleUlt = null;
-          this.windBow = null;
-          this.fireMeteors = [];
-          this.fireArmor = false;
-          this.fireArmorTimer = 0;
-          this.shadowUltBuff = false;
-          this.shadowDarkness = 0;
-          this.shadowEyesTimer = 0;
-          this.stormRaindrops = [];
-          this.ninjaType = 'basic';
-          // Crystal castle cleanup
-          if (this.crystalCastle) {
-            if (game.crystalCastle && !game.crystalCastle.done) {
-              game.crystalCastle.explode(game);
-            }
-            game.crystalCastle = null;
-            this.crystalCastle = false;
-          }
+          this._finishUltimate(game);
         }
       }
     }
@@ -1797,7 +1989,7 @@ class Player {
         this.knockbackTimer--;
         this.vx *= 0.88;
       } else {
-        const speedMult = (this.bubbleBuffTimer > 0) ? 1.35 : 1;
+        const speedMult = ((this.bubbleBuffTimer > 0) ? 1.35 : 1) * this._chainSpeedMultiplier();
         const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
         this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult * MOVEMENT_SPEED_SCALE;
       }
@@ -2263,6 +2455,7 @@ class Player {
     if (this.statusStun > 0) this.statusStun--;
     if (this.curseCooldown > 0) this.curseCooldown--;
     if (this.bleedCooldown > 0) this.bleedCooldown--;
+    if (this.chainSpeedBoostTimer > 0) this.chainSpeedBoostTimer--;
     // Slow passive mana recharge
     if (this.mana < this.maxMana) {
       this.mana = Math.min(this.mana + 0.003, this.maxMana);
@@ -2292,7 +2485,8 @@ class Player {
       } else {
         // Check hits against enemies
         for (const e of game.enemies) {
-          if (!e.dead && !this.swingHitSet.has(e) && this.attackBox && rectOverlap(this.attackBox, e)) {
+          const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+          if (!e.dead && !this.swingHitSet.has(e) && this.attackBox && rectOverlap(this.attackBox, eHitbox)) {
             let dmg = t.attackDamage + this.bonusDamage;
             if (this.ninjaType === 'earth') dmg = Math.ceil(dmg * 2);
             if (this.ninjaType === 'shadow') {
@@ -2332,6 +2526,8 @@ class Player {
             if (this.ninjaType === 'wind') {
               dmg += this.windPower;
             }
+            const heldMeleeBonus = this._heldMeleeBonus();
+            if (heldMeleeBonus === 'shadow') dmg += 1;
             // The Code counter: 4x damage + heavy knockback
             if (this.counterAttacking) {
               dmg *= 4;
@@ -2344,6 +2540,7 @@ class Player {
 
             if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
             e.takeDamage(dmg, game, this.x + this.w / 2, this.ninjaType === 'shadow' && dmg >= 9999 ? 'shadow' : 'steel', this.ninjaType === 'shadow' && dmg >= 9999 ? 'chain' : 'sword');
+            this._applyHeldMeleeBonus(e, game, heldMeleeBonus);
             this._rechargeAttackFocusFromHit(0.10);
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
@@ -2509,6 +2706,8 @@ class Player {
           if (this.bubbleBuffTimer > 0) dmg += 1;
           if (this.ninjaType === 'crystal') dmg += this.crystalCastle ? 2 : 0;
           if (this.ninjaType === 'wind') dmg += this.windPower;
+          const heldMeleeBonus = this._heldMeleeBonus();
+          if (heldMeleeBonus === 'shadow') dmg += 1;
           // The Code counter: 4x damage + heavy knockback on boss
           if (this.counterAttacking) {
             dmg *= 4;
@@ -2519,6 +2718,7 @@ class Player {
           }
           if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, this.ninjaType === 'shadow' && dmg >= 9999 ? 'shadow' : 'steel', this.ninjaType === 'shadow' && dmg >= 9999 ? 'chain' : 'sword');
+          this._applyHeldMeleeBonus(game.boss, game, heldMeleeBonus);
           this._rechargeAttackFocusFromHit(0.10);
           // Vampire Teeth: heal 1% HP per hit (min 1)
           if (this.items.vampireTeeth) {
@@ -2712,6 +2912,7 @@ class Player {
           }
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'shadow', 'chain');
           this._rechargeAttackFocusFromHit(0.08);
+          this._triggerChainSpeedBoost();
           if (nearest === game.boss && nearest.dead) {
             game.effects.push(new ScreenFlash('#f4e8ff', 0.50, 18));
             game.effects.push(new ScreenFlash('#5b147c', 0.24, 28));
@@ -2798,6 +2999,7 @@ class Player {
           const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
           this._rechargeAttackFocusFromHit(0.08);
+          this._triggerChainSpeedBoost();
           if (nearest === game.boss && nearest.dead) {
             this.stormLightningFlash = 35;
             game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
@@ -2880,6 +3082,7 @@ class Player {
             const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
             loopTarget.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
             this._rechargeAttackFocusFromHit(0.08);
+            this._triggerChainSpeedBoost();
             if (loopTarget === game.boss && loopTarget.dead) {
               this.stormLightningFlash = 35;
               game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
@@ -2994,6 +3197,7 @@ class Player {
             nearest.takeDamage(Math.max(1, Math.ceil((nearest.maxHp || nearest.hp || 1) * 0.4)), game, this.x + this.w / 2, null, 'chain');
           }
           this._rechargeAttackFocusFromHit(0.08);
+          this._triggerChainSpeedBoost();
           this.staggerChainHit.add(nearest);
           this.staggerChainCombo = Math.max(2, (this.staggerChainCombo || 1) + 1);
           this.staggerChainComboTimer = 90;
@@ -3078,7 +3282,8 @@ class Player {
         this.shadowKillThreshold = 0;
       }
       for (const e of game.enemies) {
-        if (!e.dead && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && rectOverlap(this, eHitbox)) {
           this.lastEnemyTouch = now;
         }
       }
@@ -3140,7 +3345,7 @@ class Player {
     }
 
     // Fire Ninja dash logic
-    if (this.ninjaType === 'fire' && this.fireDashing) {
+    if (this.fireDashing) {
       this.fireDashTimer--;
       const progress = 1 - this.fireDashTimer / this.fireDashMax;
       const dashSpeed = 13 * (1 - progress * 0.4);
@@ -3159,7 +3364,8 @@ class Player {
       }
 
       for (const e of game.enemies) {
-        if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, eHitbox)) {
           const dmg = this.type.attackDamage + this.bonusElemental;
           e.takeDamage(dmg, game, this.x + this.w / 2);
           e._contactDmgCd = 8;
@@ -3178,7 +3384,7 @@ class Player {
       }
 
       // Bombardment: drop fire projectiles at intervals during the dash
-      if (this.fireDashTimer === 9 || this.fireDashTimer === 6 || this.fireDashTimer === 3) {
+      if (!this.fireDashFromWeapon && (this.fireDashTimer === 9 || this.fireDashTimer === 6 || this.fireDashTimer === 3)) {
         const dmg = Math.max(1, Math.floor((this.type.attackDamage + this.bonusElemental) / 2));
         const px = this.x + this.w / 2;
         const py = this.y + this.h / 2;
@@ -3202,7 +3408,13 @@ class Player {
       }
 
       if (this.fireDashTimer <= 0) {
-        this._launchFireball(game);
+        if (this.fireDashFromWeapon) {
+          this.fireDashing = false;
+          this.fireDashFromWeapon = false;
+          this._fireballPending = false;
+        } else {
+          this._launchFireball(game);
+        }
       }
     }
 
@@ -3223,7 +3435,8 @@ class Player {
       if (this.windDashing) {
         this.windTrails.push({ x: this.x, y: this.y, life: 15 });
         for (const e of game.enemies) {
-          if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, e)) {
+          const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+          if (!e.dead && e._contactDmgCd <= 0 && rectOverlap(this, eHitbox)) {
             const dmg = t.attackDamage + this.bonusElemental + this.windPower;
             e.takeDamage(dmg, game, this.x + this.w / 2);
             e._contactDmgCd = 8;
@@ -3452,13 +3665,7 @@ class Player {
     SFX.special();
     switch (this.ninjaType) {
       case 'fire': {
-        this.fireDashing = true;
-        this.fireDashTimer = 12;
-        this.fireDashMax = 12;
-        this.vy = -1;
-        this.invincibleTimer = 15;
-        this._fireballPending = true;
-        game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f80', 14, 5, 15));
+        this._startFireDash(game, { timer: 12, invincible: 15, color: '#f80' });
         break;
       }
       case 'earth': {

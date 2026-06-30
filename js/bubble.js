@@ -31,7 +31,8 @@ class Bubble {
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
-      if (!e.dead && (e._contactDmgCd || 0) <= 0 && rectOverlap(this, e)) {
+      const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+      if (!e.dead && (e._contactDmgCd || 0) <= 0 && rectOverlap(this, eHitbox)) {
         e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
         e._contactDmgCd = 10;
         if (this.soaking) e.soakTimer = Math.max(e.soakTimer || 0, 300);
@@ -108,7 +109,8 @@ class SmallBubble extends Bubble {
     this.life--;
     if (this.life <= 0) this.pop(game);
     for (const e of game.enemies) {
-      if (!e.dead && rectOverlap(this, e)) {
+      const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+      if (!e.dead && rectOverlap(this, eHitbox)) {
         e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
         this.done = true;
         game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 6, 2, 8));

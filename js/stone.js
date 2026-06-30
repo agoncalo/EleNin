@@ -69,7 +69,8 @@ class EarthWall {
     // Damage enemies when launched
     if (this.launched) {
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, eHitbox)) {
           e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
           game.effects.push(new Effect(e.x + e.w / 2, e.y + e.h / 2, '#a87', 10, 3, 12));
           if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
@@ -206,7 +207,8 @@ class EarthBoulder {
       }
       // Rising damage to enemies in the way
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, eHitbox)) {
           e.takeDamage(3 * this.wave, game, this.x + this.w / 2);
           const rDir = Math.sign(e.x + e.w / 2 - (this.x + this.w / 2)) || 1;
           e.vx += rDir * 10;
@@ -277,7 +279,8 @@ class EarthBoulder {
       this.y += this.vy;
       this.vx *= 0.99;
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, eHitbox)) {
           e.takeDamage(this.launchDmg, game, this.x + this.w / 2, undefined, 'boulder');
           // Extra boulder knockback on top of sword KB
           const bDir = Math.sign(this.vx) || Math.sign(e.x + e.w / 2 - (this.x + this.w / 2));
@@ -532,7 +535,8 @@ class IceBlock {
       // Freeze + damage enemies while falling
       for (const e of game.enemies) {
         if (e.dead || this.frozenEnemies.has(e)) continue;
-        if (rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (rectOverlap(this, eHitbox)) {
           e.takeDamage(this.baseDmg, game, this.x + this.w / 2);
           e.freezeTimer = Math.max(e.freezeTimer, 90);
           const dir = Math.sign(e.x + e.w / 2 - (this.x + this.w / 2)) || 1;
@@ -648,7 +652,8 @@ class IceBlock {
       // Enemy collision → shatter + damage + freeze
       for (const e of game.enemies) {
         if (e.dead) continue;
-        if (rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (rectOverlap(this, eHitbox)) {
           const kbDir = Math.sign(this.vx) || 1;
           e.takeDamage(this.baseDmg * 2, game, this.x + this.w / 2, 'crystal');
           e.freezeTimer = Math.max(e.freezeTimer || 0, 90);
@@ -696,7 +701,8 @@ class IceBlock {
     if (this.landed && this.freezeCooldown <= 0) {
       for (const e of game.enemies) {
         if (e.dead) continue;
-        if (rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (rectOverlap(this, eHitbox)) {
           e.freezeTimer = Math.max(e.freezeTimer, 60);
           e.stunTimer = Math.max(e.stunTimer, 30);
           this.frozenEnemies.add(e);

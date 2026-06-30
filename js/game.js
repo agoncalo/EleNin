@@ -70,6 +70,8 @@ class Game {
     this.ammoPickups = [];
     this.elementalShieldPickups = [];
     this.classOrbs = [];
+    this.nextWeaponOfferTick = 0;
+    this.weaponOfferStartTick = 0;
     this.bossItems = [];
     this.fireTrails = [];
     this.spikes = [];
@@ -304,17 +306,23 @@ class Game {
     const route = this.routeState || (this.mapState && this.mapState.route) || {};
     const usedMinibosses = new Set(route.minibossHistory || []);
     const lastMiniboss = (route.minibossHistory && route.minibossHistory[route.minibossHistory.length - 1]) || null;
-    let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t) && !usedMinibosses.has(t));
-    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t) && t !== lastMiniboss);
-    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && t !== lastMiniboss);
-    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType));
-    const eliteA = eliteTypes[step % eliteTypes.length] || 'charger';
-    let secondPool = eliteTypes.filter(t => t !== eliteA);
-    if (!secondPool.length) secondPool = minibossPool.filter(t => t !== eliteA && t !== (cached && cached.bossType) && t !== lastMiniboss);
-    const eliteB = secondPool[(step + 2) % Math.max(1, secondPool.length)] || 'shielded';
     const minibossKinds = ['solo', 'squad', 'captainGuards'];
     const kindA = minibossKinds[step % minibossKinds.length];
     const kindB = minibossKinds[(step + 1) % minibossKinds.length];
+    const poolForKind = (kind, excludeType) => {
+      const squadTypes = new Set(['walker', 'shooter', 'jumper', 'charger', 'bouncer', 'shielded']);
+      const allowProtector = kind === 'solo';
+      const basePool = kind === 'squad' ? minibossPool.filter(t => squadTypes.has(t)) : minibossPool;
+      let eliteTypes = basePool.filter(t => t !== excludeType && t !== (cached && cached.bossType) && !roomEnemySet.has(t) && !usedMinibosses.has(t) && (allowProtector || t !== 'protector'));
+      if (!eliteTypes.length) eliteTypes = basePool.filter(t => t !== excludeType && t !== (cached && cached.bossType) && !roomEnemySet.has(t) && t !== lastMiniboss && (allowProtector || t !== 'protector'));
+      if (!eliteTypes.length) eliteTypes = basePool.filter(t => t !== excludeType && t !== (cached && cached.bossType) && t !== lastMiniboss && (allowProtector || t !== 'protector'));
+      if (!eliteTypes.length) eliteTypes = basePool.filter(t => t !== excludeType && t !== (cached && cached.bossType) && (allowProtector || t !== 'protector'));
+      return eliteTypes.length ? eliteTypes : minibossPool.filter(t => t !== excludeType && t !== (cached && cached.bossType));
+    };
+    const eliteTypesA = poolForKind(kindA, null);
+    const eliteA = eliteTypesA[step % Math.max(1, eliteTypesA.length)] || 'charger';
+    const eliteTypesB = poolForKind(kindB, eliteA);
+    const eliteB = eliteTypesB[(step + 2) % Math.max(1, eliteTypesB.length)] || 'shielded';
     return [
       { type: 'survive', label: 'Hold the Line', seconds: 18 + step * 2, killTarget: 10, routeEvent: this._missionRouteEventDef(step, 0) },
       { type: 'miniboss', label: 'Break the Vanguard', enemyType: eliteA, encounter: kindA },
@@ -628,7 +636,8 @@ class Game {
     const pl = this.player;
     if (!pl) return 4;
     const typeSpeed = pl.type && pl.type.speed ? pl.type.speed : (NINJA_TYPES[pl.ninjaType] ? NINJA_TYPES[pl.ninjaType].speed : 4);
-    const buff = pl.bubbleBuffTimer > 0 ? 1.35 : 1;
+    const chainBuff = pl._chainSpeedMultiplier ? pl._chainSpeedMultiplier() : (pl.chainSpeedBoostTimer > 0 ? (pl.chainSpeedBoostMult || 2) : 1);
+    const buff = (pl.bubbleBuffTimer > 0 ? 1.35 : 1) * chainBuff;
     return Math.max(2.8, (typeSpeed + (pl.bonusSpeed || 0) * 0.3) * buff);
   }
 
@@ -683,6 +692,60 @@ class Game {
     if (!md) return;
     this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 34, 'TARGET CLEAR', '#ffe033'));
     this._startMissionPhase(md.phaseIndex + 1);
+  }
+
+  _cheatAdvanceStagePhase() {
+    this.cheated = true;
+    recordCheatUsed();
+
+    if (this.missionDirector && this.missionDirector.active) {
+      const md = this.missionDirector;
+      const phase = md.phases && md.phases[md.phaseIndex];
+      if (phase && phase.type !== 'boss') {
+        const phaseIndex = md.phaseIndex;
+        for (const e of md.minibosses || []) {
+          if (e && e.missionPhaseIndex === phaseIndex) {
+            e.dead = true;
+            e.done = true;
+          }
+        }
+        this.enemies = this.enemies.filter(e => !(e && e.missionPhaseIndex === phaseIndex));
+        this.missionSeals = [];
+        if (this._cleanupMissionRouteEventForPhaseChange) this._cleanupMissionRouteEventForPhaseChange();
+        this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 44, 'PHASE SKIP', '#ffe033'));
+        if (md.phaseIndex + 1 < md.phases.length) this._completeMissionPhase(0);
+        else this._completeCurrentMapRoom();
+        return;
+      }
+    }
+
+    if (this.boss && !this.boss.dead) {
+      this.boss.hp = 0;
+      this.boss.dead = true;
+      this.boss.onDeath(this);
+      this.bossDeathRewardDelay = 0;
+      this._completeCurrentMapRoom();
+      return;
+    }
+
+    if (this.boss && this.boss.dead) {
+      this.bossDeathRewardDelay = 0;
+      this._completeCurrentMapRoom();
+      return;
+    }
+
+    if (!this.bossActive) {
+      this.bossOrbsCollected = Math.max(this.bossOrbsRequired || 1, this.bossOrbsCollected || 0);
+      this.bossOrbCharge = 0;
+      this.bossOrbCooldown = 0;
+      this.spawnBoss();
+      this.effects.push(new TextEffect(this.player.x + this.player.w / 2, this.player.y - 44, 'BOSS PHASE', '#f80'));
+      return;
+    }
+
+    const pl = this.player;
+    pl.ultimateCharge = pl.ultimateMax;
+    pl.ultimateReady = true;
   }
 
   _recordMissionMinibossType(type) {
@@ -748,13 +811,14 @@ class Game {
   }
 
   _spawnMissionEliteSquad(phase, type) {
-    const specialLeaderTypes = new Set(['deflector', 'protector', 'attacker']);
+    const specialLeaderTypes = new Set(['deflector', 'attacker']);
     if (specialLeaderTypes.has(type)) {
       const guardType = phase.guardType || (type === 'protector' ? 'shielded' : 'walker');
       for (let i = 0; i < 3; i++) {
         this._spawnMissionElite(guardType, false, 'ELITE SQUAD', 1.65, 'squad', i, 4);
       }
       const leader = this._spawnMissionElite(type, true, 'SQUAD LEADER', 1.85, 'squadLeader', 3, 4);
+      leader.missionSquadLeaderLocked = true;
       if (this.missionDirector) this.missionDirector.miniboss = leader;
       return;
     }
@@ -778,6 +842,14 @@ class Game {
     const md = this.missionDirector;
     if (!md || !enemy || !enemy.isMissionMiniboss) return;
     if (enemy.missionPhaseIndex !== md.phaseIndex) return;
+    if (enemy.missionMinibossRole === 'squad') {
+      const leader = (md.minibosses || []).find(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex && e.missionMinibossRole === 'squadLeader');
+      if (leader && leader.missionSquadLeaderLocked && !this._missionSquadAlive(leader)) {
+        leader.missionSquadLeaderLocked = false;
+        this.effects.push(new TextEffect(leader.x + leader.w / 2, leader.y - 28, 'LEADER EXPOSED', '#ffe033'));
+        this.effects.push(new SlamRing(leader.x + leader.w / 2, leader.y + leader.h / 2, '#ffe033', 110, 12));
+      }
+    }
     if (enemy.missionMinibossRole === 'guard' && md.minibossCaptain && !md.minibossCaptain.dead && !this._missionCaptainGuardAlive(md.minibossCaptain)) {
       md.minibossCaptain.missionCaptainLocked = false;
       this.effects.push(new TextEffect(md.minibossCaptain.x + md.minibossCaptain.w / 2, md.minibossCaptain.y - 28, 'CAPTAIN EXPOSED', '#ffe033'));
@@ -792,6 +864,12 @@ class Game {
     const md = this.missionDirector;
     if (!md || !captain) return false;
     return (md.minibosses || []).some(e => e && !e.dead && e !== captain && e.missionPhaseIndex === captain.missionPhaseIndex && e.missionMinibossRole === 'guard');
+  }
+
+  _missionSquadAlive(leader) {
+    const md = this.missionDirector;
+    if (!md || !leader) return false;
+    return (md.minibosses || []).some(e => e && !e.dead && e !== leader && e.missionPhaseIndex === leader.missionPhaseIndex && e.missionMinibossRole === 'squad');
   }
 
   _setupProtectBuilding() {
@@ -3118,7 +3196,7 @@ class Game {
   _enemyTargetHits(enemy, pick) {
     const typeHits = {
       walker: 3, shooter: 3, jumper: 4, bouncer: 4, rocketeer: 4, charger: 4,
-      shielded: 5, deflector: 6, protector: 6, attacker: 3, flyer: 3, flyshooter: 4
+      shielded: 5, deflector: 6, protector: 6, attacker: 3, satellite: 4, flyer: 3, flyshooter: 4
     };
     let hits = typeHits[enemy.type] || 4;
     if (pick && pick.big) hits += 4;
@@ -3396,6 +3474,7 @@ class Game {
     this.camera.y = 0;
     this.spawnTimer = -120;
     this.weaponOfferStartTick = this.tick || 0;
+    this.nextWeaponOfferTick = 0;
     this.transitionTimer = oldLevelType === this.levelType ? 45 : 90;
     this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
     SFX.wave();
@@ -3681,6 +3760,8 @@ class Game {
     this.ammoPickups = [];
     this.elementalShieldPickups = [];
     this.classOrbs = [];
+    this.weaponOfferStartTick = this.tick || 0;
+    this.nextWeaponOfferTick = 0;
     this.enemies = [];
     this.allies = [];
     this.friendlyTargets = [];
@@ -3756,8 +3837,8 @@ class Game {
 
   _updateStageWeaponPickups() {
     if (!this.classOrbs) this.classOrbs = [];
-    const maxOnScreen = 2;
     const playerHasWeapon = !!(this.player && this.player.heldItem);
+    const maxOnScreen = playerHasWeapon ? 1 : 2;
     this._pruneWeaponPickups(maxOnScreen);
     const liveCount = this._liveWeaponPickups().length;
     if (liveCount <= 0 && !playerHasWeapon) {
@@ -3765,13 +3846,25 @@ class Game {
       return;
     }
     const elapsedInRoom = (this.tick || 0) - (this.weaponOfferStartTick || 0);
-    if (playerHasWeapon && liveCount <= 0 && elapsedInRoom < 1500) return;
-    const interval = playerHasWeapon ? 1500 : 360;
-    const chance = playerHasWeapon ? 0.42 : 0.95;
-    if (this.tick % interval === 260 % interval && liveCount < maxOnScreen && Math.random() < chance) {
+    if (playerHasWeapon && liveCount <= 0 && elapsedInRoom < 900) return;
+    if (!this.nextWeaponOfferTick || this.nextWeaponOfferTick < this.weaponOfferStartTick) {
+      this._scheduleNextWeaponOffer(playerHasWeapon, liveCount);
+    }
+    if ((this.tick || 0) >= this.nextWeaponOfferTick && liveCount < maxOnScreen) {
       const p = this._spawnScreenPickup(AmmoPickupOrb);
       this._dropClassOrb(this._randomStageWeapon(), p.x + 12, p.y + 10, 18);
+      this._scheduleNextWeaponOffer(playerHasWeapon, liveCount + 1);
     }
+  }
+
+  _scheduleNextWeaponOffer(playerHasWeapon, liveCount = 0) {
+    const now = this.tick || 0;
+    const roomStart = this.weaponOfferStartTick || now;
+    const minDelay = playerHasWeapon ? 1050 : 300;
+    const maxDelay = playerHasWeapon ? 2700 : 980;
+    const crowdDelay = Math.max(0, liveCount) * (playerHasWeapon ? 720 : 300);
+    const firstOfferFloor = playerHasWeapon ? roomStart + 900 : roomStart + 180;
+    this.nextWeaponOfferTick = Math.max(firstOfferFloor, now + randInt(minDelay, maxDelay) + crowdDelay);
   }
 
   _liveWeaponPickups() {
@@ -3826,8 +3919,10 @@ class Game {
   _dropClassOrb(type, x, y, pickupCooldown = 0, opts = {}) {
     if (!WEAPON_ITEMS[type]) return;
     if (!this.classOrbs) this.classOrbs = [];
-    this._pruneWeaponPickups(2);
-    if (!opts.force && this._liveWeaponPickups().length >= 2) return;
+    const playerHasWeapon = !!(this.player && this.player.heldItem);
+    const maxOnScreen = opts.force ? 2 : (playerHasWeapon ? 1 : 2);
+    this._pruneWeaponPickups(maxOnScreen);
+    if (!opts.force && this._liveWeaponPickups().length >= maxOnScreen) return;
     const orb = new ClassOrb(
       Math.max(24, Math.min(this.levelW - 68, x - 22)),
       Math.max(-520, Math.min(this.levelH - 70, y - 22)),
@@ -3835,7 +3930,7 @@ class Game {
       { pickupCooldown, ammo: opts.ammo, bobTimer: opts.bobTimer }
     );
     this.classOrbs.push(orb);
-    this._pruneWeaponPickups(2);
+    this._pruneWeaponPickups(maxOnScreen);
     const wt = WEAPON_ITEMS[type];
     this.effects.push(new SlamRing(orb.x + orb.w / 2, orb.y + orb.h / 2, wt.accentColor || wt.color, 150, 14));
     this.effects.push(new TextEffect(orb.x + orb.w / 2, orb.y - 18, wt.name.toUpperCase() + ' DROPPED', wt.accentColor || wt.color));
@@ -4387,6 +4482,16 @@ class Game {
     const md = this.missionDirector;
     if (md && md.minibosses && md.minibosses.length) {
       const squad = md.minibosses.filter(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex && e.missionMinibossRole === 'squad');
+      const squadLeader = (md.minibosses || []).find(e => e && !e.dead && e.missionPhaseIndex === md.phaseIndex && e.missionMinibossRole === 'squadLeader');
+      if (squadLeader) {
+        const targets = squad.map(e => ({ entity: e, label: 'KILL', color: '#ffb347' }));
+        targets.push({
+          entity: squadLeader,
+          label: squad.length > 0 && squadLeader.missionSquadLeaderLocked ? '' : 'KILL',
+          color: squad.length > 0 && squadLeader.missionSquadLeaderLocked ? '#8a8a8a' : '#ffe033'
+        });
+        return targets;
+      }
       if (squad.length > 1) return squad.map(e => ({ entity: e, label: 'KILL', color: '#ffb347' }));
     }
     const single = this._currentObjectiveIndicatorTarget();
@@ -4419,6 +4524,7 @@ class Game {
     if (!targetInfo || !targetInfo.entity) continue;
     const target = targetInfo.entity;
     const color = targetInfo.color || '#ffe033';
+    const label = targetInfo.label || '';
     const cx = target.x + target.w / 2 - cam.x;
     const cy = target.y + target.h / 2 - cam.y;
     const margin = 38;
@@ -4443,8 +4549,10 @@ class Game {
       ctx.lineWidth = 8;
       ctx.fillStyle = color;
       const announceY = 78 + Math.sin(t * 0.15) * introEase * 6;
-      ctx.strokeText(targetInfo.label, CANVAS_W / 2, announceY);
-      ctx.fillText(targetInfo.label, CANVAS_W / 2, announceY);
+      if (label) {
+        ctx.strokeText(label, CANVAS_W / 2, announceY);
+        ctx.fillText(label, CANVAS_W / 2, announceY);
+      }
       ctx.shadowBlur = 0;
     }
     if (onScreen) {
@@ -4487,8 +4595,10 @@ class Game {
       ctx.textAlign = 'center';
       ctx.strokeStyle = '#120016';
       ctx.lineWidth = introEase > 0.05 ? 6 : 0;
-      if (introEase > 0.05) ctx.strokeText(targetInfo.label, cx, y - 21 * introScale);
-      ctx.fillText(targetInfo.label, cx, y - 21 * introScale);
+      if (label) {
+        if (introEase > 0.05) ctx.strokeText(label, cx, y - 21 * introScale);
+        ctx.fillText(label, cx, y - 21 * introScale);
+      }
     } else {
       const centerX = CANVAS_W / 2;
       const centerY = CANVAS_H / 2;
@@ -4530,8 +4640,10 @@ class Game {
       ctx.strokeStyle = '#120016';
       ctx.lineWidth = 6;
       const labelY = (edgeY < 70 ? 36 : -32) * Math.min(2.1, introScale);
-      ctx.strokeText(targetInfo.label, 0, labelY);
-      ctx.fillText(targetInfo.label, 0, labelY);
+      if (label) {
+        ctx.strokeText(label, 0, labelY);
+        ctx.fillText(label, 0, labelY);
+      }
     }
     ctx.restore();
     }
@@ -4692,17 +4804,9 @@ class Game {
       this.player.godMode = !this.player.godMode;
       this.showWaveMessage(this.player.godMode ? 'GOD MODE ON' : 'GOD MODE OFF');
     }
-    // Cheat: - to spawn boss
+    // Cheat: - to advance to the next stage phase
     if (consumePress('Minus') || consumePress('NumpadSubtract')) {
-      this.cheated = true;
-      recordCheatUsed();
-      if (!this.bossActive) {
-        this.spawnBoss();
-      } else {
-        const pl = this.player;
-        pl.ultimateCharge = pl.ultimateMax;
-        pl.ultimateReady = true;
-      }
+      this._cheatAdvanceStagePhase();
     }
 
     // Transition freeze — block player control on map change

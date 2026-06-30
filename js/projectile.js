@@ -484,7 +484,8 @@ class Projectile {
       }
       // Hit enemies while orbiting
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, eHitbox)) {
           e.takeDamage(this.damage, game, this.x);
           if(!e.grounded && !e.flying) e.juggleState = true;
           if (this.soaking) {
@@ -512,7 +513,7 @@ class Projectile {
       }
       return;
     }
-    if (this.bouncy) this.vy += 0.15 * (this.gravScale || 1);
+    if (this.bouncy || this.arcGravity) this.vy += 0.15 * (this.gravScale || 1);
     // Homing shuriken: gently steer toward nearest enemy
     if (this.homing && (this.owner === 'player' || this.owner === 'ally')) {
       let target = this.homingTarget && !this.homingTarget.dead ? this.homingTarget : null;
@@ -596,6 +597,12 @@ class Projectile {
             }
             return;
           }
+          if (this.arcGravity && this.weaponFamily === 'earth' && this.vy > 0) {
+            this._earthWeaponImpact(game, this.x + this.w / 2, p.y, null, false);
+            damageInRadius(game, this.x + this.w / 2, p.y, this.explosionRadius || 70, this.damage, this.x + this.w / 2, undefined, 'boulder', this.sourceActor || null);
+            this.done = true;
+            return;
+          }
           this._dropOrDie(game);
           if (this.isKunai && this.owner === 'player') this._kunaiExplode(game);
           if (this.done) game.effects.push(new Effect(this.x, this.y, this.color, 4, 2, 10));
@@ -622,7 +629,8 @@ class Projectile {
     if (this.owner === 'player' || this.owner === 'ally') {
       const fromPlayer = this.owner === 'player';
       for (const e of game.enemies) {
-        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, e)) {
+        const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
+        if (!e.dead && !this.hitSet.has(e) && rectOverlap(this, eHitbox)) {
 
           // Kunai is unblockable — skip all shield/deflect checks
           if (!this.isKunai) {
@@ -856,6 +864,50 @@ class Projectile {
   render(ctx, cam) {
     const sx = this.x - cam.x, sy = this.y - cam.y;
 
+    if (this.earthRock) {
+      ctx.save();
+      const cx = sx + this.w / 2, cy = sy + this.h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(this.life * 0.12);
+      ctx.fillStyle = this.color || '#9b7a58';
+      ctx.shadowColor = '#dec19a';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(-this.w * 0.45, -this.h * 0.12);
+      ctx.lineTo(-this.w * 0.18, -this.h * 0.48);
+      ctx.lineTo(this.w * 0.38, -this.h * 0.34);
+      ctx.lineTo(this.w * 0.48, this.h * 0.18);
+      ctx.lineTo(this.w * 0.08, this.h * 0.48);
+      ctx.lineTo(-this.w * 0.42, this.h * 0.32);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (this.crystalShard) {
+      ctx.save();
+      const cx = sx + this.w / 2, cy = sy + this.h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.atan2(this.vy, this.vx) + Math.PI / 2);
+      ctx.fillStyle = this.color || '#80f1ff';
+      ctx.shadowColor = '#dfffff';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(0, -this.h * 0.85);
+      ctx.lineTo(this.w * 0.45, 0);
+      ctx.lineTo(0, this.h * 0.65);
+      ctx.lineTo(-this.w * 0.45, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#efffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (this.freezeDust) {
       // Sparkly dust cloud
       ctx.save();
