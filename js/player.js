@@ -281,15 +281,30 @@ class Player {
     return true;
   }
 
-  _consumeAttackFocus() {
+  _snapshotAttackFocusDamage() {
     if (this.attackFocus === undefined) this.attackFocus = 1;
     this._attackDamageMult = Math.max(this.attackFocusMin || 0.10, Math.min(1, this.attackFocus));
+  }
+
+  _penalizeAttackFocusMiss() {
+    if (this.attackFocus === undefined) this.attackFocus = 1;
     this.attackFocus = Math.max(this.attackFocusMin || 0.10, this.attackFocus - (this.attackFocusDrop || 0.30));
   }
 
   _applyAttackFocusDamage(dmg) {
     const mult = Math.max(this.attackFocusMin || 0.10, Math.min(1, this._attackDamageMult || this.attackFocus || 1));
     return Math.max(1, Math.ceil(dmg * mult));
+  }
+
+  _rechargeAttackFocusFromHit(amount) {
+    if (this.attackFocus === undefined) this.attackFocus = 1;
+    this.attackFocus = Math.min(1, this.attackFocus + (amount || 0.10));
+  }
+
+  _attackCooldownForFocus() {
+    const focus = Math.max(0, Math.min(1, this.attackFocus === undefined ? 1 : this.attackFocus));
+    if (focus <= 0.25) return 90;
+    return Math.round(6 + (1 - focus) * 10);
   }
 
   // Mecha hand punch hit detection
@@ -2261,6 +2276,9 @@ class Player {
     if (this.attacking) {
       this.attackTimer--;
       if (this.attackTimer <= 0) {
+        if (this.swingHitSet && this.swingHitSet.size <= 0) {
+          this._penalizeAttackFocusMiss();
+        }
         if (this.ninjaType === 'shadow' && !this.shadowAttackHit && this.shadowStealth >= 180) {
           this.shadowStealth = 0;
           this.backstabReady = false;
@@ -2326,6 +2344,7 @@ class Player {
 
             if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
             e.takeDamage(dmg, game, this.x + this.w / 2, this.ninjaType === 'shadow' && dmg >= 9999 ? 'shadow' : 'steel', this.ninjaType === 'shadow' && dmg >= 9999 ? 'chain' : 'sword');
+            this._rechargeAttackFocusFromHit(0.10);
             // Vampire Teeth: heal 1% HP per hit (min 1)
             if (this.items.vampireTeeth) {
               const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -2500,6 +2519,7 @@ class Player {
           }
           if (dmg < 9999) dmg = this._applyAttackFocusDamage(dmg);
           game.boss.takeDamage(dmg, game, this.x + this.w / 2, this.ninjaType === 'shadow' && dmg >= 9999 ? 'shadow' : 'steel', this.ninjaType === 'shadow' && dmg >= 9999 ? 'chain' : 'sword');
+          this._rechargeAttackFocusFromHit(0.10);
           // Vampire Teeth: heal 1% HP per hit (min 1)
           if (this.items.vampireTeeth) {
             const healAmt = Math.max(1, Math.round(this.maxHp * 0.01));
@@ -2691,6 +2711,7 @@ class Player {
             this.backstabReady = false;
           }
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'shadow', 'chain');
+          this._rechargeAttackFocusFromHit(0.08);
           if (nearest === game.boss && nearest.dead) {
             game.effects.push(new ScreenFlash('#f4e8ff', 0.50, 18));
             game.effects.push(new ScreenFlash('#5b147c', 0.24, 28));
@@ -2776,6 +2797,7 @@ class Player {
           this._recordChainHop(cx, cy, toCx, toCy, nearest, { life: 90, jitter: 26 });
           const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
           nearest.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
+          this._rechargeAttackFocusFromHit(0.08);
           if (nearest === game.boss && nearest.dead) {
             this.stormLightningFlash = 35;
             game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
@@ -2857,6 +2879,7 @@ class Player {
             this._recordChainHop(cx, cy, toCx, toCy, loopTarget, { life: 90, jitter: 26 });
             const dmg = (this.type.attackDamage + this.bonusElemental) * 2;
             loopTarget.takeDamage(dmg, game, this.x + this.w / 2, 'lightning', 'chain');
+            this._rechargeAttackFocusFromHit(0.08);
             if (loopTarget === game.boss && loopTarget.dead) {
               this.stormLightningFlash = 35;
               game.effects.push(new ScreenFlash('#fffff0', 0.54, 16));
@@ -2970,6 +2993,7 @@ class Player {
             this._addStaggerChainCutMark(nearest);
             nearest.takeDamage(Math.max(1, Math.ceil((nearest.maxHp || nearest.hp || 1) * 0.4)), game, this.x + this.w / 2, null, 'chain');
           }
+          this._rechargeAttackFocusFromHit(0.08);
           this.staggerChainHit.add(nearest);
           this.staggerChainCombo = Math.max(2, (this.staggerChainCombo || 1) + 1);
           this.staggerChainComboTimer = 90;
@@ -3251,8 +3275,8 @@ class Player {
     this.attackTimer = 10;
     this.swingHitSet = new Set();
     this._swingHealDone = false;
-    this._consumeAttackFocus();
-    this.attackCooldown = 60;
+    this._snapshotAttackFocusDamage();
+    this.attackCooldown = this._attackCooldownForFocus();
     if (this.ninjaType === 'earth') triggerScreenShake(2, 4);
     SFX.attack();
 

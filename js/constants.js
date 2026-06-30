@@ -334,7 +334,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'jumper', killsForBoss: 30,   // Round 2 choice
-    objective: { type: 'survive', label: 'Survive', desc: 'Survival time charges Boss Orbs. Stay alive!', icon: '♥' },
+    objective: { type: 'survive', label: 'Survive', killTarget: 10, desc: 'Survive or defeat 10 enemies to charge Boss Orbs.', icon: '♥' },
     pool: [
       { type: 'walker', weight: 2 },
       { type: 'shooter', weight: 3 },
@@ -403,7 +403,7 @@ const WAVE_DEFS = [
     ]
   },
   { boss: 'attacker', killsForBoss: 52,  // Round 4 choice only
-    objective: { type: 'survive', label: 'Survive', desc: 'Survival time charges Boss Orbs. Stay alive!', icon: '♥' },
+    objective: { type: 'survive', label: 'Survive', killTarget: 10, desc: 'Survive or defeat 10 enemies to charge Boss Orbs.', icon: '♥' },
     pool: [
       { type: 'bouncer', weight: 2 },
       { type: 'shielded', weight: 2 },
@@ -836,7 +836,7 @@ const ROUTE_ELEMENT_SEQUENCE = [
   ['ghost'],
 ];
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v32-route-boss-profile';
+const MAP_STORAGE_KEY = 'elenin-map-cache-v33-route-variety-objectives';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
@@ -1003,7 +1003,7 @@ const MAP_ROOM_DEFS = (() => {
     const options = [
       { type: 'kills', label: 'Defeat Enemies', desc: 'Defeat enemies to fill the objective bar and draw out the boss.', icon: '' },
       { type: 'hunt', filter: { enemyType: targetType }, label: `Hunt ${typeName}`, desc: `Only ${typeName} kills fill the objective bar. One is always present.`, icon: '' },
-      { type: 'survive', label: 'Survive', desc: 'Survival time fills the objective bar. Stay alive!', icon: '' },
+      { type: 'survive', label: 'Survive', killTarget: 10, desc: 'Survive or defeat 10 enemies to fill the objective bar.', icon: '' },
       { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to fill the objective bar.', icon: '' },
       { type: 'collect', label: 'Collect Shurikens', desc: 'Pick up marked shuriken caches to fill the objective bar.', icon: '' },
       { type: 'defend', label: 'Protect the Ronin', desc: 'Keep the allied Ronin alive while the objective bar fills.', icon: '' },

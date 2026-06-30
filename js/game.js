@@ -236,9 +236,22 @@ class Game {
       return { current: Math.min(target, current), target, rawCurrent: current, rawTarget: target };
     }
     if (obj.type === 'survive') {
-      const target = Math.max(1, obj.targetSeconds || obj.target || 20);
-      const current = Math.max(0, Math.floor(((this.tick || 0) - (start.tick || 0)) / 60));
-      return { current: Math.min(target, current), target, suffix: 's', rawCurrent: current, rawTarget: target };
+      const timeTarget = Math.max(1, obj.targetSeconds || obj.target || 20);
+      const timeCurrent = Math.max(0, Math.floor(((this.tick || 0) - (start.tick || 0)) / 60));
+      const killTarget = Math.max(0, obj.killTarget || 0);
+      const kills = Math.max(0, (this.waveKills || 0) - (start.waveKills || 0));
+      if (killTarget > 0) {
+        const timeRatio = timeCurrent / timeTarget;
+        const killRatio = kills / killTarget;
+        return {
+          current: Math.min(timeTarget, timeCurrent) + 's or ' + Math.min(killTarget, kills),
+          target: timeTarget + 's or ' + killTarget,
+          suffix: '',
+          rawCurrent: Math.max(timeRatio, killRatio),
+          rawTarget: 1
+        };
+      }
+      return { current: Math.min(timeTarget, timeCurrent), target: timeTarget, suffix: 's', rawCurrent: timeCurrent, rawTarget: timeTarget };
     }
     if (obj.type === 'collect') {
       const target = Math.max(1, obj.target || this._objectiveCollectTarget());
@@ -288,19 +301,26 @@ class Game {
       : ['walker', 'shooter', 'jumper'];
     const roomEnemySet = new Set(enemyTypes);
     const minibossPool = ['charger', 'shielded', 'deflector', 'protector', 'satellite', 'rocketeer', 'bouncer', 'jumper', 'shooter', 'walker'];
-    let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t));
+    const route = this.routeState || (this.mapState && this.mapState.route) || {};
+    const usedMinibosses = new Set(route.minibossHistory || []);
+    const lastMiniboss = (route.minibossHistory && route.minibossHistory[route.minibossHistory.length - 1]) || null;
+    let eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t) && !usedMinibosses.has(t));
+    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && !roomEnemySet.has(t) && t !== lastMiniboss);
+    if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType) && t !== lastMiniboss);
     if (!eliteTypes.length) eliteTypes = minibossPool.filter(t => t !== (cached && cached.bossType));
     const eliteA = eliteTypes[step % eliteTypes.length] || 'charger';
-    const eliteB = eliteTypes[(step + 2) % eliteTypes.length] || 'shielded';
+    let secondPool = eliteTypes.filter(t => t !== eliteA);
+    if (!secondPool.length) secondPool = minibossPool.filter(t => t !== eliteA && t !== (cached && cached.bossType) && t !== lastMiniboss);
+    const eliteB = secondPool[(step + 2) % Math.max(1, secondPool.length)] || 'shielded';
     const minibossKinds = ['solo', 'squad', 'captainGuards'];
     const kindA = minibossKinds[step % minibossKinds.length];
     const kindB = minibossKinds[(step + 1) % minibossKinds.length];
     return [
-      { type: 'survive', label: 'Hold the Line', seconds: 18 + step * 2, routeEvent: this._missionRouteEventDef(step, 0) },
+      { type: 'survive', label: 'Hold the Line', seconds: 18 + step * 2, killTarget: 10, routeEvent: this._missionRouteEventDef(step, 0) },
       { type: 'miniboss', label: 'Break the Vanguard', enemyType: eliteA, encounter: kindA },
-      { type: 'survive', label: 'Weather the Ambush', seconds: 16 + step * 2, routeEvent: this._missionRouteEventDef(step, 1) },
+      { type: 'survive', label: 'Weather the Ambush', seconds: 16 + step * 2, killTarget: 10, routeEvent: this._missionRouteEventDef(step, 1) },
       { type: 'miniboss', label: 'Cut Down the Champion', enemyType: eliteB, encounter: kindB },
-      { type: 'survive', label: 'Endure the Omen', seconds: 16 + step * 2, routeEvent: this._missionRouteEventDef(step, 2) },
+      { type: 'survive', label: 'Endure the Omen', seconds: 16 + step * 2, killTarget: 10, routeEvent: this._missionRouteEventDef(step, 2) },
       { type: 'boss', label: 'Final Target' }
     ];
   }
@@ -360,30 +380,36 @@ class Game {
   _startMissionPhase(index) {
     const md = this.missionDirector;
     if (!md || !md.phases || index >= md.phases.length) return;
-    this._cleanupMissionRouteEventForPhaseChange();
+    const carriedEvent = md.routeEvent && !md.routeEvent.done && !md.routeEvent.failed ? md.routeEvent : null;
     md.phaseIndex = index;
     md.phaseStartedTick = this.tick || 0;
     md.miniboss = null;
     md.minibosses = [];
     md.minibossCaptain = null;
-    md.routeEvent = null;
+    md.routeEvent = carriedEvent;
     const phase = md.phases[index];
     phase.timer = Math.max(1, Math.round((phase.seconds || 0) * 60));
+    phase.startWaveKills = this.waveKills || 0;
     phase.holdFrames = 0;
     phase.completed = false;
-    this.missionSeals = [];
-    this.objZone = null;
-    if (this.samurai && this.samurai.objectiveAlly) {
+    const keepSeals = carriedEvent && carriedEvent.type === 'seals';
+    const keepZone = carriedEvent && carriedEvent.type === 'zone';
+    const keepProtectBuilding = carriedEvent && carriedEvent.type === 'protect' && carriedEvent.target === 'building';
+    const keepRonin = carriedEvent && carriedEvent.type === 'protect' && carriedEvent.target !== 'building';
+    const keepLady = carriedEvent && carriedEvent.type === 'lady';
+    if (!keepSeals) this.missionSeals = [];
+    if (!keepZone) this.objZone = null;
+    if (!keepRonin && this.samurai && this.samurai.objectiveAlly) {
       this.samurai.dead = true;
       this.samurai = null;
     }
-    this.protectBuilding = null;
-    this.routeLady = null;
+    if (!keepProtectBuilding) this.protectBuilding = null;
+    if (!keepLady) this.routeLady = null;
     this.currentObjective = { type: 'mission', label: phase.label || 'Mission', desc: '', icon: '' };
     if (phase.type === 'survive') {
       this.waveMessage = '';
       this.waveMessageTimer = 0;
-      if (phase.routeEvent) this._queueMissionRouteEvent(phase.routeEvent, phase);
+      if (phase.routeEvent && !carriedEvent) this._queueMissionRouteEvent(phase.routeEvent, phase);
     } else if (phase.type !== 'boss') {
       this.waveMessage = '';
       this.waveMessageTimer = 0;
@@ -659,9 +685,19 @@ class Game {
     this._startMissionPhase(md.phaseIndex + 1);
   }
 
+  _recordMissionMinibossType(type) {
+    if (!type) return;
+    const route = this.routeState || (this.mapState && this.mapState.route);
+    if (!route) return;
+    route.minibossHistory = route.minibossHistory || [];
+    if (!route.minibossHistory.includes(type)) route.minibossHistory.push(type);
+    if (this.mapState) this.mapState.route = route;
+  }
+
   _spawnMissionMiniboss(phase) {
     const type = phase.enemyType || 'charger';
     const encounter = phase.encounter || 'solo';
+    this._recordMissionMinibossType(type);
     this._missionMinibossSpawnSide = Math.random() < 0.5 ? -1 : 1;
     if (encounter === 'squad') {
       this._spawnMissionEliteSquad(phase, type);
@@ -712,6 +748,16 @@ class Game {
   }
 
   _spawnMissionEliteSquad(phase, type) {
+    const specialLeaderTypes = new Set(['deflector', 'protector', 'attacker']);
+    if (specialLeaderTypes.has(type)) {
+      const guardType = phase.guardType || (type === 'protector' ? 'shielded' : 'walker');
+      for (let i = 0; i < 3; i++) {
+        this._spawnMissionElite(guardType, false, 'ELITE SQUAD', 1.65, 'squad', i, 4);
+      }
+      const leader = this._spawnMissionElite(type, true, 'SQUAD LEADER', 1.85, 'squadLeader', 3, 4);
+      if (this.missionDirector) this.missionDirector.miniboss = leader;
+      return;
+    }
     for (let i = 0; i < 4; i++) {
       this._spawnMissionElite(type, false, 'ELITE SQUAD', 1.85, 'squad', i, 4);
     }
@@ -889,10 +935,12 @@ class Game {
     if (!md || !md.active || this.bossActive || (this.boss && !this.boss.dead) || this.gameWon) return;
     const phase = md.phases[md.phaseIndex];
     if (!phase || phase.type === 'boss' || phase.completed) return;
+    this._updateMissionRouteEvent();
     if (phase.type === 'survive') {
-      this._updateMissionRouteEvent();
       phase.timer--;
-      if (phase.timer <= 0) {
+      const killTarget = Math.max(0, phase.killTarget || 0);
+      const phaseKills = Math.max(0, (this.waveKills || 0) - (phase.startWaveKills || 0));
+      if (phase.timer <= 0 || (killTarget > 0 && phaseKills >= killTarget)) {
         this._finalizeMissionRouteEventAtPhaseEnd();
         this._completeMissionPhase(0);
       }
@@ -947,6 +995,22 @@ class Game {
     if (obj.type === 'collect') {
       const target = this._objectiveCollectTarget();
       return { current: Math.min(target, this.bossOrbsCollected || 0), target, rawCurrent: this.bossOrbsCollected || 0, rawTarget: target };
+    }
+    if (obj.type === 'survive' && obj.killTarget) {
+      const totalSeconds = this._objectiveTotalSeconds(obj.type);
+      const secondsPerOrb = this._objectiveSecondsPerOrb(obj.type);
+      const targetFrames = Math.max(1, totalSeconds * 60);
+      const currentFrames = (this.bossOrbsCollected || 0) * secondsPerOrb * 60
+        + Math.min(1, (this.bossOrbCharge || 0) / Math.max(1, this.bossOrbChargeMax || 1)) * secondsPerOrb * 60;
+      const killTarget = Math.max(1, obj.killTarget || 10);
+      const kills = Math.max(0, this.waveKills || 0);
+      return {
+        current: Math.min(Math.ceil(targetFrames / 60), Math.floor(currentFrames / 60)) + 's or ' + Math.min(killTarget, kills),
+        target: Math.ceil(targetFrames / 60) + 's or ' + killTarget,
+        suffix: '',
+        rawCurrent: Math.max(currentFrames / targetFrames, kills / killTarget),
+        rawTarget: 1
+      };
     }
     const totalSeconds = this._objectiveTotalSeconds(obj.type);
     const secondsPerOrb = this._objectiveSecondsPerOrb(obj.type);
@@ -2511,7 +2575,8 @@ class Game {
     const spawnPool = roomTypes
       ? roomTypes.map((type, idx) => ({ type, weight: Math.max(1, 4 - idx) }))
       : waveDef.pool;
-    const cappedPool = spawnPool.filter(entry => this._aliveHostileTypeCount(entry.type) < 6);
+    const routeMinibossHistory = (this.routeState && this.routeState.minibossHistory) || (this.mapState && this.mapState.route && this.mapState.route.minibossHistory) || [];
+    const cappedPool = spawnPool.filter(entry => this._aliveHostileTypeCount(entry.type) < 6 && (!entry.big || !routeMinibossHistory.includes(entry.type)));
     if (!cappedPool.length) return;
     let totalW = 0;
     for (const e of cappedPool) totalW += e.weight;
@@ -2560,6 +2625,7 @@ class Game {
     if (pick.big && (pick.type === 'protector' || pick.type === 'attacker')) {
       this.spawnedMiniboss.add(pick.type);
     }
+    if (pick.big) this._recordMissionMinibossType(pick.type);
     // Mark hunt target
     const _huntObj = (this._routeObjectiveOfType && this._routeObjectiveOfType('hunt')) || this.currentObjective;
     if (_huntObj && _huntObj.type === 'hunt' && this._matchesHuntFilter(e, _huntObj.filter)) {
@@ -2656,6 +2722,7 @@ class Game {
         lane: 'mid',
         previousLane: 'mid',
         history: [],
+        minibossHistory: [],
         next: null,
         allHard: true,
       },
@@ -2805,8 +2872,27 @@ class Game {
     return otherOverlords[Math.abs(seed) % otherOverlords.length] || 'water';
   }
 
+  _pickUniqueRouteBoss(preferred, step, history, reserveFinal) {
+    const used = new Set((history || []).map(h => h && h.bossType).filter(Boolean));
+    const last = history && history.length ? history[history.length - 1].bossType : null;
+    const finalBoss = 'flyshooter';
+    const fullPool = ['walker', 'shooter', 'jumper', 'flyer', 'bouncer', 'shielded', 'deflector', 'protector', 'attacker', finalBoss];
+    const normalize = list => (Array.isArray(list) ? list : [list]).filter(Boolean);
+    const canUse = boss => boss && !used.has(boss) && boss !== last && (!reserveFinal || boss !== finalBoss);
+    const preferredList = normalize(preferred);
+    let pick = preferredList.find(canUse);
+    if (pick) return pick;
+    pick = fullPool.find(canUse);
+    if (pick) return pick;
+    pick = preferredList.find(boss => boss && boss !== last && (!reserveFinal || boss !== finalBoss));
+    if (pick) return pick;
+    return fullPool.find(boss => boss && boss !== last) || preferredList[0] || 'walker';
+  }
+
   _routeBossFor(step, lane, previousLane, history) {
-    if (step < ROUTE_FIXED_BOSSES.length) return ROUTE_FIXED_BOSSES[step] || 'walker';
+    if (step < ROUTE_FIXED_BOSSES.length) {
+      return this._pickUniqueRouteBoss(ROUTE_FIXED_BOSSES[step] || 'walker', step, history, true);
+    }
     const profile = this._routeHistoryProfile(history, lane);
     if (step >= ROUTE_STAGE_LAYOUTS.length - 1) {
       return 'flyshooter';
@@ -2814,17 +2900,21 @@ class Game {
     const routeBossVariants = {
       easy: ['bouncer', 'shielded', 'deflector'],
       mid: ['shielded', 'protector', 'attacker'],
-      hard: ['deflector', 'attacker', 'flyshooter'],
-      allHard: ['protector', 'attacker', 'flyshooter'],
+      hard: ['deflector', 'attacker', 'protector'],
+      allHard: ['protector', 'attacker', 'deflector'],
     };
     const matrixStep = Math.max(0, step - ROUTE_FIXED_BOSSES.length);
     const key = profile.allHard ? 'allHard' : profile.dominant;
     const list = routeBossVariants[key] || routeBossVariants.mid;
     const baseBoss = list[Math.min(list.length - 1, matrixStep)] || 'deflector';
 
-    if (profile.dominant === 'hard' && lane === 'easy' && matrixStep < 2) return 'protector';
-    if (profile.dominant === 'easy' && lane === 'hard' && matrixStep > 0) return 'attacker';
-    return baseBoss;
+    if (profile.dominant === 'hard' && lane === 'easy' && matrixStep < 2) {
+      return this._pickUniqueRouteBoss(['protector'].concat(list), step, history, true);
+    }
+    if (profile.dominant === 'easy' && lane === 'hard' && matrixStep > 0) {
+      return this._pickUniqueRouteBoss(['attacker'].concat(list), step, history, true);
+    }
+    return this._pickUniqueRouteBoss([baseBoss].concat(list), step, history, true);
   }
 
   _routeElementFor(step, lane, bossType, history) {
@@ -4761,7 +4851,7 @@ class Game {
           // 'kills' and 'hunt': progress comes from visible kill counts.
           // 'collect': progress comes directly from shuriken pickups.
         }
-        if (_obj && (_obj.type === 'kills' || _obj.type === 'hunt') && !this.bossActive && !this.boss) {
+        if (_obj && (_obj.type === 'kills' || _obj.type === 'hunt' || (_obj.type === 'survive' && _obj.killTarget)) && !this.bossActive && !this.boss) {
           const progress = this._objectiveProgressInfo();
           if (progress && progress.rawCurrent >= progress.rawTarget) {
             this.spawnBoss();
@@ -6936,10 +7026,12 @@ class Game {
     const chargeLeft = centerX - (attackGroupW + chargeGap + chargeGroupW) / 2;
     const focusX = chargeLeft + 28 + 8;
     const focusPct = Math.max(0, Math.min(1, pl.attackFocus === undefined ? 1 : pl.attackFocus));
+    const attackFocusLow = focusPct <= 0.25;
+    const attackFocusColor = attackFocusLow ? '#ff3b30' : attrColors.vigor;
     ctx.save();
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'right';
-    ctx.fillStyle = attrColors.vigor;
+    ctx.fillStyle = attackFocusColor;
     ctx.fillText('ATK', focusX - 8, pipY + 9);
     ctx.textAlign = 'left';
     const swordX = focusX;
@@ -6963,22 +7055,22 @@ class Game {
     ctx.save();
     drawBladePath();
     ctx.clip();
-    ctx.fillStyle = attrColors.vigor;
+    ctx.fillStyle = attackFocusColor;
     ctx.fillRect(bladeX, bladeY, bladeW * focusPct, bladeH);
     ctx.fillStyle = 'rgba(255,255,255,0.28)';
     ctx.fillRect(bladeX, bladeY + 1, bladeW * focusPct, 2);
     ctx.restore();
-    ctx.strokeStyle = attrColors.vigor;
+    ctx.strokeStyle = attackFocusColor;
     ctx.lineWidth = 1.4;
     drawBladePath();
     ctx.stroke();
-    ctx.fillStyle = attrColors.vigor;
+    ctx.fillStyle = attackFocusColor;
     ctx.fillRect(swordX + 15, swordY, 5, attackFocusH + 2);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.fillRect(swordX + 18, swordY + 1, 1, attackFocusH);
     ctx.fillStyle = '#6b3528';
     ctx.fillRect(swordX + 4, swordY + 5, 13, 5);
-    ctx.fillStyle = attrColors.vigor;
+    ctx.fillStyle = attackFocusColor;
     ctx.fillRect(swordX, swordY + 4, 5, 7);
     ctx.restore();
     this._renderHeldWeaponHud(ctx, pl, chargeLeft + attackGroupW + chargeGap, pipY - 7, chargeGroupW + 40, 28);
@@ -8188,8 +8280,9 @@ class Game {
     ctx.fillText(def ? def.shortName : 'NO ITEM', x + 36, y + 11);
     ctx.font = '900 24px monospace';
     ctx.textAlign = 'right';
-    ctx.fillStyle = def ? (def.accentColor || def.color) : '#777';
-    const shotsText = def ? String(Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1)))) : '--';
+    const shotsLeft = def ? Math.max(0, Math.floor((pl.itemAmmo || 0) / Math.max(1, def.ammoCost || 1))) : 0;
+    ctx.fillStyle = def ? (shotsLeft <= 1 ? '#ff3b30' : (def.accentColor || def.color)) : '#777';
+    const shotsText = def ? String(shotsLeft) : '--';
     ctx.fillText(shotsText, x + w - 8, y + 25);
     if (def && def.crashPower) {
       const crashPct = Math.max(0, Math.min(1, (pl.ultimateCharge || 0) / Math.max(1, pl.ultimateMax || 1)));
