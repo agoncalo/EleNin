@@ -30,6 +30,14 @@ function updateScreenShake() {
   }
 }
 
+function clearCombatFreeze() {
+  hitstopFrames = 0;
+  screenShakeX = 0;
+  screenShakeY = 0;
+  screenShakeTimer = 0;
+  screenShakeIntensity = 0;
+}
+
 // Line of sight: returns true if no blocks/platforms between two points
 function hasLineOfSight(x0, y0, x1, y1, game) {
   const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);

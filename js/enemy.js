@@ -389,6 +389,19 @@ class Enemy {
     return true;
   }
 
+  _resolveDeathGuard(game) {
+    if (this.dead) return true;
+    if (this.hp > 0 || (this.pendingSkullDeath && this.disableTimer > 0)) return false;
+    this.hp = 0;
+    this.disableTimer = 0;
+    const deathGame = game || this.pendingSkullDeathGame;
+    this.pendingSkullDeath = false;
+    this.pendingSkullDeathGame = null;
+    this.dead = true;
+    this.onDeath(deathGame);
+    return true;
+  }
+
   _tryLeaperWallJump(game, px, speed, windResist) {
     if (this.type !== 'jumper' || this.wallJumpCooldown > 0) return false;
     if (this.onPlatform && this.vy >= 0 && this.vy < 1) return false;
@@ -629,6 +642,7 @@ class Enemy {
     this._updateSpikySpikes(game);
     this._tryLightningTeleport(game);
     this._updateStance();
+    if (this._resolveDeathGuard(game)) return;
     this.displayHp = lerp(this.displayHp, this.hp, 0.12);
     if (this.spawnTimer > 0) { this.spawnTimer--; return; }
     if (this.isRouteEscapeTarget) {
@@ -3800,6 +3814,7 @@ class Boss extends Enemy {
     if (this.shieldFlash > 0) this.shieldFlash--;
     if (this.damageIframes > 0) this.damageIframes--;
     this._updateStance();
+    if (this._resolveDeathGuard(game)) return;
     if (this._contactDmgCd > 0) this._contactDmgCd--;
     if (this._slideDmgCd > 0) this._slideDmgCd--;
     if (this.shieldBump > 0) this.shieldBump--;

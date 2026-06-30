@@ -3393,6 +3393,111 @@ class Game {
     return typeof LEGACY_BOSS_ITEMS_ENABLED === 'undefined' || !!LEGACY_BOSS_ITEMS_ENABLED;
   }
 
+  _clearLevelRuntime(opts = {}) {
+    const keepEffects = !!opts.keepEffects;
+    const keepRewards = !!opts.keepRewards;
+    this.boss = null;
+    this.bossActive = false;
+    this.bossDeathRewardDelay = 0;
+    this.enemies = [];
+    this.allies = [];
+    this.friendlyTargets = [];
+    this.projectiles = [];
+    this.hitLines = [];
+    this.grenades = [];
+    this.stoneBlocks = [];
+    this.bubbles = [];
+    this.orbs = [];
+    this.bossOrbPickups = [];
+    this.shurikenPickups = [];
+    this.bubbleShieldPickups = [];
+    this.heartPickups = [];
+    this.ammoPickups = [];
+    this.elementalShieldPickups = [];
+    this.classOrbs = [];
+    this.bossItems = [];
+    this.fireTrails = [];
+    this.trimerangs = [];
+    this.diamondShards = [];
+    this.flamePools = [];
+    this.stagePropsBack = [];
+    this.stagePropsFront = [];
+    this.stageLanterns = [];
+    this.bloodStains = [];
+    this.crystalCastle = null;
+    this.levelHazards = [];
+    this.weatherParticles = [];
+    this.weatherFogCount = 0;
+    this._chainSlowFrame = 0;
+    if (!keepEffects) {
+      this.effects = [];
+    }
+    if (!keepRewards) {
+      this.itemPickupOverlay = null;
+      this.itemRewardScreen = null;
+      this.bossRewardItems = [];
+    }
+    if (typeof clearCombatFreeze === 'function') clearCombatFreeze();
+    if (typeof clearFrameInput === 'function') clearFrameInput();
+  }
+
+  _clearObjectiveState() {
+    this.missionDirector = null;
+    this.missionSeals = [];
+    this.protectBuilding = null;
+    this.routeLady = null;
+    this.objZone = null;
+    this.samurai = null;
+    this.routeObjectiveSet = null;
+    this.routeObjectiveResult = null;
+    this.routeObjectiveStart = null;
+    this.currentObjective = null;
+    this.objectiveIndicatorIntroTimer = 0;
+  }
+
+  _resetEncounterState(opts = {}) {
+    if (!opts.keepKills) {
+      this.waveKills = 0;
+      this.objectiveKills = 0;
+    }
+    this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
+    this.bossOrbCharge = 0;
+    this.bossOrbCooldown = 0;
+    this.bossOrbsCollected = 0;
+    this.spawnedMiniboss = new Set();
+    this.bossMessage = 0;
+    this.spawnTimer = opts.spawnTimer === undefined ? -120 : opts.spawnTimer;
+    this.weaponOfferStartTick = this.tick || 0;
+    this.nextWeaponOfferTick = 0;
+    this._clearObjectiveState();
+  }
+
+  _resetPlayerForRoomStart(opts = {}) {
+    if (!this.player) return;
+    if (this.player.resetTransientState) {
+      this.player.resetTransientState(this, { resetNinja: opts.resetNinja !== false });
+    }
+    if (opts.position !== false) {
+      this.player.x = this.levelType === 'tower' ? 380 : 100;
+      this.player.y = this.levelType === 'tower' ? 400 : 300;
+    }
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.attackCharges = this.player.actionChargeMax || 3;
+    this.player.specialCharges = this.player.actionChargeMax || 3;
+    this.player.attackRechargeTimer = 0;
+    this.player.specialRechargeTimer = 0;
+    this.player.attackFocus = 1;
+    this.player._attackDamageMult = 1;
+    if (opts.heal !== false) {
+      this.player.hp = this.player.maxHp;
+      this.player.displayHp = this.player.hp;
+    }
+    this.player.oneShotProtectionUsed = false;
+    this.player.deathTimer = 0;
+    this.player.invincibleTimer = opts.invincibleFrames || 120;
+  }
+
   _enterMapRoom(roomId, opts) {
     opts = opts || {};
     const routeCfg = this._currentRouteConfig();
@@ -3424,59 +3529,16 @@ class Game {
 
   _prepareRoomStart() {
     this.lives = 1;
-    this.waveKills = 0;
-    this.objectiveKills = 0;
-    this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
-    this.bossOrbCharge = 0;
-    this.bossOrbCooldown = 0;
-    this.bossOrbsCollected = 0;
-    this.bossOrbPickups = [];
-    this.spawnedMiniboss = new Set();
-    this.missionDirector = null;
-    this.missionSeals = [];
-    this.protectBuilding = null;
-    this.routeLady = null;
-    this.boss = null;
-    this.bossActive = false;
-    this.projectiles = [];
-    this.hitLines = [];
-    this.grenades = [];
-    this.bubbleShieldPickups = [];
-    this.heartPickups = [];
-    this.elementalShieldPickups = [];
-    this.enemies = [];
-    this.allies = [];
-    this.friendlyTargets = [];
-    this.orbs = [];
-    this.shurikenPickups = [];
-    this.ammoPickups = [];
-    this.elementalShieldPickups = [];
-    this.classOrbs = [];
-    this.fireTrails = [];
     const oldLevelType = this.levelType;
+    this._clearLevelRuntime();
+    this._resetEncounterState({ spawnTimer: -120 });
     this.buildLevel();
     this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
-    this.player.x = this.levelType === 'tower' ? 380 : 100;
-    this.player.y = this.levelType === 'tower' ? 400 : 300;
-    this.player.vx = 0;
-    this.player.vy = 0;
-    this.player.attackCharges = this.player.actionChargeMax || 3;
-    this.player.specialCharges = this.player.actionChargeMax || 3;
-    this.player.attackRechargeTimer = 0;
-    this.player.specialRechargeTimer = 0;
-    this.player.attackFocus = 1;
-    this.player._attackDamageMult = 1;
-    this.player.hp = this.player.maxHp;
-    this.player.displayHp = this.player.hp;
-    this.player.oneShotProtectionUsed = false;
+    this._resetPlayerForRoomStart({ heal: true, resetNinja: true, invincibleFrames: 120 });
     this.camera.x = 0;
     this.camera.y = 0;
-    this.spawnTimer = -120;
-    this.weaponOfferStartTick = this.tick || 0;
-    this.nextWeaponOfferTick = 0;
     this.transitionTimer = oldLevelType === this.levelType ? 45 : 90;
-    this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
     SFX.wave();
   }
 
@@ -3494,43 +3556,10 @@ class Game {
     this.currentRoomId = MAP_START_ROOM_ID;
     this.roomCache = {};
     this.mapScreen = null;
-    this.boss = null;
-    this.bossActive = false;
-    this.missionDirector = null;
-    this.missionSeals = [];
-    this.protectBuilding = null;
-    this.routeLady = null;
-    this.projectiles = [];
-    this.hitLines = [];
-    this.grenades = [];
-    this.enemies = [];
-    this.allies = [];
-    this.friendlyTargets = [];
-    this.orbs = [];
-    this.shurikenPickups = [];
-    this.heartPickups = [];
-    this.ammoPickups = [];
-    this.elementalShieldPickups = [];
-    this.classOrbs = [];
-    this.fireTrails = [];
-    this.player.hp = this.player.maxHp;
-    this.player.displayHp = this.player.hp;
-    this.player.oneShotProtectionUsed = false;
-    this.player.ninjaType = 'basic';
+    this._clearLevelRuntime();
+    this._resetEncounterState({ spawnTimer: -120 });
+    this._resetPlayerForRoomStart({ heal: true, resetNinja: true, invincibleFrames: 120 });
     this.player.equipWeapon('flamethrower', this);
-    this.player.deathTimer = 0;
-    this.player.x = this.levelType === 'tower' ? 380 : 100;
-    this.player.y = this.levelType === 'tower' ? 400 : 300;
-    this.player.vx = 0;
-    this.player.vy = 0;
-    this.player.statusBurn = 0;
-    this.player.statusFreeze = 0;
-    this.player.statusFloat = 0;
-    this.player.statusParalyse = 0;
-    this.player.statusStun = 0;
-    this.player.statusCurse = 0;
-    this.player.statusBleed = 0;
-    this.player.elementalArmor = 0;
     this._enterMapRoom(MAP_START_ROOM_ID);
     this.showWaveMessage(this._objectiveStartMessage());
   }
@@ -3596,13 +3625,8 @@ class Game {
     route.allHard = !!route.allHard && routeResult === 'hard';
     if (completedStep >= ROUTE_STAGE_LAYOUTS.length - 1) {
       this.gameWon = true;
-      this.boss = null;
-      this.bossActive = false;
-      this.enemies = [];
-      this.allies = [];
-      this.friendlyTargets = [];
-      this.projectiles = [];
-      this.hitLines = [];
+      this._clearObjectiveState();
+      this._clearLevelRuntime({ keepEffects: true, keepRewards: true });
       this.showWaveMessage('VICTORY!');
       SFX.victory();
       recordGoodEnding();
@@ -3632,13 +3656,8 @@ class Game {
       zoom: this.mapZoom || (this.mapScreen && this.mapScreen.zoom) || 1,
       delay: 120,
     };
-    this.boss = null;
-    this.bossActive = false;
-    this.enemies = [];
-    this.allies = [];
-    this.friendlyTargets = [];
-    this.projectiles = [];
-    this.hitLines = [];
+    this._clearObjectiveState();
+    this._clearLevelRuntime({ keepEffects: true, keepRewards: true });
   }
 
   _defaultMapSelection(recentUnlocks) {
@@ -3714,15 +3733,15 @@ class Game {
     if (this.wave >= TOTAL_WAVES) {
       if (this.cheated) {
         this.gameOver = true;
-        this.boss = null;
-        this.bossActive = false;
+        this._clearObjectiveState();
+        this._clearLevelRuntime({ keepEffects: true, keepRewards: true });
         this.showWaveMessage('GAME OVER, CHEATER!');
         recordCheaterEnding();
         return;
       }
       this.gameWon = true;
-      this.boss = null;
-      this.bossActive = false;
+      this._clearObjectiveState();
+      this._clearLevelRuntime({ keepEffects: true, keepRewards: true });
       this.showWaveMessage('VICTORY!');
       SFX.victory();
       recordGoodEnding();
@@ -3742,29 +3761,6 @@ class Game {
     if (waveDef) this.player.defeatedBossTypes.add(waveDef.boss);
     recordWaveClear(this.wave, this.player.ninjaType);
     this.wave++;
-    this.waveKills = 0;
-    // Boss Summon Orb reset for new wave
-    this.bossOrbsRequired = Math.min(5, 2 + Math.floor((this.wave - 1) / 2));
-    this.bossOrbCharge = 0;
-    this.bossOrbCooldown = 0;
-    this.bossOrbsCollected = 0;
-    this.bossOrbPickups = [];
-    this.spawnedMiniboss = new Set();
-    this.boss = null;
-    this.bossActive = false;
-    this.projectiles = [];
-    this.hitLines = [];
-    this.grenades = [];
-    this.bubbleShieldPickups = [];
-    this.heartPickups = [];
-    this.ammoPickups = [];
-    this.elementalShieldPickups = [];
-    this.classOrbs = [];
-    this.weaponOfferStartTick = this.tick || 0;
-    this.nextWeaponOfferTick = 0;
-    this.enemies = [];
-    this.allies = [];
-    this.friendlyTargets = [];
     // Boss kill phrase
     const isLastBoss = this.wave > TOTAL_WAVES;
     if (!isLastBoss && !this.gameOverDelay) {
@@ -3776,21 +3772,20 @@ class Game {
       this.phraseSource = this.player;
     }
     const oldLevelType = this.levelType;
+    this._clearLevelRuntime();
+    this._resetEncounterState({ spawnTimer: -120 });
     this.buildLevel();
     this._spawnLevelAllies(MAP_ROOM_BY_ID[this.currentRoomId]);
     this._initObjective();
-    // Only reposition player if level type changed
-    if (this.levelType !== oldLevelType) {
-      this.player.x = this.levelType === 'tower' ? 380 : 100;
-      this.player.y = this.levelType === 'tower' ? 400 : 300;
-      this.player.vx = 0;
-      this.player.vy = 0;
-      if (!this.gameOverDelay) {
-        this.transitionTimer = 90;
-        this.player.invincibleTimer = Math.max(this.player.invincibleTimer, 120);
-      }
+    this._resetPlayerForRoomStart({
+      heal: false,
+      resetNinja: true,
+      position: this.levelType !== oldLevelType,
+      invincibleFrames: 120
+    });
+    if (this.levelType !== oldLevelType && !this.gameOverDelay) {
+      this.transitionTimer = 90;
     }
-    this.spawnTimer = -120;
     SFX.wave();
     if (!this.gameOverDelay) {
       this.showWaveMessage(this._objectiveStartMessage());
@@ -4179,11 +4174,18 @@ class Game {
     compactLiveArray(this.effects, keepNotDone, GAME_OBJECT_LIMITS.effects);
     compactLiveArray(this.stoneBlocks, keepNotDone, GAME_OBJECT_LIMITS.stoneBlocks);
     compactLiveArray(this.bubbles, keepNotDone, GAME_OBJECT_LIMITS.bubbles);
+    compactLiveArray(this.trimerangs, keepNotDone, GAME_OBJECT_LIMITS.trimerangs);
+    compactLiveArray(this.diamondShards, keepNotDone, GAME_OBJECT_LIMITS.diamondShards);
+    compactLiveArray(this.flamePools, keepNotDone, GAME_OBJECT_LIMITS.flamePools);
     compactLiveArray(this.stagePropsBack, keepNotDone, GAME_OBJECT_LIMITS.stageProps);
     compactLiveArray(this.stagePropsFront, keepNotDone, GAME_OBJECT_LIMITS.stageProps);
     compactLiveArray(this.stageLanterns, keepNotDone, GAME_OBJECT_LIMITS.stageLanterns);
     compactLiveArray(this.bloodStains, keepNotDone, GAME_OBJECT_LIMITS.bloodStains);
     compactLiveArray(this.orbs, keepNotDone, GAME_OBJECT_LIMITS.orbs);
+    compactLiveArray(this.bossOrbPickups, keepNotDone);
+    compactLiveArray(this.shurikenPickups, keepNotDone);
+    compactLiveArray(this.bubbleShieldPickups, keepNotDone);
+    compactLiveArray(this.heartPickups, keepNotDone);
     compactLiveArray(this.bossItems, keepNotDone);
     compactLiveArray(this.classOrbs, keepNotDone);
     compactLiveArray(this.ammoPickups, keepNotDone);

@@ -21,6 +21,7 @@ class Player {
     this.itemCrashPalette = null;
     this.weaponPickupCooldown = 0;
     this.invincibleTimer = 90;
+    this._unguardedInvulnFrames = 0;
     this.knockbackTimer = 0;
     this.bonusDamage = 0;
     this.bonusElemental = 0;
@@ -732,6 +733,129 @@ class Player {
     }
   }
 
+  resetTransientState(game, opts = {}) {
+    if (this._spinScythe && this._spinScythe.recall) this._spinScythe.recall();
+    this._spinScythe = null;
+    this._pendingDamage = null;
+    this._clearItemMotionState();
+
+    this.attacking = false;
+    this.attackTimer = 0;
+    this.attackCooldown = 0;
+    this.attackBox = null;
+    this.swingHitSet = new Set();
+    this.counterAttacking = false;
+    this.shadowAttackHit = false;
+    this._cutSpawned = false;
+    this._slashCut = null;
+    this._chainCuts = null;
+    this._fadingCuts = null;
+
+    this.ultimateActive = false;
+    this.ultCutscene = false;
+    this.ultCutsceneTimer = 0;
+    this.ultimateTimer = 0;
+    this.ultFloatY = 0;
+    this.itemCrashPalette = null;
+    this.earthGolem = null;
+    this.bubbleRide = null;
+    this.bubbleUlt = null;
+    this.windBow = null;
+    this.fireMeteors = [];
+    this.crystalCastle = false;
+    if (game) game.crystalCastle = null;
+
+    this.comboMeter = 0;
+    this.comboTimer = 0;
+    this.fireArmor = false;
+    this.fireArmorTimer = 0;
+    this.bubbleBuffTimer = 0;
+    this.backstabReady = false;
+    this.shadowStealth = 0;
+    this.shadowUltBuff = false;
+    this.shadowDarkness = 0;
+    this.shadowEyesTimer = 0;
+    this.shadowKillThreshold = 0;
+    this.lastDamageAmount = 0;
+    this.lastDamageTick = 0;
+    this.lastEnemyTouch = 0;
+    this.afterimages = [];
+    this.chainStriking = false;
+    this.chainTargets = [];
+    this.chainTimer = 0;
+    this.chainLastHit = null;
+    this.shadowChainFirstHop = false;
+    this.parrying = false;
+    this.parryTimer = 0;
+    this.parryVisualTimer = 0;
+    this.parryCombo = 0;
+    this.parryComboTimer = 0;
+    this.crystalShatter = 0;
+    this.crystalShards = null;
+    this.windPower = 0;
+    this.windFirstDodge = true;
+    this.windTrails = [];
+    this.windFullTrails = [];
+    this.stormChaining = false;
+    this.stormChainTargets = [];
+    this.stormChainTimer = 0;
+    this.stormChainHit = new Set();
+    this.stormAfterimages = [];
+    this.stormRaindrops = [];
+    this.stormLightningFlash = 0;
+    this.stormSheathHits = 0;
+    this.stormSheathActive = false;
+    this.stormSheathFinisher = 0;
+    this.staggerChaining = false;
+    this.staggerChainTimer = 0;
+    this.staggerChainHit = new Set();
+    this.staggerChainDmg = 0;
+    this.staggerChainSegments = [];
+    this.staggerChainEchoes = [];
+    this.staggerChainMarks = [];
+    this.staggerChainCombo = 0;
+    this.staggerChainComboTimer = 0;
+    this.staggerChainComboPop = 0;
+    this.chainSpeedBoostTimer = 0;
+    this.nextHitDouble = false;
+
+    this.statusBurn = 0;
+    this.statusFreeze = 0;
+    this.statusFloat = 0;
+    this.statusParalyse = 0;
+    this.statusStun = 0;
+    this.statusCurse = 0;
+    this.statusBleed = 0;
+    this.curseCooldown = 0;
+    this.bleedCooldown = 0;
+    this.freezeNudge = 0;
+    this.slamming = false;
+    this.dropThroughSlamLock = false;
+    this.stopMidair = false;
+    this.stopMidairTimer = 0;
+    this.onWall = 0;
+    this.wallSlideTimer = 0;
+    this.jumpsLeft = this.maxJumps;
+    this.bubbleShieldTimer = 0;
+    this.elementalArmor = 0;
+    this.itemUseFlash = 0;
+    this.weaponPickupCooldown = 0;
+    this.specialCooldown = 0;
+    this.shurikenFireCooldown = 0;
+    this.autoSwingTimer = 0;
+    this.codeComboCount = 0;
+    this.attackFocus = 1;
+    this._attackDamageMult = 1;
+    this._unguardedInvulnFrames = 0;
+    if (opts.resetNinja !== false) {
+      this.ninjaType = 'basic';
+      this.maxMana = (MANA_CAPS[this.ninjaType] || 2) + this.bonusMana;
+      this.mana = Math.min(this.maxMana, this.mana || this.maxMana);
+    }
+    if (opts.clearDeath !== false) this.deathTimer = 0;
+    if (!opts.keepOneShotProtection) this.oneShotProtectionUsed = false;
+  }
+
   _isChainInvulnerable() {
     return !!(this.chainStriking || this.stormChaining || this.staggerChaining);
   }
@@ -749,13 +873,19 @@ class Player {
   _sanitizeInvulnerabilityState() {
     const protectedByUltimate = this.ultCutscene || this.ultimateActive || this.earthGolem || this.bubbleRide || this.bubbleUlt || this.windBow || this.crystalCastle;
     const protectedByChain = this._isChainInvulnerable();
-    const staleLongInvuln = this.invincibleTimer > 180 && !protectedByUltimate && !protectedByChain && this.deathTimer <= 0;
-    if (staleLongInvuln) this.invincibleTimer = 0;
+    const ownerlessInvuln = this.invincibleTimer > 0 && !protectedByUltimate && !protectedByChain && this.deathTimer <= 0;
+    this._unguardedInvulnFrames = ownerlessInvuln ? (this._unguardedInvulnFrames || 0) + 1 : 0;
+    const staleInvuln = ownerlessInvuln && (this.invincibleTimer > 180 || this._unguardedInvulnFrames > 150);
+    if (staleInvuln) {
+      this.invincibleTimer = 0;
+      this._unguardedInvulnFrames = 0;
+    }
   }
 
   _ensureDeathState(game) {
     if (this.hp > 0 || this.deathTimer > 0) return;
     this.hp = 0;
+    this.resetTransientState(game, { clearDeath: false });
     this.invincibleTimer = 0;
     this.deathTimer = 180;
     this.vx = 0;
@@ -4121,12 +4251,15 @@ class Player {
         SFX.victory();
         return;
       }
+      const killedAs = this.ninjaType;
+      const deathColor = this.type.color;
+      this.resetTransientState(game, { clearDeath: false });
       this.deathTimer = 180;
       this.vx = 0; this.vy = 0;
       SFX.playerDie();
       const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
       game.effects.push(new Effect(cx, cy, '#fff', 20, 6, 25));
-      game.effects.push(new Effect(cx, cy, this.type.color, 15, 5, 20));
+      game.effects.push(new Effect(cx, cy, deathColor, 15, 5, 20));
       game.effects.push(new Effect(cx, cy, '#f44', 12, 4, 18));
       game.effects.push(new TextEffect(cx, cy - 20, 'K.O.', '#f44'));
       game.phraseText = '';
@@ -4136,7 +4269,7 @@ class Player {
       game.ninjaResponseActive = false;
       // Kill phrase from the enemy
       if (killerInfo) {
-        const kPhrase = getKillPhrase(killerInfo.type, this.ninjaType, killerInfo.element);
+        const kPhrase = getKillPhrase(killerInfo.type, killedAs, killerInfo.element);
         if (kPhrase) {
           game.killPhraseText = kPhrase;
           game.killPhraseTimer = 90;
