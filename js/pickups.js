@@ -37,6 +37,25 @@ class TimedPickupOrb extends Orb {
   }
 }
 
+function pickupProgressionStep(game) {
+  return game && game._progressionStep ? game._progressionStep() : Math.max(0, ((game && game.wave) || 1) - 1);
+}
+
+function pickupHealthRatio(game) {
+  const pl = game && game.player;
+  if (!pl || !pl.maxHp) return 1;
+  return Math.max(0, Math.min(1, (pl.hp || 0) / Math.max(1, pl.maxHp)));
+}
+
+function pickupAmmoNeed(game) {
+  const pl = game && game.player;
+  if (!pl || !pl.heldItem) return 0;
+  const def = pl.currentWeaponDef ? pl.currentWeaponDef() : WEAPON_ITEMS[pl.heldItem];
+  const max = Math.max(1, pl.itemAmmoMax || (def && def.ammoMax) || 0);
+  if (!def || max <= 0) return 0;
+  return Math.max(0, Math.min(1, 1 - ((pl.itemAmmo || 0) / max)));
+}
+
 class ShurikenPickupOrb extends TimedPickupOrb {
   constructor(x, y) {
     super(x, y, 'shuriken', { life: 600, bobSpeed: 0.06, w: 20, h: 20 });
@@ -45,7 +64,10 @@ class ShurikenPickupOrb extends TimedPickupOrb {
   static spawnInterval(game) {
     const routeCollect = game._routeObjectiveOfType && game._routeObjectiveOfType('collect');
     const collectMode = routeCollect || (game.currentObjective && game.currentObjective.type === 'collect');
-    return collectMode ? 120 : ((game.player.items && game.player.items.tripleShuriken) ? 150 : 300);
+    if (collectMode) return 120;
+    const step = pickupProgressionStep(game);
+    const base = (game.player.items && game.player.items.tripleShuriken) ? 260 : 340;
+    return Math.max(180, base - step * 18);
   }
 
   static spawnPhase() {
@@ -53,7 +75,13 @@ class ShurikenPickupOrb extends TimedPickupOrb {
   }
 
   static maxOnScreen(game) {
-    return (game._routeObjectiveOfType && game._routeObjectiveOfType('collect')) || (game.currentObjective && game.currentObjective.type === 'collect') ? 6 : 3;
+    if ((game._routeObjectiveOfType && game._routeObjectiveOfType('collect')) || (game.currentObjective && game.currentObjective.type === 'collect')) return 6;
+    const hasTargets = (game.boss && !game.boss.dead) || (game.enemies || []).some(e => e && !e.dead);
+    if (!hasTargets) return 0;
+    const step = pickupProgressionStep(game);
+    if (step <= 1) return 1;
+    if (step <= 4) return 2;
+    return 3;
   }
 
   update(game) {
@@ -191,15 +219,21 @@ class BubbleShieldPickupOrb extends TimedPickupOrb {
     super(x, y, 'bubbleshield', { life: 900, bobSpeed: 0.05, w: 20, h: 20 });
   }
 
-  static spawnInterval() {
-    return 1200;
+  static spawnInterval(game) {
+    const hpRatio = pickupHealthRatio(game);
+    if (hpRatio < 0.35) return 720;
+    if (hpRatio < 0.7) return 1020;
+    return 1500;
   }
 
   static spawnPhase() {
     return 600;
   }
 
-  static maxOnScreen() {
+  static maxOnScreen(game) {
+    const pl = game && game.player;
+    if (!pl || (pl.bubbleShieldTimer || 0) > 0) return 0;
+    if (pickupProgressionStep(game) < 2 && pickupHealthRatio(game) > 0.65) return 0;
     return 1;
   }
 
@@ -257,8 +291,13 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
     super(x, y, 'elementalshield', { life: 900, bobSpeed: 0.05, w: 24, h: 24 });
   }
 
-  static spawnInterval() {
-    return 1500;
+  static spawnInterval(game) {
+    const pl = game && game.player;
+    const max = Math.max(1, (pl && pl.elementalArmorMax) || 100);
+    const ratio = Math.max(0, Math.min(1, ((pl && pl.elementalArmor) || 0) / max));
+    if (ratio < 0.35) return 780;
+    if (ratio < 0.75) return 1200;
+    return 1800;
   }
 
   static spawnPhase() {
@@ -266,7 +305,10 @@ class ElementalShieldPickupOrb extends TimedPickupOrb {
   }
 
   static maxOnScreen(game) {
-    return game && game.levelElement ? 1 : 0;
+    const pl = game && game.player;
+    if (!game || !game.levelElement || !pl) return 0;
+    const max = pl.elementalArmorMax || 100;
+    return (pl.elementalArmor || 0) < max ? 1 : 0;
   }
 
   update(game) {
@@ -326,8 +368,8 @@ class ClassOrb {
     this.y = y;
     this.w = 52;
     this.h = 36;
-    this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'flamethrower';
-    const def = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    this.weaponId = WEAPON_ITEMS[weaponId] ? weaponId : 'pistol';
+    const def = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.pistol;
     this.ammo = opts.ammo === undefined ? Math.ceil((def.ammoMax || 0) * 0.5) : Math.max(0, Math.min(def.ammoMax || 0, Math.round(opts.ammo)));
     this.bobTimer = opts.bobTimer ?? Math.random() * Math.PI * 2;
     this.pickupCooldown = opts.pickupCooldown || 0;
@@ -362,7 +404,7 @@ class ClassOrb {
 
   render(ctx, cam) {
     if (this.done) return;
-    const wt = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.flamethrower;
+    const wt = WEAPON_ITEMS[this.weaponId] || WEAPON_ITEMS.pistol;
     const color = wt.color || '#f93';
     const accent = wt.accentColor || color;
     const sx = this.x + this.w / 2 - cam.x;
@@ -456,16 +498,21 @@ class AmmoPickupOrb extends TimedPickupOrb {
     super(x, y, 'ammo', { life: 720, bobSpeed: 0.055, w: 24, h: 20 });
   }
 
-  static spawnInterval() {
-    return 420;
+  static spawnInterval(game) {
+    const need = pickupAmmoNeed(game);
+    if (need > 0.65) return 240;
+    if (need > 0.35) return 360;
+    return 720;
   }
 
   static spawnPhase() {
     return 180;
   }
 
-  static maxOnScreen() {
-    return 3;
+  static maxOnScreen(game) {
+    const need = pickupAmmoNeed(game);
+    if (need <= 0.02) return 0;
+    return need > 0.65 ? 2 : 1;
   }
 
   update(game) {
@@ -506,16 +553,21 @@ class HeartPickupOrb extends TimedPickupOrb {
     super(x, y, 'heart', { life: 900, bobSpeed: 0.05, w: 22, h: 22 });
   }
 
-  static spawnInterval() {
-    return 900;
+  static spawnInterval(game) {
+    const hpRatio = pickupHealthRatio(game);
+    if (hpRatio < 0.35) return 420;
+    if (hpRatio < 0.7) return 720;
+    return 1200;
   }
 
   static spawnPhase() {
     return 300;
   }
 
-  static maxOnScreen() {
-    return 1;
+  static maxOnScreen(game) {
+    const hpRatio = pickupHealthRatio(game);
+    if (hpRatio >= 0.995) return 0;
+    return hpRatio < 0.35 ? 2 : 1;
   }
 
   update(game) {

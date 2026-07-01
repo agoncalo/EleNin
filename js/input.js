@@ -116,6 +116,24 @@ function pollGamepad() {
   }
 }
 
+function pulseGamepad(strong = 0.08, weak = 0.05, duration = 40) {
+  const gp = navigator.getGamepads ? navigator.getGamepads()[0] : null;
+  if (!gp) return;
+  try {
+    if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+      gp.vibrationActuator.playEffect('dual-rumble', {
+        duration: Math.max(15, duration),
+        strongMagnitude: Math.max(0, Math.min(1, strong)),
+        weakMagnitude: Math.max(0, Math.min(1, weak))
+      });
+    } else if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
+      gp.hapticActuators[0].pulse(Math.max(0, Math.min(1, Math.max(strong, weak))), Math.max(15, duration));
+    }
+  } catch (err) {
+    // Haptics are optional and browser-dependent.
+  }
+}
+
 // Clear per-frame input state
 function clearFrameInput() {
   for (const k in justPressed) justPressed[k] = false;

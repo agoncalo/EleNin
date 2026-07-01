@@ -39,6 +39,23 @@ const SFX = {
     alarmBoss: ['assets/sfx/alarm_boss.wav'],
     weaponPickup: ['assets/sfx/weapon_pickup.wav'],
     reload: ['assets/sfx/reload.wav'],
+    weaponPistol: ['assets/sfx/weapon_pistol.wav'],
+    weaponShotgun: ['assets/sfx/weapon_shotgun.wav'],
+    weaponRpg: ['assets/sfx/weapon_rpg.wav'],
+    weaponMortar: ['assets/sfx/weapon_mortar.wav'],
+    weaponStaff: ['assets/sfx/weapon_staff.wav'],
+    weaponGrenade: ['assets/sfx/weapon_grenade.wav'],
+    weaponHammer: ['assets/sfx/weapon_hammer.wav'],
+    weaponCrossbow: ['assets/sfx/weapon_crossbow.wav'],
+    weaponBayonet: ['assets/sfx/weapon_bayonet.wav'],
+    weaponFlamethrower: ['assets/sfx/weapon_flamethrower.wav'],
+    weaponFire: ['assets/sfx/weapon_fire.wav'],
+    weaponEarth: ['assets/sfx/weapon_earth.wav'],
+    weaponBubble: ['assets/sfx/weapon_bubble.wav'],
+    weaponStorm: ['assets/sfx/weapon_storm.wav'],
+    weaponWind: ['assets/sfx/weapon_wind.wav'],
+    weaponShadow: ['assets/sfx/weapon_shadow.wav'],
+    weaponCrystal: ['assets/sfx/weapon_crystal.wav'],
     chain: ['assets/sfx/chain_1.wav', 'assets/sfx/chain_2.wav', 'assets/sfx/chain_3.wav', 'assets/sfx/chain_4.wav', 'assets/sfx/chain_5.wav', 'assets/sfx/chain_6.wav']
   },
   samples: {},
@@ -341,6 +358,98 @@ const SFX = {
       setTimeout(() => this.metal(520, 0.055, 0.055), 58);
       setTimeout(() => this.tone(210, 'square', 0.06, 0.035, -60, 0.001), 112);
     }, 0.82);
+  },
+  weaponSampleKey(def) {
+    const kind = def && def.kind ? def.kind : 'pistol';
+    const family = (def && (def.family || def.crashPower)) || 'basic';
+    const role = def && def.role ? def.role : null;
+
+    if (family === 'bubble') return 'weaponBubble';
+    if (family === 'storm') return 'weaponStorm';
+    if (family === 'wind' && (kind === 'pistol' || kind === 'crossbow')) return 'weaponWind';
+    if (family === 'shadow' && (kind === 'orb' || kind === 'pistol')) return 'weaponShadow';
+    if (family === 'crystal' && kind === 'staff') return 'weaponCrystal';
+    if (family === 'earth' && (role === 'mortar' || kind === 'hammer' || kind === 'staff')) return 'weaponEarth';
+    if (family === 'fire' && (kind === 'flamethrower' || role === 'mortar')) return 'weaponFire';
+    if (role === 'mortar') return 'weaponMortar';
+
+    const byKind = {
+      pistol: 'weaponPistol',
+      shotgun: 'weaponShotgun',
+      rpg: 'weaponRpg',
+      staff: 'weaponStaff',
+      grenade: 'weaponGrenade',
+      orb: 'weaponGrenade',
+      hammer: 'weaponHammer',
+      crossbow: 'weaponCrossbow',
+      bayonet: 'weaponBayonet',
+      flamethrower: 'weaponFlamethrower',
+      bubbleGun: 'weaponBubble'
+    };
+    return byKind[kind] || 'weaponPistol';
+  },
+  weaponShotFallback(def, feel) {
+    const kind = def && def.kind ? def.kind : 'pistol';
+    const family = (def && (def.family || def.crashPower)) || 'basic';
+    const heavy = Math.max(0, Math.min(1, ((feel && feel.recoil) || 1.5) / 5.5));
+
+    if (family === 'bubble') {
+      this.filteredNoise(0.12, 0.055, 'bandpass', 980, 1.7, 0.004);
+      this.tone(520, 'sine', 0.16, 0.045, 180, 0.006);
+      setTimeout(() => this.tone(720, 'triangle', 0.08, 0.025, -120, 0.004), 45);
+      return;
+    }
+    if (family === 'storm') {
+      this.filteredNoise(0.07, 0.075, 'bandpass', 3200, 5.5, 0.001);
+      this.metal(1800, 0.055, 0.05);
+      setTimeout(() => this.tone(980, 'square', 0.045, 0.035, 420, 0.001), 28);
+      return;
+    }
+    if (family === 'earth') {
+      this.thump(58, 0.12 + heavy * 0.08, 0.16 + heavy * 0.10);
+      this.filteredNoise(0.13, 0.07, 'lowpass', 360, 0.9, 0.002);
+      return;
+    }
+    if (family === 'fire') {
+      this.noiseSweep(0.10, 0.075, 'bandpass', 720, 2400, 0.9, 0.001);
+      this.tone(210, 'sawtooth', 0.09, 0.045, -70, 0.001);
+      return;
+    }
+    if (family === 'wind') {
+      this.noiseSweep(0.11, 0.055, 'highpass', 1050, 4300, 0.55, 0.001);
+      this.tone(760, 'triangle', 0.07, 0.025, 180, 0.002);
+      return;
+    }
+    if (family === 'shadow') {
+      this.noiseSweep(0.10, 0.050, 'bandpass', 520, 1600, 1.2, 0.002);
+      this.tone(240, 'triangle', 0.12, 0.034, -80, 0.004);
+      return;
+    }
+    if (family === 'crystal') {
+      this.metal(1550, 0.055, 0.09);
+      this.tone(1080, 'sine', 0.08, 0.025, 360, 0.001);
+      return;
+    }
+
+    if (kind === 'shotgun') {
+      this.filteredNoise(0.08, 0.10, 'lowpass', 1200, 0.8, 0.001);
+      this.thump(78, 0.11, 0.11);
+    } else if (kind === 'rpg' || kind === 'hammer') {
+      this.thump(46, 0.18, 0.25);
+      this.filteredNoise(0.16, 0.10, 'lowpass', 420, 0.8, 0.001);
+    } else if (kind === 'crossbow' || kind === 'bayonet') {
+      this.noiseSweep(0.08, 0.050, 'highpass', 1250, 4600, 0.7, 0.001);
+      this.metal(980, 0.040, 0.055);
+    } else {
+      this.tone(640, 'square', 0.055, 0.045, -180, 0.001);
+      this.filteredNoise(0.045, 0.040, 'bandpass', 1800, 1.2, 0.001);
+    }
+  },
+  weaponShot(def, feel) {
+    const key = this.weaponSampleKey(def);
+    const cost = Math.max(1, def && def.ammoCost ? def.ammoCost : 1);
+    const volume = Math.max(0.50, Math.min(0.88, 0.56 + cost * 0.045));
+    this.sample(key, () => this.weaponShotFallback(def, feel), volume);
   },
   reflect() {
     this.metal(1900, 0.11, 0.09);

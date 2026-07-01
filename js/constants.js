@@ -313,48 +313,37 @@ const ELEMENT_LEVEL_THEMES = {
   },
 };
 const WAVE_DEFS = [
-  { boss: 'walker', killsForBoss: 20,  // Round 1
+  { boss: 'walker', killsForBoss: 10,  // Round 1
     objective: { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' },
     pool: [
-      { type: 'walker', weight: 5 },
-      { type: 'shooter', weight: 3 },
-      { type: 'charger', weight: 2 },
-      { type: 'walker', weight: 2, big: true },
+      { type: 'walker', weight: 7 },
     ]
   },
-  { boss: 'shooter', killsForBoss: 26,  // Round 2 choice
+  { boss: 'shooter', killsForBoss: 14,  // Round 2 choice
     objective: { type: 'hunt', filter: { enemyType: 'shooter' }, label: 'Hunt Gunners', desc: 'Only Shooter kills charge Boss Orbs. One is always present.', icon: '◎' },
     pool: [
-      { type: 'walker', weight: 3 },
+      { type: 'walker', weight: 5 },
       { type: 'shooter', weight: 4 },
-      { type: 'jumper', weight: 3 },
-      { type: 'charger', weight: 2 },
-      { type: 'walker', weight: 1, big: true },
-      { type: 'shooter', weight: 1, big: true },
     ]
   },
-  { boss: 'jumper', killsForBoss: 30,   // Round 2 choice
+  { boss: 'jumper', killsForBoss: 18,   // Round 2 choice
     objective: { type: 'survive', label: 'Survive', killTarget: 10, desc: 'Survive or defeat 10 enemies to charge Boss Orbs.', icon: '♥' },
     pool: [
-      { type: 'walker', weight: 2 },
-      { type: 'shooter', weight: 3 },
+      { type: 'walker', weight: 4 },
+      { type: 'shooter', weight: 2 },
       { type: 'jumper', weight: 4 },
-      { type: 'charger', weight: 2 },
-      { type: 'flyer', weight: 2 },
-      { type: 'jumper', weight: 1, big: true },
     ]
   },
-  { boss: 'flyer', killsForBoss: 28,    // Round 2-3 choice
+  { boss: 'flyer', killsForBoss: 22,    // Round 2-3 choice
     objective: { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to charge Boss Orbs.', icon: '◈' },
     pool: [
       { type: 'shooter', weight: 2 },
-      { type: 'shielded', weight: 2 },
+      { type: 'jumper', weight: 2 },
       { type: 'flyer', weight: 4 },
-      { type: 'flyer', weight: 1, big: true },
-      { type: 'shielded', weight: 1, big: true },
+      { type: 'charger', weight: 1 },
     ]
   },
-  { boss: 'deflector', killsForBoss: 48, // Round 4 choice
+  { boss: 'deflector', killsForBoss: 32, // Round 4 choice
     objective: { type: 'hunt', filter: { enemyType: 'deflector' }, label: 'Hunt Ronin', desc: 'Only Deflector kills charge Boss Orbs. One is always present.', icon: '◎' },
     pool: [
       { type: 'bouncer', weight: 2 },
@@ -364,7 +353,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'bouncer', killsForBoss: 38,   // Round 3 choice
+  { boss: 'bouncer', killsForBoss: 26,   // Round 3 choice
     objective: { type: 'collect', label: 'Collect Shurikens', desc: 'Shuriken caches spawn as Boss Orbs. Pick them up!', icon: '✦' },
     pool: [
       { type: 'jumper', weight: 2 },
@@ -378,7 +367,7 @@ const WAVE_DEFS = [
     ]
   },
 
-  { boss: 'shielded', killsForBoss: 42,  // Round 3 choice
+  { boss: 'shielded', killsForBoss: 28,  // Round 3 choice
     objective: { type: 'defend', label: 'Protect the Ronin', desc: 'Keep the allied Ronin alive — they charge Boss Orbs.', icon: '⊕' },
     pool: [
       { type: 'jumper', weight: 2 },
@@ -391,7 +380,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true }
     ]
   },
-  { boss: 'protector', killsForBoss: 50, // Round 4 choice
+  { boss: 'protector', killsForBoss: 36, // Round 4 choice
     objective: { type: 'zone', label: 'Hold the Zone', desc: 'Stand in the marked zone to charge Boss Orbs.', icon: '◈' },
     pool: [
       { type: 'bouncer', weight: 2 },
@@ -402,7 +391,7 @@ const WAVE_DEFS = [
       { type: 'deflector', weight: 1, big: true },
     ]
   },
-  { boss: 'attacker', killsForBoss: 52,  // Round 4 choice only
+  { boss: 'attacker', killsForBoss: 38,  // Round 4 choice only
     objective: { type: 'survive', label: 'Survive', killTarget: 10, desc: 'Survive or defeat 10 enemies to charge Boss Orbs.', icon: '♥' },
     pool: [
       { type: 'bouncer', weight: 2 },
@@ -415,7 +404,7 @@ const WAVE_DEFS = [
       { type: 'shielded', weight: 1, big: true },
     ]
   },
-  { boss: 'flyshooter', killsForBoss: 56, // Round 5
+  { boss: 'flyshooter', killsForBoss: 42, // Round 5
     objective: { type: 'kills', label: 'Kill Enemies', desc: 'Defeat enemies to charge Boss Orbs.', icon: '⚔' },
     pool: [
       { type: 'bouncer', weight: 2 },
@@ -794,6 +783,57 @@ for (const weapon of Object.values(WEAPON_ITEMS)) {
   weapon.ammoPickup = Math.max(weapon.ammoCost || 1, Math.round((weapon.ammoPickup || 0) * 0.65));
 }
 
+const ENEMY_INTRO_STEPS = {
+  walker: 0,
+  shooter: 1,
+  jumper: 2,
+  charger: 3,
+  flyer: 3,
+  bouncer: 4,
+  shielded: 4,
+  rocketeer: 5,
+  deflector: 5,
+  protector: 6,
+  attacker: 6,
+  flyshooter: 7,
+  satellite: 7,
+};
+
+const PROGRESSION_SPAWN_LIMITS = [
+  { maxEnemies: 5, spawnInterval: 96, typeLimit: 1, big: false },
+  { maxEnemies: 7, spawnInterval: 86, typeLimit: 2, big: false },
+  { maxEnemies: 9, spawnInterval: 78, typeLimit: 2, big: false },
+  { maxEnemies: 11, spawnInterval: 70, typeLimit: 3, big: false },
+  { maxEnemies: 14, spawnInterval: 64, typeLimit: 3, big: true },
+  { maxEnemies: 17, spawnInterval: 58, typeLimit: 3, big: true },
+  { maxEnemies: 21, spawnInterval: 54, typeLimit: 3, big: true },
+  { maxEnemies: 25, spawnInterval: 50, typeLimit: 3, big: true },
+];
+
+const WEAPON_INTRO_STEPS = {
+  pistol: 0,
+  galePistol: 0,
+  shadowPistol: 1,
+  stormPistol: 1,
+  shotgun: 2,
+  shardRifle: 2,
+  tempestBow: 2,
+  bubbleGun: 3,
+  crossbow: 3,
+  chainHook: 3,
+  flamethrower: 3,
+  rpg: 4,
+  quakeHammer: 4,
+  teslaCoil: 4,
+  crystalStaff: 5,
+  prismLance: 5,
+  drillLance: 5,
+  meteorCannon: 6,
+  stoneCannon: 6,
+  thunderShotgun: 6,
+  smokeBomb: 6,
+};
+
 const ENEMY_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
 const BOSS_ATTACK_TELEGRAPH_COLOR = '#f4f0ff';
 
@@ -839,7 +879,7 @@ const ROUTE_ELEMENT_SEQUENCE = [
   ['ghost'],
 ];
 
-const MAP_STORAGE_KEY = 'elenin-map-cache-v33-route-variety-objectives';
+const MAP_STORAGE_KEY = 'elenin-map-cache-v34-smoother-progression';
 const MAP_START_ROOM_ID = 'forest-walker-normal';
 const MAP_AREAS = {
   forest:    { label: 'FOREST',     color: '#1bb14a', centerCol: 0,  centerRow: 0 },
@@ -1047,7 +1087,7 @@ const MAP_ROOM_DEFS = (() => {
     if (id === MAP_START_ROOM_ID) {
       room.name = 'Forest Outpost';
       room.subtitle = 'Basic mission';
-      room.enemyTypes = ['walker','shooter'];
+      room.enemyTypes = ['walker'];
       room.mapType = 'normal';
     }
     byArea[area].push(room);

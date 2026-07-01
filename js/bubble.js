@@ -10,6 +10,25 @@ class Bubble {
     this.consumed = false;
     this.dmg = dmg || 2;
   }
+  _damageSourceType() {
+    return this.sourceType || (this.weaponFamily ? 'weapon' : 'bubble');
+  }
+  _applyWeaponImpact(target, game, isBoss) {
+    if (!target || !game || !this.weaponImpactKnockback) return;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const tx = target.x + target.w / 2;
+    const ty = target.y + target.h / 2;
+    const dx = tx - cx;
+    const dy = ty - cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const push = this.weaponImpactKnockback * (isBoss ? 0.26 : 0.55);
+    target.vx += (dx / dist) * push;
+    target.vy += (dy / dist) * push * 0.12 - push * 0.16;
+    if (!target.grounded && !target.flying) target.juggleState = true;
+    if (this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+    if (this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 3);
+  }
   update(game) {
     this.bobPhase += 0.03;
     this.y = this.baseY + Math.sin(this.bobPhase) * 5;
@@ -33,15 +52,17 @@ class Bubble {
     for (const e of game.enemies) {
       const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
       if (!e.dead && (e._contactDmgCd || 0) <= 0 && rectOverlap(this, eHitbox)) {
-        e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
+        const landed = e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', this._damageSourceType(), this.sourceActor || null);
         e._contactDmgCd = 10;
+        if (landed) this._applyWeaponImpact(e, game, false);
         if (this.soaking) e.soakTimer = Math.max(e.soakTimer || 0, 300);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
       }
     }
     if (game.boss && !game.boss.dead && (game.boss._contactDmgCd || 0) <= 0 && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
+      const landed = game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', this._damageSourceType(), this.sourceActor || null);
       game.boss._contactDmgCd = 10;
+      if (landed) this._applyWeaponImpact(game.boss, game, true);
       if (this.soaking) game.boss.soakTimer = Math.max(game.boss.soakTimer || 0, 200);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(1);
     }
@@ -53,7 +74,7 @@ class Bubble {
       if (!b.done) damage += 1;
     }
     game.effects.push(new Effect(this.x + 16, this.y + 16, '#6af', 8, 3, 15));
-    damageInRadius(game, this.x + 16, this.y + 16, 80, this.dmg, this.x + 16, 'water', 'bubble');
+    damageInRadius(game, this.x + 16, this.y + 16, 80, this.dmg, this.x + 16, 'water', this._damageSourceType(), this.sourceActor || null);
     // Fire projectile at nearest target
     const cx = this.x + 16, cy = this.y + 16;
     const nearest = findNearestTarget(cx, cy, game);
@@ -64,6 +85,12 @@ class Bubble {
       if (d > 0) {
         const bp = new Projectile(cx, cy, (dx / d) * 6, (dy / d) * 6, '#4af', damage + this.dmg, 'player');
         bp.fromSpecial = true;
+        bp.weaponFamily = this.weaponFamily || null;
+        bp.sourceType = this._damageSourceType();
+        bp.sourceActor = this.sourceActor || null;
+        bp.weaponImpactKnockback = this.weaponImpactKnockback || 0;
+        bp.weaponImpactHitstop = this.weaponImpactHitstop || 0;
+        bp.weaponImpactShake = this.weaponImpactShake || 0;
         game.projectiles.push(bp);
       }
     }
@@ -111,13 +138,15 @@ class SmallBubble extends Bubble {
     for (const e of game.enemies) {
       const eHitbox = e.getHurtbox ? e.getHurtbox() : e;
       if (!e.dead && rectOverlap(this, eHitbox)) {
-        e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
+        const landed = e.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', this._damageSourceType(), this.sourceActor || null);
+        if (landed) this._applyWeaponImpact(e, game, false);
         this.done = true;
         game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 6, 2, 8));
       }
     }
     if (game.boss && !game.boss.dead && rectOverlap(this, game.boss)) {
-      game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', 'bubble');
+      const landed = game.boss.takeDamage(this.dmg, game, this.x + this.w / 2, 'water', this._damageSourceType(), this.sourceActor || null);
+      if (landed) this._applyWeaponImpact(game.boss, game, true);
       this.done = true;
       game.effects.push(new Effect(this.x + this.w/2, this.y + this.h/2, '#8cf', 8, 2, 10));
     }

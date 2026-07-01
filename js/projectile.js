@@ -126,17 +126,35 @@ class Trimerang {
   _damageEnemies(game) {
     for (const e of game.enemies) {
       if (!e.dead && !this.hitSet.has(e) && Math.hypot((e.x + e.w / 2) - this.x, (e.y + e.h / 2) - this.y) < this.radius + Math.max(e.w, e.h) / 2) {
-        e.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, 'shuriken');
+        const landed = e.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, this.sourceType || 'shuriken', this.sourceActor || null);
+        if (landed && this.weaponImpactKnockback > 0) {
+          const dx = (e.x + e.w / 2) - this.x;
+          const dy = (e.y + e.h / 2) - this.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          e.vx += (dx / dist) * this.weaponImpactKnockback * 0.65;
+          e.vy += (dy / dist) * this.weaponImpactKnockback * 0.16 - 1.2;
+        }
         if(!e.grounded && !e.flying) e.juggleState = true;
         this.hitSet.add(e);
+        if (landed && this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+        if (landed && this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 3);
         if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(2);
         game.effects.push(new Effect(this.x, this.y, this.color || '#bfb', 8, 3, 10));
       }
     }
     if (game.boss && !game.boss.dead && !this.hitSet.has(game.boss) && Math.hypot((game.boss.x + game.boss.w / 2) - this.x, (game.boss.y + game.boss.h / 2) - this.y) < this.radius + Math.max(game.boss.w, game.boss.h) / 2) {
-      game.boss.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, 'shuriken');
+      const landed = game.boss.takeDamage(this.damage || (game.player.type.attackDamage + game.player.bonusElemental + game.player.windPower), game, this.x, undefined, this.sourceType || 'shuriken', this.sourceActor || null);
+      if (landed && this.weaponImpactKnockback > 0) {
+        const dx = (game.boss.x + game.boss.w / 2) - this.x;
+        const dy = (game.boss.y + game.boss.h / 2) - this.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        game.boss.vx += (dx / dist) * this.weaponImpactKnockback * 0.28;
+        game.boss.vy += (dy / dist) * this.weaponImpactKnockback * 0.08 - 0.6;
+      }
       if(!game.boss.grounded && !game.boss.flying) game.boss.juggleState = true;
       this.hitSet.add(game.boss);
+      if (landed && this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+      if (landed && this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 3);
       if (!game.player.ultimateReady && !game.player.ultimateActive) game.player.addUltimateCharge(3);
       game.effects.push(new Effect(this.x, this.y, this.color || '#bfb', 10, 4, 12));
     }
@@ -339,7 +357,9 @@ class Projectile {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const radius = this.explosionRadius || 90;
-    damageInRadius(game, cx, cy, radius, this.damage, cx);
+    const srcType = this.sourceType || (this.weaponFamily ? 'weapon' : undefined);
+    damageInRadius(game, cx, cy, radius, this.damage, cx, this.element || undefined, srcType, this.sourceActor || null);
+    if (this.weaponImpactKnockback > 0) this._applyRadialWeaponImpact(game, cx, cy, radius, 1);
     if (this.weaponFamily === 'storm') {
       this._stormWeaponStrike(game, cx, cy, null, false);
     } else if (this.weaponFamily === 'earth') {
@@ -368,6 +388,29 @@ class Projectile {
     triggerScreenShake(7, 12);
   }
 
+  _applyRadialWeaponImpact(game, cx, cy, radius, scale = 1) {
+    if (!game || !this.weaponImpactKnockback) return;
+    const apply = (target, isBoss) => {
+      if (!target || target.dead) return;
+      const tx = target.x + target.w / 2;
+      const ty = target.y + target.h / 2;
+      const dx = tx - cx;
+      const dy = ty - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist > radius) return;
+      const falloff = 1 - dist / radius;
+      const push = this.weaponImpactKnockback * scale * falloff * (isBoss ? 0.42 : 1);
+      target.vx += (dx / dist) * push;
+      target.vy += Math.min(2, (dy / dist) * push * 0.25) - push * 0.22;
+      if (!target.grounded && !target.flying) target.juggleState = true;
+      if (target.knockbackTimer !== undefined) target.knockbackTimer = Math.max(target.knockbackTimer || 0, isBoss ? 5 : 9);
+    };
+    for (const e of game.enemies) apply(e, false);
+    if (game.boss && !game.boss.dead) apply(game.boss, true);
+    if (this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+    if (this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 4);
+  }
+
   _impactCenter(target) {
     return {
       x: target.x + target.w / 2,
@@ -379,8 +422,25 @@ class Projectile {
   _applyWeaponIdentityImpact(target, game, damageLanded, isBoss) {
     if (!target || !game) return;
     const family = this.weaponFamily || null;
-    if (!family) return;
     const c = this._impactCenter(target);
+    if (damageLanded) {
+      const kb = this.weaponImpactKnockback || 0;
+      if (kb > 0) {
+        const sx = this.x + (this.w || 0) / 2;
+        const sy = this.y + (this.h || 0) / 2;
+        const dx = c.x - sx;
+        const dy = c.y - sy;
+        const dist = Math.hypot(dx, dy) || 1;
+        const push = kb * (isBoss ? 0.34 : 0.82);
+        target.vx += (dx / dist) * push;
+        target.vy += (dy / dist) * push * 0.22 - Math.min(2.4, push * 0.18);
+        if (!target.grounded && !target.flying) target.juggleState = true;
+        if (target.knockbackTimer !== undefined) target.knockbackTimer = Math.max(target.knockbackTimer || 0, isBoss ? 4 : 7);
+      }
+      if (this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+      if (this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 3);
+    }
+    if (!family) return;
     if (family === 'fire') {
       target.burnTimer = Math.max(target.burnTimer || 0, isBoss ? 120 : 180);
       game.effects.push(new Effect(c.x, c.y, '#ff7a20', 10, 3, 12));
@@ -599,7 +659,8 @@ class Projectile {
           }
           if (this.arcGravity && this.weaponFamily === 'earth' && this.vy > 0) {
             this._earthWeaponImpact(game, this.x + this.w / 2, p.y, null, false);
-            damageInRadius(game, this.x + this.w / 2, p.y, this.explosionRadius || 70, this.damage, this.x + this.w / 2, undefined, 'boulder', this.sourceActor || null);
+            damageInRadius(game, this.x + this.w / 2, p.y, this.explosionRadius || 70, this.damage, this.x + this.w / 2, this.element || undefined, this.sourceType || 'boulder', this.sourceActor || null);
+            if (this.weaponImpactKnockback > 0) this._applyRadialWeaponImpact(game, this.x + this.w / 2, p.y, this.explosionRadius || 70, 0.9);
             this.done = true;
             return;
           }
@@ -665,7 +726,7 @@ class Projectile {
             }
           }
 
-          const _srcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
+          const _srcType = this.sourceType || ((this.isShuriken || this.isKunai) ? 'shuriken' : (this.weaponFamily ? 'weapon' : undefined));
           const _dmgHit = e.takeDamage(this.damage, game, this.x, this.element || undefined, _srcType, this.sourceActor || null);
           if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
           // Kunai explosion: AoE blast on impact
@@ -699,7 +760,7 @@ class Projectile {
             const dx = e.x + e.w / 2 - (this.x + this.w / 2);
             const dy = e.y + e.h / 2 - (this.y + this.h / 2);
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const pushStrength = 6;
+            const pushStrength = this.weaponImpactKnockback !== undefined ? Math.max(1, this.weaponImpactKnockback * 0.28) : 6;
             e.vx += (dx / dist) * pushStrength;
             e.vy += (dy / dist) * (pushStrength * 0.3);
           }
@@ -758,7 +819,7 @@ class Projectile {
             return;
           }
         }
-        const _bossSrcType = (this.isShuriken || this.isKunai) ? 'shuriken' : undefined;
+        const _bossSrcType = this.sourceType || ((this.isShuriken || this.isKunai) ? 'shuriken' : (this.weaponFamily ? 'weapon' : undefined));
         const _bossDmgHit = game.boss.takeDamage(this.damage, game, this.x, this.element || undefined, _bossSrcType, this.sourceActor || null);
         if (fromPlayer && !this.fromSpecial) game.player.mana = Math.min(game.player.mana + 0.25, game.player.maxMana);
         // Kunai explosion on boss hit
@@ -1569,12 +1630,29 @@ class Grenade {
       if (hitPlayer && typeof triggerHitstop === 'function') triggerHitstop(5);
     } else {
       // Damage enemies
+      const srcType = this.sourceType || (this.weaponFamily ? 'weapon' : undefined);
+      let weaponHits = 0;
       const dmgEnemy = (e) => {
         const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
-        if (Math.sqrt((ex - cx) ** 2 + (ey - cy) ** 2) <= r) e.takeDamage(this.damage, game, cx);
+        const dist = Math.sqrt((ex - cx) ** 2 + (ey - cy) ** 2);
+        if (dist <= r) {
+          const landed = e.takeDamage(this.damage, game, cx, this.element || undefined, srcType, this.sourceActor || null);
+          if (landed) weaponHits++;
+          if (landed && this.weaponImpactKnockback > 0) {
+            const falloff = 1 - dist / r;
+            const push = this.weaponImpactKnockback * falloff * (e === game.boss ? 0.4 : 1);
+            const dx = ex - cx, dy = ey - cy;
+            const d = Math.hypot(dx, dy) || 1;
+            e.vx += (dx / d) * push;
+            e.vy += (dy / d) * push * 0.18 - push * 0.25;
+            if (!e.grounded && !e.flying) e.juggleState = true;
+          }
+        }
       };
       for (const e of game.enemies) if (!e.dead) dmgEnemy(e);
       if (game.boss && !game.boss.dead) dmgEnemy(game.boss);
+      if (weaponHits && this.weaponImpactHitstop > 0) triggerHitstop(this.weaponImpactHitstop);
+      if (weaponHits && this.weaponImpactShake > 0) triggerScreenShake(this.weaponImpactShake, 4);
       if (this.weaponFamily === 'storm') {
         game.hitLines.push(new HitLine(cx, game.camera.y - 30, 0, 5, this.accentColor || '#fff36b', Math.max(1, Math.ceil(this.damage * 0.65)), 'player', {
           element: 'lightning', maxTimer: 8, flashDur: 18, activeDur: 14, width: 18, sourceType: 'weapon', visualOnly: true

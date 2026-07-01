@@ -389,16 +389,31 @@ class Enemy {
     return true;
   }
 
-  _resolveDeathGuard(game) {
-    if (this.dead) return true;
-    if (this.hp > 0 || (this.pendingSkullDeath && this.disableTimer > 0)) return false;
+  _finishNormalDeath(game) {
+    if (this.dead) return 'dead';
+    const deathGame = game || this.pendingSkullDeathGame;
     this.hp = 0;
     this.disableTimer = 0;
-    const deathGame = game || this.pendingSkullDeathGame;
     this.pendingSkullDeath = false;
     this.pendingSkullDeathGame = null;
     this.dead = true;
     this.onDeath(deathGame);
+    return 'dead';
+  }
+
+  _handleLethalDamage(game, sourceType) {
+    if (this.hp > 0) return null;
+    if (this.disableTimer > 0 && sourceType !== 'chain') {
+      return this._finishNormalDeath(game);
+    }
+    if (!this._makeSkullTarget(game, sourceType)) return this._finishNormalDeath(game);
+    return 'skull';
+  }
+
+  _resolveDeathGuard(game) {
+    if (this.dead) return true;
+    if (this.hp > 0 || (this.pendingSkullDeath && this.disableTimer > 0)) return false;
+    this._finishNormalDeath(game);
     return true;
   }
 
@@ -789,12 +804,7 @@ class Enemy {
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
-        if (this.hp <= 0) {
-          if (!this._makeSkullTarget(game, 'status')) {
-            this.dead = true;
-            this.onDeath(game);
-          }
-        }
+        if (this.hp <= 0) this._handleLethalDamage(game, 'status');
       }
       return;
     }
@@ -866,9 +876,8 @@ class Enemy {
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) {
-          const skullPending = this._makeSkullTarget(game, 'status');
-          if (!skullPending) this.dead = true;
-          if (!skullPending && (this.burnTimer > 0 || (game.player && game.player.ninjaType === 'fire'))) {
+          const lethalResult = this._handleLethalDamage(game, 'status');
+          if (lethalResult === 'dead' && (this.burnTimer > 0 || (game.player && game.player.ninjaType === 'fire'))) {
             for (let i = 0; i < 5; i++) {
               const angle = Math.random() * Math.PI * 2;
               const dist = 10 + Math.random() * 18;
@@ -877,7 +886,6 @@ class Enemy {
               game.effects.push(new Effect(fx, fy, '#f93', 16, 4, 18));
             }
           }
-          if (!skullPending) this.onDeath(game);
         }
       }
       }
@@ -1907,8 +1915,8 @@ class Enemy {
       }
     }
 
-    // ── Chain strike: only sword hits cash out disabled enemies. Other damage
-    // sources may hurt them, but should not erase the skull/finish window.
+    // Chain strike: sword hits start the chain; continued gun/non-chain
+    // pressure can still finish an already skull-marked target normally.
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
@@ -2032,12 +2040,7 @@ class Enemy {
         this.flyerDashTimer = 0;
       }
     }
-    if (this.hp <= 0) {
-      if (!this._makeSkullTarget(game, sourceType)) {
-        this.dead = true;
-        this.onDeath(game);
-      }
-    }
+    if (this.hp <= 0) this._handleLethalDamage(game, sourceType);
     return true;
   }
 
@@ -3917,12 +3920,7 @@ class Boss extends Enemy {
         this.hp -= pdmg;
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#ff0', 4, 2, 8));
-        if (this.hp <= 0) {
-          if (!this._makeSkullTarget(game, 'status')) {
-            this.dead = true;
-            this.onDeath(game);
-          }
-        }
+        if (this.hp <= 0) this._handleLethalDamage(game, 'status');
       }
       return;
     }
@@ -3990,13 +3988,10 @@ class Boss extends Enemy {
         this.flashTimer = 4;
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, '#f93', 4, 2, 8));
         if (this.hp <= 0) {
-          if (!this._makeSkullTarget(game, 'status')) {
-            this.dead = true;
-            this.onDeath(game);
-          }
+          this._handleLethalDamage(game, 'status');
         }
       }
-      }
+    }
     }
 
     // Soak decay
@@ -4687,8 +4682,8 @@ class Boss extends Enemy {
     const hasActiveBossShield = (this.bossType === 'shielded' || this.bossType === 'protector') && this.shieldHp > 0;
     const rawAmount = amount;
 
-    // ── Chain strike: only sword hits cash out disabled bosses. Other damage
-    // sources may hurt them, but should not erase the skull/finish window.
+    // Chain strike: sword hits start the chain; continued gun/non-chain
+    // pressure can still finish an already skull-marked target normally.
     if (this.disableTimer > 0 && sourceType === 'sword' && game && game.player && !game.player.staggerChaining) {
       return this._startStanceChain(game);
     }
@@ -4749,12 +4744,7 @@ class Boss extends Enemy {
       this.flyerDashState = 'idle';
       this.flyerDashTimer = 0;
     }
-    if (this.hp <= 0) {
-      if (!this._makeSkullTarget(game, sourceType)) {
-        this.dead = true;
-        this.onDeath(game);
-      }
-    }
+    if (this.hp <= 0) this._handleLethalDamage(game, sourceType);
     return true;
   }
 

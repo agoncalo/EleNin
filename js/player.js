@@ -13,13 +13,20 @@ class Player {
     this.displayHp = 20;
     this.displayShield = 0;
     this.ninjaType = 'basic';
-    this.heldItem = 'flamethrower';
-    this.itemAmmo = Math.ceil(WEAPON_ITEMS.flamethrower.ammoMax * 0.5);
-    this.itemAmmoMax = WEAPON_ITEMS.flamethrower.ammoMax;
+    this.heldItem = 'pistol';
+    this.itemAmmo = Math.ceil(WEAPON_ITEMS.pistol.ammoMax * 0.5);
+    this.itemAmmoMax = WEAPON_ITEMS.pistol.ammoMax;
     this.lastHeldItem = this.heldItem;
     this.itemUseFlash = 0;
     this.itemCrashPalette = null;
     this.weaponPickupCooldown = 0;
+    this.weaponKickTimer = 0;
+    this.weaponAirBrakeTimer = 0;
+    this.weaponAirBrakeGravity = 1;
+    this.weaponAirBrakeFall = 1;
+    this.weaponBloom = 0;
+    this.weaponBloomRecover = 0.02;
+    this.weaponLandingCancel = 0;
     this.invincibleTimer = 90;
     this._unguardedInvulnFrames = 0;
     this.knockbackTimer = 0;
@@ -387,6 +394,270 @@ class Player {
     };
   }
 
+  _weaponFeel(def) {
+    const kind = def && def.kind ? def.kind : 'pistol';
+    const family = (def && (def.family || def.crashPower)) || 'basic';
+    const role = def && def.role ? def.role : null;
+    const cost = Math.max(1, def && def.ammoCost ? def.ammoCost : 1);
+    const feel = {
+      cooldown: 12,
+      recoil: 1.4,
+      kickTimer: 4,
+      airBrake: 5,
+      airBrakeGravity: 0.72,
+      airBrakeFall: 0.80,
+      landingCancel: 5,
+      spread: 0.006,
+      bloomAdd: 0.014,
+      bloomRecover: 0.028,
+      muzzle: 7,
+      flash: 12,
+      shootShake: 1,
+      shootShakeTime: 3,
+      hitShake: 1,
+      hitstop: 1,
+      enemyKb: 4.5,
+      selfLift: 0,
+      rumbleStrong: 0.06,
+      rumbleWeak: 0.04,
+      rumbleTime: 35,
+      bubbleFloat: 0
+    };
+
+    if (kind === 'pistol') {
+      Object.assign(feel, {
+        cooldown: 9, recoil: 1.05, kickTimer: 3, airBrake: 4,
+        airBrakeGravity: 0.80, airBrakeFall: 0.86, spread: 0.004,
+        bloomAdd: 0.010, bloomRecover: 0.034, muzzle: 5,
+        shootShake: 0.7, hitShake: 0.8, enemyKb: 3.4
+      });
+    } else if (kind === 'shotgun') {
+      Object.assign(feel, {
+        cooldown: 25, recoil: 3.5, kickTimer: 9, airBrake: 12,
+        airBrakeGravity: 0.55, airBrakeFall: 0.64, spread: 0.034,
+        bloomAdd: 0.044, bloomRecover: 0.022, muzzle: 12,
+        shootShake: 2.6, shootShakeTime: 5, hitShake: 2.2, hitstop: 2, enemyKb: 7.4,
+        rumbleStrong: 0.15, rumbleWeak: 0.09, rumbleTime: 60
+      });
+    } else if (kind === 'rpg') {
+      Object.assign(feel, {
+        cooldown: 37, recoil: 4.4, kickTimer: 12, airBrake: 14,
+        airBrakeGravity: 0.50, airBrakeFall: 0.58, spread: 0.014,
+        bloomAdd: 0.035, bloomRecover: 0.020, muzzle: 14,
+        shootShake: 3.8, shootShakeTime: 7, hitShake: 3, hitstop: 3, enemyKb: 9.5,
+        rumbleStrong: 0.22, rumbleWeak: 0.13, rumbleTime: 85
+      });
+    } else if (kind === 'staff') {
+      Object.assign(feel, {
+        cooldown: 24, recoil: 2.0, kickTimer: 6, airBrake: 11,
+        airBrakeGravity: 0.60, airBrakeFall: 0.68, spread: 0.007,
+        bloomAdd: 0.018, bloomRecover: 0.026, muzzle: 9,
+        shootShake: 1.6, shootShakeTime: 4, hitShake: 1.7, hitstop: 2, enemyKb: 5.2
+      });
+    } else if (kind === 'grenade' || kind === 'orb') {
+      Object.assign(feel, {
+        cooldown: 28, recoil: 2.4, kickTimer: 7, airBrake: 10,
+        airBrakeGravity: 0.62, airBrakeFall: 0.70, spread: 0.010,
+        bloomAdd: 0.022, bloomRecover: 0.024, muzzle: 10,
+        shootShake: 2, shootShakeTime: 5, hitShake: 2, hitstop: 2, enemyKb: 6.2,
+        rumbleStrong: 0.13, rumbleWeak: 0.08, rumbleTime: 55
+      });
+    } else if (kind === 'hammer') {
+      Object.assign(feel, {
+        cooldown: 32, recoil: 3.7, kickTimer: 11, airBrake: 13,
+        airBrakeGravity: 0.52, airBrakeFall: 0.62, spread: 0.018,
+        bloomAdd: 0.034, bloomRecover: 0.020, muzzle: 12,
+        shootShake: 3, shootShakeTime: 6, hitShake: 2.8, hitstop: 3, enemyKb: 8.8,
+        rumbleStrong: 0.18, rumbleWeak: 0.12, rumbleTime: 75
+      });
+    } else if (kind === 'crossbow' || kind === 'bayonet') {
+      Object.assign(feel, {
+        cooldown: kind === 'bayonet' ? 21 : 18, recoil: 1.9, kickTimer: 5, airBrake: 8,
+        airBrakeGravity: 0.66, airBrakeFall: 0.74, spread: 0.003,
+        bloomAdd: 0.014, bloomRecover: 0.032, muzzle: 7,
+        shootShake: 1.2, shootShakeTime: 4, hitShake: 1.4, hitstop: 1, enemyKb: 5.1
+      });
+    } else if (kind === 'flamethrower' || kind === 'bubbleGun') {
+      Object.assign(feel, {
+        cooldown: 16, recoil: 1.6, kickTimer: 5, airBrake: 8,
+        airBrakeGravity: 0.66, airBrakeFall: 0.74, spread: 0.016,
+        bloomAdd: 0.020, bloomRecover: 0.030, muzzle: 10,
+        shootShake: 1.4, shootShakeTime: 4, hitShake: 1.3, hitstop: 1, enemyKb: 4.5
+      });
+    }
+
+    if (role === 'mortar') {
+      feel.cooldown += 10;
+      feel.recoil += 0.9;
+      feel.kickTimer += 3;
+      feel.airBrake += 8;
+      feel.airBrakeGravity *= 0.78;
+      feel.airBrakeFall *= 0.80;
+      feel.spread += 0.006;
+      feel.bloomAdd += 0.010;
+      feel.shootShake += 0.9;
+      feel.shootShakeTime += 2;
+      feel.hitShake += 0.7;
+      feel.hitstop += 1;
+      feel.enemyKb += 2.5;
+    }
+
+    feel.cooldown += Math.max(0, cost - 3);
+    if (family === 'fire') {
+      feel.recoil *= 1.14;
+      feel.muzzle += 3;
+      feel.shootShake += 0.8;
+      feel.hitShake += 0.5;
+      feel.enemyKb += 1;
+      feel.airBrakeGravity = Math.min(0.92, feel.airBrakeGravity + 0.05);
+      feel.airBrakeFall = Math.min(0.95, feel.airBrakeFall + 0.04);
+      feel.rumbleStrong += 0.04;
+    } else if (family === 'earth') {
+      feel.cooldown += 3;
+      feel.recoil *= 1.20;
+      feel.kickTimer += 2;
+      feel.airBrake += 4;
+      feel.airBrakeGravity *= 0.74;
+      feel.airBrakeFall *= 0.80;
+      feel.shootShake += 0.8;
+      feel.hitShake += 0.9;
+      feel.hitstop += 1;
+      feel.enemyKb += 3;
+      feel.rumbleStrong += 0.05;
+      feel.rumbleTime += 15;
+    } else if (family === 'bubble') {
+      feel.cooldown -= 3;
+      feel.recoil *= 0.62;
+      feel.airBrake += 6;
+      feel.airBrakeGravity *= 0.62;
+      feel.airBrakeFall *= 0.68;
+      feel.spread *= 0.78;
+      feel.bloomAdd *= 0.70;
+      feel.enemyKb = Math.max(1.5, feel.enemyKb - 1.2);
+      feel.bubbleFloat = kind === 'pistol' ? 18 : 28;
+      feel.selfLift = 0.35;
+    } else if (family === 'storm') {
+      feel.cooldown -= 4;
+      feel.recoil *= 0.72;
+      feel.kickTimer = Math.max(2, feel.kickTimer - 2);
+      feel.airBrake = Math.max(2, feel.airBrake - 3);
+      feel.spread *= 0.65;
+      feel.bloomAdd *= 0.65;
+      feel.shootShake += 0.4;
+      feel.hitShake += 0.4;
+      feel.hitstop += 1;
+      feel.enemyKb += 0.8;
+      feel.rumbleWeak += 0.04;
+      feel.rumbleTime = Math.max(30, feel.rumbleTime - 10);
+      if (kind === 'pistol') feel.cooldown = Math.max(feel.cooldown, 8);
+    } else if (family === 'shadow') {
+      feel.cooldown -= 2;
+      feel.recoil *= 0.84;
+      feel.airBrake += 3;
+      feel.airBrakeGravity *= 0.80;
+      feel.airBrakeFall *= 0.85;
+      feel.spread *= 0.75;
+      feel.enemyKb += 0.4;
+      feel.selfLift = 0.25;
+    } else if (family === 'wind') {
+      feel.cooldown -= 2;
+      feel.recoil *= 0.70;
+      feel.airBrake += 5;
+      feel.airBrakeGravity *= 0.70;
+      feel.airBrakeFall *= 0.78;
+      feel.spread *= 0.82;
+      feel.bloomAdd *= 0.75;
+      feel.enemyKb += 1.2;
+      feel.selfLift = 0.45;
+    } else if (family === 'crystal') {
+      feel.cooldown += 1;
+      feel.recoil *= 0.94;
+      feel.kickTimer += 1;
+      feel.airBrake += 2;
+      feel.spread *= 0.68;
+      feel.bloomAdd *= 0.78;
+      feel.hitstop += 1;
+      feel.enemyKb += 1;
+    }
+
+    feel.cooldown = Math.max(6, Math.round(feel.cooldown));
+    feel.recoil = Math.max(0, feel.recoil);
+    feel.kickTimer = Math.max(1, Math.round(feel.kickTimer));
+    feel.airBrake = Math.max(0, Math.round(feel.airBrake));
+    feel.airBrakeGravity = Math.max(0.24, Math.min(1, feel.airBrakeGravity));
+    feel.airBrakeFall = Math.max(0.30, Math.min(1, feel.airBrakeFall));
+    feel.spread = Math.max(0, Math.min(0.08, feel.spread));
+    feel.bloomAdd = Math.max(0, Math.min(0.08, feel.bloomAdd));
+    feel.bloomRecover = Math.max(0.012, Math.min(0.05, feel.bloomRecover));
+    feel.muzzle = Math.max(4, Math.round(feel.muzzle));
+    feel.shootShake = Math.max(0, feel.shootShake);
+    feel.shootShakeTime = Math.max(1, Math.round(feel.shootShakeTime));
+    feel.hitShake = Math.max(0, feel.hitShake);
+    feel.hitstop = Math.max(0, Math.round(feel.hitstop));
+    feel.enemyKb = Math.max(0, feel.enemyKb);
+    return feel;
+  }
+
+  _shotAimWithBloom(aim, feel) {
+    const baseX = aim && Number.isFinite(aim.x) ? aim.x : (this.facing || 1);
+    const baseY = aim && Number.isFinite(aim.y) ? aim.y : 0;
+    const mag = Math.hypot(baseX, baseY) || 1;
+    let x = baseX / mag;
+    let y = baseY / mag;
+    const spread = Math.max(0, (feel && feel.spread ? feel.spread : 0) + (this.weaponBloom || 0) * 0.65);
+    if (spread > 0) {
+      const angle = (Math.random() - 0.5) * spread;
+      const ca = Math.cos(angle);
+      const sa = Math.sin(angle);
+      const rx = x * ca - y * sa;
+      y = x * sa + y * ca;
+      x = rx;
+    }
+    return { x, y };
+  }
+
+  _applyWeaponShotFeel(game, def, aimOpts = {}, baseAim = null) {
+    const feel = this._weaponFeel(def);
+    const aim = baseAim || this._applyAimFacing(game, aimOpts);
+    this.specialCooldown = Math.max(this.specialCooldown || 0, feel.cooldown);
+    this.itemUseFlash = Math.max(this.itemUseFlash || 0, feel.flash || 12);
+    this.weaponKickTimer = Math.max(this.weaponKickTimer || 0, feel.kickTimer || 0);
+    this.weaponAirBrakeTimer = Math.max(this.weaponAirBrakeTimer || 0, feel.airBrake || 0);
+    this.weaponAirBrakeGravity = feel.airBrakeGravity || 1;
+    this.weaponAirBrakeFall = feel.airBrakeFall || 1;
+    this.weaponBloom = Math.min(0.16, (this.weaponBloom || 0) + (feel.bloomAdd || 0));
+    this.weaponBloomRecover = feel.bloomRecover || 0.02;
+    this.weaponLandingCancel = Math.max(this.weaponLandingCancel || 0, feel.landingCancel || 0);
+
+    const ax = aim && Number.isFinite(aim.x) ? aim.x : (this.facing || 1);
+    const ay = aim && Number.isFinite(aim.y) ? aim.y : 0;
+    this.vx -= ax * (feel.recoil || 0);
+    this.vy -= ay * (feel.recoil || 0) * 0.42;
+    if (!this.grounded && feel.selfLift > 0) this.vy = Math.min(this.vy, -feel.selfLift);
+
+    if (game && game.effects) {
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      const mx = cx + ax * 22;
+      const my = cy + ay * 22;
+      const family = (def && (def.family || def.crashPower)) || 'basic';
+      const accent = (def && (def.accentColor || def.color)) || '#fff';
+      game.effects.push(new Effect(mx, my, accent, feel.muzzle || 7, 3, 9));
+      if (family === 'fire') game.effects.push(new Effect(mx - ax * 4, my - ay * 4, '#ff7a20', feel.muzzle + 2, 2.5, 10));
+      else if (family === 'earth') game.effects.push(new Effect(mx, my + 4, '#c8a878', feel.muzzle + 1, 2.5, 11));
+      else if (family === 'storm') game.effects.push(new Effect(mx, my, '#fff36b', feel.muzzle + 2, 2.5, 7));
+      else if (family === 'bubble') game.effects.push(new Effect(mx, my, '#d9fbff', Math.max(5, feel.muzzle - 1), 2, 11));
+      else if (family === 'wind') game.effects.push(new Effect(mx, my, '#e6ffe2', Math.max(5, feel.muzzle - 1), 2, 10));
+      else if (family === 'shadow') game.effects.push(new Effect(mx - ax * 8, my - ay * 8, '#d7b4ff', Math.max(5, feel.muzzle - 1), 2, 9));
+      else if (family === 'crystal') game.effects.push(new Effect(mx, my, '#efffff', Math.max(5, feel.muzzle), 2.5, 10));
+    }
+    if (feel.shootShake > 0) triggerScreenShake(feel.shootShake, feel.shootShakeTime || 3);
+    if (typeof pulseGamepad === 'function') {
+      pulseGamepad(feel.rumbleStrong || 0.05, feel.rumbleWeak || 0.03, feel.rumbleTime || 35);
+    }
+    return feel;
+  }
+
   // Ultimate activation — starts the Rondo-of-Blood-style cutscene float
   activateUltimate(game) {
     this.ultimateActive = true;
@@ -697,6 +968,13 @@ class Player {
     this.stopMidairTimer = 0;
     this.parrying = false;
     this.parryTimer = 0;
+    this.weaponKickTimer = 0;
+    this.weaponAirBrakeTimer = 0;
+    this.weaponAirBrakeGravity = 1;
+    this.weaponAirBrakeFall = 1;
+    this.weaponBloom = 0;
+    this.weaponBloomRecover = 0.02;
+    this.weaponLandingCancel = 0;
   }
 
   _finishUltimate(game) {
@@ -964,9 +1242,11 @@ class Player {
   useHeldItem(game, aimOpts = {}) {
     const def = this._spendItemAmmo(game);
     if (!def) return;
-    this.itemUseFlash = 12;
+    const baseAim = this._applyAimFacing(game, aimOpts);
+    const feel = this._applyWeaponShotFeel(game, def, aimOpts, baseAim);
+    if (typeof SFX !== 'undefined' && SFX.weaponShot) SFX.weaponShot(def, feel);
     if ((def.family || def.crashPower) === 'bubble') {
-      this.statusFloat = Math.max(this.statusFloat || 0, 90);
+      this.statusFloat = Math.max(this.statusFloat || 0, feel.bubbleFloat || 18);
       if (game) {
         game.effects.push(new TextEffect(this.x + this.w / 2, this.y - 18, 'FLOAT', def.accentColor || def.color || '#aef'));
         game.effects.push(new Effect(this.x + this.w / 2, this.y + this.h / 2, def.accentColor || '#aef', 10, 3, 14));
@@ -974,21 +1254,34 @@ class Player {
     }
     if (def.power && def.power !== 'basic') {
       const oldType = this.ninjaType;
+      const oldSuppress = this._suppressSpecialSound;
       this.ninjaType = def.power;
-      this.useSpecial(game);
+      this._suppressSpecialSound = true;
+      try {
+        this.useSpecial(game);
+      } finally {
+        this._suppressSpecialSound = oldSuppress;
+      }
       if (def.power !== 'fire') this.ninjaType = oldType === 'fire' ? 'basic' : oldType;
       return;
     }
-    this.fireBasicWeapon(game, def, aimOpts);
+    this.fireBasicWeapon(game, def, aimOpts, feel, baseAim);
   }
 
-  fireBasicWeapon(game, def, aimOpts = {}) {
-    SFX.special();
+  fireBasicWeapon(game, def, aimOpts = {}, shotFeel = null, baseAim = null) {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
-    const aim = this._applyAimFacing(game, aimOpts);
-    const dir = this.facing || 1;
-    const aimOffset = (forward, side = 0) => this._aimLocal(game, forward, side, aimOpts);
+    const feel = shotFeel || this._weaponFeel(def);
+    const aimBase = baseAim || this._applyAimFacing(game, aimOpts);
+    const aim = this._shotAimWithBloom(aimBase, feel);
+    const aimOffset = (forward, side = 0) => {
+      const px = -aim.y;
+      const py = aim.x;
+      return {
+        x: aim.x * forward + px * side,
+        y: aim.y * forward + py * side
+      };
+    };
     const kind = def.kind || 'pistol';
     const family = def.family || def.crashPower || 'basic';
     const role = def.role || null;
@@ -1008,7 +1301,15 @@ class Player {
         const py = y + dy * along;
         const dist = Math.hypot(tx - px, ty - py);
         if (dist > Math.max(target.w, target.h) * 0.5 + width) return false;
-        target.takeDamage(damage, game, x, 'lightning', 'weapon', this);
+        const damageLanded = target.takeDamage(damage, game, x, 'lightning', 'weapon', this);
+        if (damageLanded && feel.enemyKb > 0) {
+          const impact = feel.enemyKb * (isBoss ? 0.28 : 0.55);
+          target.vx += dx * impact;
+          target.vy += dy * impact * 0.22;
+          if (!target.grounded && !target.flying) target.juggleState = true;
+        }
+        if (damageLanded && feel.hitstop > 0) triggerHitstop(feel.hitstop);
+        if (damageLanded && feel.hitShake > 0) triggerScreenShake(feel.hitShake, 3);
         target.paralyseTimer = Math.max(target.paralyseTimer || 0, isBoss ? 24 : 46);
         target.soakTimer = Math.max(target.soakTimer || 0, isBoss ? 100 : 150);
         game.effects.push(new Effect(tx, ty, '#fff36b', 12, 4, 14));
@@ -1032,6 +1333,12 @@ class Player {
       b.homing = true;
       b.soaking = true;
       b.life = small ? 120 : 210;
+      b.weaponFamily = family;
+      b.sourceType = 'weapon';
+      b.sourceActor = this;
+      b.weaponImpactKnockback = feel.enemyKb || 0;
+      b.weaponImpactHitstop = feel.hitstop || 0;
+      b.weaponImpactShake = feel.hitShake || 0;
       game.bubbles.push(b);
       return b;
     };
@@ -1064,6 +1371,11 @@ class Player {
     const applyProjectileTheme = (p) => {
       p.fromSpecial = true;
       p.weaponFamily = family;
+      p.sourceType = 'weapon';
+      p.sourceActor = this;
+      p.weaponImpactKnockback = feel.enemyKb || 0;
+      p.weaponImpactHitstop = feel.hitstop || 0;
+      p.weaponImpactShake = feel.hitShake || 0;
       p.element = family === 'fire' ? 'fire'
         : family === 'crystal' ? 'crystal'
         : family === 'storm' ? 'lightning'
@@ -1102,7 +1414,7 @@ class Player {
       } else {
         const off = aimOffset(18, -4);
         const vel = aimOffset(kind === 'pistol' ? 5.8 : 4.8, kind === 'bubbleGun' ? -1.6 : 0);
-        spawnBubbleShot(cx + off.x, cy + off.y, vel.x, vel.y, damageBase + (kind === 'bubbleGun' ? 3 : 2), false);
+        spawnBubbleShot(cx + off.x, cy + off.y, vel.x, vel.y, damageBase + (kind === 'pistol' ? 1 : kind === 'bubbleGun' ? 3 : 2), false);
         if (kind !== 'pistol') {
           for (let i = -1; i <= 1; i += 2) {
             const miniOff = aimOffset(12, i * 8);
@@ -1118,12 +1430,12 @@ class Player {
       if (kind === 'shotgun') {
         for (let i = -2; i <= 2; i++) {
           const vel = aimOffset(1, i * 0.14);
-          boltHit(cx + aim.x * 18, cy + aim.y * 18, vel.x, vel.y, 9, damageBase + 2);
+          boltHit(cx + aim.x * 18, cy + aim.y * 18, vel.x, vel.y, 9, damageBase + 1);
         }
       } else {
         const off = aimOffset(18, -3);
         const vel = aimOffset(1, kind === 'grenade' ? -0.08 : 0);
-        boltHit(cx + off.x, cy + off.y, vel.x, vel.y, kind === 'grenade' ? 18 : 10, damageBase + (kind === 'grenade' ? 6 : 3));
+        boltHit(cx + off.x, cy + off.y, vel.x, vel.y, kind === 'grenade' ? 18 : 10, damageBase + (kind === 'pistol' ? 2 : kind === 'grenade' ? 6 : 3));
       }
       return;
     }
@@ -1142,6 +1454,12 @@ class Player {
         t.color = color;
         t.accentColor = accent;
         t.weaponWeave = opts.weave || 0.035;
+        t.weaponFamily = family;
+        t.sourceType = 'weapon';
+        t.sourceActor = this;
+        t.weaponImpactKnockback = feel.enemyKb || 0;
+        t.weaponImpactHitstop = feel.hitstop || 0;
+        t.weaponImpactShake = feel.hitShake || 0;
         game.trimerangs.push(t);
       };
       if (kind === 'pistol') {
@@ -1232,6 +1550,11 @@ class Player {
       g.w = 14; g.h = 14;
       g.weaponFamily = family;
       g.accentColor = accent;
+      g.sourceType = 'weapon';
+      g.sourceActor = this;
+      g.weaponImpactKnockback = feel.enemyKb || 0;
+      g.weaponImpactHitstop = feel.hitstop || 0;
+      g.weaponImpactShake = feel.hitShake || 0;
       game.grenades.push(g);
       triggerScreenShake(2, 4);
     } else if (kind === 'hammer') {
@@ -2115,13 +2438,17 @@ class Player {
     if (keys['ArrowRight'] || keys['KeyD'] || touchState.right || gpState.axes[0] > 0.3) moveX = 1;
 
     if (!this.windDashing && !this.fireDashing) {
+      const speedMult = ((this.bubbleBuffTimer > 0) ? 1.35 : 1) * this._chainSpeedMultiplier();
+      const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
+      const desiredVx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult * MOVEMENT_SPEED_SCALE;
       if (this.knockbackTimer > 0) {
         this.knockbackTimer--;
         this.vx *= 0.88;
+      } else if (this.weaponKickTimer > 0) {
+        const weaponControl = this.grounded ? 0.36 : 0.20;
+        this.vx = this.vx * (this.grounded ? 0.82 : 0.88) + desiredVx * weaponControl;
       } else {
-        const speedMult = ((this.bubbleBuffTimer > 0) ? 1.35 : 1) * this._chainSpeedMultiplier();
-        const freezeMult = (this.statusFreeze > 0) ? 0.4 : 1;
-        this.vx = moveX * (t.speed + this.bonusSpeed * 0.3) * speedMult * freezeMult * MOVEMENT_SPEED_SCALE;
+        this.vx = desiredVx;
       }
       if (moveX !== 0) this.facing = moveX;
     }
@@ -2172,6 +2499,7 @@ class Player {
     // Gravity
     let grav = (this.bubbleBuffTimer > 0) ? GRAVITY * 0.55 : GRAVITY;
     if (this.statusFloat > 0) grav *= 0.35;
+    if (this.weaponAirBrakeTimer > 0 && !this.grounded && !this.slamming) grav *= this.weaponAirBrakeGravity || 1;
     if (!this.slamming && !this.windDashing && !this.stopMidair && !this.fireDashing && this.earthAirHover <= 0 && !(this.iceHover > 0)) {
       this.vy += grav;
     }
@@ -2189,6 +2517,7 @@ class Player {
 
     let maxFall = (this.bubbleBuffTimer > 0) ? MAX_FALL * 0.65 : MAX_FALL;
     if (this.statusFloat > 0) maxFall *= 0.4;
+    if (this.weaponAirBrakeTimer > 0 && !this.grounded && !this.slamming) maxFall *= this.weaponAirBrakeFall || 1;
     if (this.vy > maxFall && !this.slamming) this.vy = maxFall;
 
     // Apply velocity
@@ -2289,6 +2618,11 @@ class Player {
     if (this.grounded && !wasGrounded && !this.slamming) {
       const cx = this.x + this.w / 2;
       const cy = this.y + this.h;
+      if (this.weaponLandingCancel > 0 && this.specialCooldown > 0) {
+        this.specialCooldown = Math.min(this.specialCooldown, 5);
+        this.weaponAirBrakeTimer = 0;
+        this.weaponLandingCancel = 0;
+      }
       for (let i = 0; i < 4; i++) {
         game.effects.push(new Effect(cx + (Math.random() - 0.5) * 12, cy, '#aa9', 2, 1, 8));
       }
@@ -2586,6 +2920,19 @@ class Player {
     if (this.curseCooldown > 0) this.curseCooldown--;
     if (this.bleedCooldown > 0) this.bleedCooldown--;
     if (this.chainSpeedBoostTimer > 0) this.chainSpeedBoostTimer--;
+    if (this.weaponKickTimer > 0) this.weaponKickTimer--;
+    if (this.weaponAirBrakeTimer > 0) {
+      this.weaponAirBrakeTimer--;
+      if (this.weaponAirBrakeTimer <= 0) {
+        this.weaponAirBrakeGravity = 1;
+        this.weaponAirBrakeFall = 1;
+      }
+    } else {
+      this.weaponAirBrakeGravity = 1;
+      this.weaponAirBrakeFall = 1;
+    }
+    if (this.weaponLandingCancel > 0) this.weaponLandingCancel--;
+    if (this.weaponBloom > 0) this.weaponBloom = Math.max(0, this.weaponBloom - (this.weaponBloomRecover || 0.02));
     // Slow passive mana recharge
     if (this.mana < this.maxMana) {
       this.mana = Math.min(this.mana + 0.003, this.maxMana);
@@ -3792,7 +4139,7 @@ class Player {
   }
 
   useSpecial(game) {
-    SFX.special();
+    if (!this._suppressSpecialSound) SFX.special();
     switch (this.ninjaType) {
       case 'fire': {
         this._startFireDash(game, { timer: 12, invincible: 15, color: '#f80' });
@@ -3911,7 +4258,7 @@ class Player {
           this.iceHover = 25;
           this.jumpsLeft = Math.min(this.jumpsLeft + 1, 3);
         }
-        SFX.special();
+        if (!this._suppressSpecialSound) SFX.special();
         game.effects.push(new Effect(ibx, iby - TILE * 0.7, '#aff', 14, 5, 16));
         break;
       }
@@ -3925,7 +4272,7 @@ class Player {
           const vy = -3 + i * 3;
           game.trimerangs.push(new Trimerang(px, py, vx, vy, 'player'));
         }
-        SFX.special();
+        if (!this._suppressSpecialSound) SFX.special();
         break;
       case 'storm': {
         // 3 homing soak balls that fly to enemies and soak in a large area
